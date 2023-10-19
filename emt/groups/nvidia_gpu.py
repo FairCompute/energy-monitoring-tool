@@ -51,7 +51,7 @@ class NvidiaGPU():
                 power_usage = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000
                 gpu_power_usages.append(power_usage)
             except pynvml.NVMLError:
-                raise exceptions.GPUPowerUsageRetrievalError()
+                raise Exception
         return gpu_power_usages
 
     def __init__(self):
