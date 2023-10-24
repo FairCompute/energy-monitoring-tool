@@ -1,11 +1,15 @@
+import os
 import psutil
+import logging
 from typing import Optional, Mapping
 from functools import cached_property
 
 
 class PowerGroup:
-    def __init__(self, pid: Optional[int] = None, rate: float = 1):
-        """_summary_
+    def __init__(self, pid: Optional[int] = None, rate: float = 1,
+                 log_file:os.PathLike ="energy_meter.log",    
+                 logging_level: int = logging.NOTSET,):
+        """
         This creates a virtual container consisting of one or more devices, The power measurements
         are accumulated over all the devices represented by this virtual power group. For example,
         an 'nvidia-gpu' power-group represents all nvidia-gpus and accumulates their energy
@@ -13,17 +17,30 @@ class PowerGroup:
 
         Args:
 
-        pid:    The pid to be monitored, when `None` the current process is monitored.
+        pid:                        The pid to be monitored, when `None` the current process is monitored.
 
-        rate:   How often the energy consumption is readout from the devices and the running
-                average in a second. The rate defines the number of measurements in a single
-                second of wall-time.
+        rate:                       How often the energy consumption is readout from the devices and the running
+                                    average in a second. The rate defines the number of measurements in a single
+                                    second of wall-time.
+        
+        log_file (os.PathLike):     The file path where logs are written by the monitor.
 
+        logging_level (int):        The log level determines what sort of information is
+                                    logged, when not set indicates that ancestor loggers
+                                    are to be consulted to determine the level. If that
+                                    still resolves to NOTSET, then all events are logged.
         """
+
         self._process = psutil.Process(pid=pid)
-        self._running_mean = 0.0
-        self._samples = 0
+        self._consumed_energy = 0.0
         self._rate = rate
+
+        # Configure logging to write to a log file with a custom format
+        log_format = (
+            "%(asctime)s - %(name)s - %(threadName)s - %(levelname)s - %(message)s"
+        )
+        logging.basicConfig(filename=log_file, level=logging_level, format=log_format)
+        self.logger = logging.getLogger(type(self).__name__)
 
     @cached_property
     def sleep_interval(self)->float:
@@ -35,7 +52,7 @@ class PowerGroup:
 
     @property
     def devices():
-        """_summary_
+        """
         List all devices/components tracked by this EnergyGroup
         """
         ...
@@ -60,8 +77,8 @@ class PowerGroup:
         ...
 
     @property
-    def consumed_energy(self) -> Mapping[str, float]:
+    def consumed_energy(self) -> float:
         """_summary_
-        This provides the total consumed energy, attributed to the process, per power-group.
+        This provides the total consumed energy, attributed to the process for the whole power-group.
         """
-        ...
+        return self._consumed_energy

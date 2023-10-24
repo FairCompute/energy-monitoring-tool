@@ -3,7 +3,7 @@ import asyncio
 import math, random 
 from itertools import product
 from typing import Collection
-from emt.groups import IntelCPU
+from emt.power_groups import IntelCPU
 
 def foo():
     a = [random.randint(1, 100) for _ in range(1000)]

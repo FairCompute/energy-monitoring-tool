@@ -3,7 +3,7 @@ import asyncio
 import logging
 from threading import RLock
 from typing import Collection
-from emt.groups import PowerGroup
+from emt.power_groups import PowerGroup
 
 
 class EnergyMeter:
@@ -117,3 +117,10 @@ class EnergyMeter:
             self._concluded = True
             self._shutdown_event.set()
             self._monitoring = False
+
+    @property
+    def consumed_energy(self) -> float:
+        total_consumed_energy = 0.0
+        for power_group in self.power_groups:
+            total_consumed_energy += power_group.consumed_energy
+        return total_consumed_energy
