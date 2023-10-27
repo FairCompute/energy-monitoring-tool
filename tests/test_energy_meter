@@ -8,7 +8,6 @@ import time
 from threading import Thread
 from itertools import product
 from emt import EnergyMeter
-from emt.groups import IntelCPU
 from unittest.mock import Mock
 import unittest
 

@@ -1,14 +1,12 @@
-import os
+import logging
 import psutil
 import logging
-from typing import Optional, Mapping
+from typing import Optional
 from functools import cached_property
 
 
 class PowerGroup:
-    def __init__(self, pid: Optional[int] = None, rate: float = 1,
-                 log_file:os.PathLike ="energy_meter.log",    
-                 logging_level: int = logging.NOTSET,):
+    def __init__(self, pid: Optional[int] = None, rate: float = 1):
         """
         This creates a virtual container consisting of one or more devices, The power measurements
         are accumulated over all the devices represented by this virtual power group. For example,
@@ -22,25 +20,13 @@ class PowerGroup:
         rate:                       How often the energy consumption is readout from the devices and the running
                                     average in a second. The rate defines the number of measurements in a single
                                     second of wall-time.
-        
-        log_file (os.PathLike):     The file path where logs are written by the monitor.
-
-        logging_level (int):        The log level determines what sort of information is
-                                    logged, when not set indicates that ancestor loggers
-                                    are to be consulted to determine the level. If that
-                                    still resolves to NOTSET, then all events are logged.
         """
-
+        self._count_trace_calls = 0
         self._process = psutil.Process(pid=pid)
         self._consumed_energy = 0.0
         self._rate = rate
-
-        # Configure logging to write to a log file with a custom format
-        log_format = (
-            "%(asctime)s - %(name)s - %(threadName)s - %(levelname)s - %(message)s"
-        )
-        logging.basicConfig(filename=log_file, level=logging_level, format=log_format)
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f'A PowerGroup of type `{self.__class__.__name__}` created')
 
     @cached_property
     def sleep_interval(self)->float:
@@ -58,7 +44,7 @@ class PowerGroup:
         ...
 
     def is_available(self) -> bool:
-        """_summary_
+        """
         A status flag, provides information if the virtual group is available for monitoring.
         When false a mechanism to trace a particular device type is not available.
 
@@ -70,15 +56,15 @@ class PowerGroup:
         ...
 
     def commence() -> None:
-        """_summary_
+        """
         This commence a periodic execution at the set rate:
-          [energy_trace -> update_running_metric -> async_wait]
+          [energy_trace -> update_energy_consumption -> async_wait]
         """
         ...
 
     @property
     def consumed_energy(self) -> float:
-        """_summary_
+        """
         This provides the total consumed energy, attributed to the process for the whole power-group.
         """
         return self._consumed_energy

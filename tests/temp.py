@@ -1,43 +1,30 @@
 import math
 import time
+import timeit
 import random
-import threading
-from emt import EnergyMeter
-from emt.power_groups import IntelCPU
+from emt import EnergyMetering
 from itertools import product
-from functools import reduce
-import psutil
-# Assuming you have the EnergyMeter class defined as in your initial code
+from pathlib import Path
+import logging
+import emt
 
-# Create an instance of the EnergyMeter class
-energy_meter = EnergyMeter(power_groups=[IntelCPU()])  # Provide your PowerGroup objects
-
+emt.setup_logger(Path(Path(), 'emt.log'), logging_level=logging.INFO)
 
 def foo():
     a = [random.randint(1, 100) for _ in range(1000)]
     b = [random.randint(1, 10) for _ in range(1000)]
     return [math.factorial(x) for x in map(sum, product(a, b))]
 
-# Create a separate thread and start it
-energy_meter_thread = threading.Thread(target=lambda :energy_meter.run())
-energy_meter_thread.start()
-time.sleep(1)
+with EnergyMetering() as metering:
+    execution_time = timeit.timeit(lambda:None, number=1)
+    time.sleep(0.6315225409343839)
+    print(f'execution time of None is: {execution_time}')
+    print(f'energy consumption of None: {metering.consumed_energy}')
 
-# Now, the EnergyMeter will run in the background thread without blocking the main thread.
-# You can continue doing other tasks in the main thread.
 
-class TEST:
+with EnergyMetering() as metering:
+    execution_time = timeit.timeit(foo, number=2)
+    print(f'execution time of foo is: {execution_time}')
+    print(f'energy consumption of foo: {metering.consumed_energy}')
 
-    def __init__(self):
-        self.processes = [psutil.Process()]
 
-    def main(self):    
-        for _ in range(10):
-            foo()
-            print(energy_meter.consumed_energy)
-
-        energy_meter.conclude()
-        energy_meter_thread.join()
-
-test = TEST()
-test.main()

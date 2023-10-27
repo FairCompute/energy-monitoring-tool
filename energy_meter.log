@@ -1,8 +1,0 @@
-2023-10-24 15:33:27,579 - asyncio - Thread-6 (<lambda>) - DEBUG - Using selector: EpollSelector
-2023-10-24 15:33:49,514 - asyncio - Thread-6 (<lambda>) - DEBUG - Using selector: EpollSelector
-2023-10-24 15:33:56,962 - EnergyMonitor - Thread-6 (<lambda>) - INFO - Monitoring is shutdown & concluded by the EnergyMeter
-2023-10-24 15:34:41,172 - asyncio - Thread-6 (<lambda>) - DEBUG - Using selector: EpollSelector
-2023-10-24 15:34:48,545 - EnergyMonitor - Thread-6 (<lambda>) - INFO - Monitoring is shutdown & concluded by the EnergyMeter
-2023-10-24 15:36:14,258 - asyncio - Thread-6 (<lambda>) - DEBUG - Using selector: EpollSelector
-2023-10-24 15:36:34,035 - asyncio - Thread-6 (<lambda>) - DEBUG - Using selector: EpollSelector
-2023-10-24 15:36:41,467 - EnergyMonitor - Thread-6 (<lambda>) - INFO - Monitoring is shutdown & concluded by the EnergyMeter

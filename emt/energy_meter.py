@@ -1,18 +1,21 @@
-import os
+import time
 import asyncio
 import logging
+import threading
 from threading import RLock
 from typing import Collection
-from emt.power_groups import PowerGroup
+
+# from emt import setup_logger
+import emt
+from emt.power_group import PowerGroup
+from emt.power_groups import *
 
 
 class EnergyMeter:
     def __init__(
         self,
         power_groups: Collection[PowerGroup],
-        log_file: os.PathLike = "energy_meter.log",
         logging_interval: int = 900,
-        logging_level: int = logging.NOTSET,
     ):
         """
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
@@ -24,16 +27,8 @@ class EnergyMeter:
 
         Args:
             power_groups (PowerGroup):  All power groups to be tracked by the energy meter.
-
-            log_file (os.PathLike):     The file path where logs are written by the monitor.
-
             logging_interval (int):     The energy reporting interval in secods, by default
                                         the meter writes the logs everyu 15 mins.
-
-            logging_level (int):        The log level determines what sort of information is
-                                        logged, when not set indicates that ancestor loggers
-                                        are to be consulted to determine the level. If that
-                                        still resolves to NOTSET, then all events are logged.
         """
         super().__init__()
         self._lock = RLock()
@@ -42,13 +37,7 @@ class EnergyMeter:
         self._logging_interval = logging_interval
         self._power_groups = power_groups
         self._shutdown_event = asyncio.Event()
-
-        # Configure logging to write to a log file with a custom format
-        log_format = (
-            "%(asctime)s - %(name)s - %(threadName)s - %(levelname)s - %(message)s"
-        )
-        logging.basicConfig(filename=log_file, level=logging_level, format=log_format)
-        self.logger = logging.getLogger("EnergyMonitor")
+        self.logger = logging.getLogger(__name__)
 
     @property
     def power_groups(self):
@@ -96,9 +85,12 @@ class EnergyMeter:
             self._shutdown_event.clear()
             self._monitoring = True
         try:
+            self.logger.info("Initiated Energy Monitoring.")
             asyncio.run(self._run_tasks_asynchronous())
         except asyncio.CancelledError:
-            self.logger.info('Monitoring is shutdown & concluded by the EnergyMeter')
+            self.logger.info(
+                " Shutting Down! \nMonitoring Concluded by the EnergyMeter.\n\n"
+            )
         return 0
 
     def conclude(self):
@@ -111,8 +103,13 @@ class EnergyMeter:
         seperate independent thread.
         """
         if not self.monitoring:
-            raise RuntimeError("cannot conclude monitoring before commencement!")
+            logging.ERROR(
+                "Attempting to conclude monitoring before commencement.\n"
+                "It is illegal to conclude before commencement. Shutting Down!"
+            )
+            raise RuntimeError("Cannot conclude monitoring before commencement!")
 
+        self.logger.info("ShutDown requested.")
         with self._lock:
             self._concluded = True
             self._shutdown_event.set()
@@ -124,3 +121,27 @@ class EnergyMeter:
         for power_group in self.power_groups:
             total_consumed_energy += power_group.consumed_energy
         return total_consumed_energy
+
+
+class EnergyMetering:
+    def __enter__(self):
+        if not logging.getLogger("emt").hasHandlers():
+            emt.setup_logger()
+        # TODO Poll all modules and then filter power-groups based on their availability.
+        power_groups = [IntelCPU()]
+        # TODO: produce error when no main computing power-group is found
+        # TODO: produce warnings when no gpu power-group is found.
+
+        # Create a separate thread and start it
+        energy_meter = EnergyMeter(power_groups=power_groups)
+        self.energy_meter_thread = threading.Thread(
+            name="EnergyMonitoringThread", target=lambda: energy_meter.run()
+        )
+        self.energy_meter_thread.start()
+        self.energy_meter = energy_meter
+        time.sleep(1)
+        return self.energy_meter
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.energy_meter.conclude()
+        self.energy_meter_thread.join()

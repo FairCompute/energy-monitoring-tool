@@ -6,12 +6,74 @@ import numpy as np
 from pathlib import Path
 from typing import Collection, Mapping
 from functools import cached_property, reduce
-from .power_group import PowerGroup
+from ..power_group import PowerGroup
+
+
+class DeltaEnergyReader:
+    """
+    This class provides a method that provides the delta between the previously
+    recorded value and the new value read by RAPL from the MSR registers of the CPU.
+    The delta is returned in joules.
+    """
+
+    def __init__(self, file_path: os.PathLike, num_trails: int = 3) -> None:
+        """
+        Args:
+            file_path (os.PathLike):    The file path to the rapl energy counter.
+            num_trails (int):           The number of trails to read the energy counter.
+                                        The multiple trials provide a mechanism to avoid reading
+                                        from a overflown counter. When all attempts fail, the
+                                        energy delta is set to zero and a warning is logged.
+
+        Returns:
+            float:  The delta between the previously recorded value and the new value read by RAPL from the MSR registers of the CPU.
+                    The delta is returned in joules.
+        """
+
+        self._num_trails = num_trails
+        self._previous_value = np.nan
+        self._file = file_path
+
+    def __call__(self):
+        """
+        This call method provides the delta between the previously
+        recorded value and the new value read by RAPL from the MSR registers of the CPU.
+        The delta is returned in joules.
+
+        Returns:   The delta in consumed energy between the previously and the current call.
+                   The delta energy is obtained by RAPL from the MSR registers of the CPU
+                   (in micro-jouled) and is scaled to joules for the return value.
+        """
+        value = np.nan
+        for k_trail in range(self._num_trails):
+            delta = 0.0
+            with open(Path(self._file, "energy_uj"), "r") as f:
+                value = int(f.read())
+
+            # if there is reference value, compute delta
+            if not np.isnan(self._previous_value):
+                _delta = float(value - self._previous_value) * 1e-6
+                if _delta >= 0:
+                    delta = _delta
+                    break
+
+            self.logger.warning(
+                f"Energy counter overflow detected for: \n{self._file}"
+            ) if k_trail >= (self._num_trails - 1) and delta < 0 else None
+        self._previous_value = value
+        return delta
 
 
 class IntelCPU(PowerGroup):
-    # RAPL Literature:
-    # https://www.researchgate.net/publication/322308215_RAPL_in_Action_Experiences_in_Using_RAPL_for_Power_Measurements
+    """
+    This is a specialized PowerGroup for Intel CPUs. It provides a mechanism to track the energy consumption of the CPU and
+    its subcomponents (cores, dram, igpu). The energy consumption is obtained from the RAPL (Running Average Power Limit)
+    interface of the CPU. The RAPL interface is available on Intel CPUs since the Sandy Bridge micro-architecture.
+
+    The energy consumption is reported in `joules` when the `consumed_energy` property is accessed. The energy consumption is
+    accumulated over the duration of the monitoring period, which starts when the `commence` method is called and ends when
+    the async task is cancelled externally.
+    """
 
     RAPL_DIR = "/sys/class/powercap/"
 
@@ -21,6 +83,16 @@ class IntelCPU(PowerGroup):
         excluded_zones: Collection = ("psys",),
         **kwargs,
     ):
+        """
+        Args:
+            zone_pattern (str):             The pattern to match the RAPL zone name. The default value is `intel-rapl`.
+            excluded_zones (Collection):    A collection of zone names to be excluded from monitoring.
+                                            The default value is `("psys",)`, this excludes the power supply as a zone.
+            **kwargs:                       Additional arguments to be passed to the `PowerGroup` constructor.
+        """
+
+        # by default a rate 5Hz is used to collect energy_trace.
+        kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
 
         # Get intel-rapl power zones/domains
@@ -56,6 +128,27 @@ class IntelCPU(PowerGroup):
             recursive=True
         )
 
+        # create delta energy_readers for each types
+        self.zone_readers = [DeltaEnergyReader(_zone) for _zone in self._zones]
+        self.core_readers = [
+            DeltaEnergyReader(_comp)
+            for device in self._devices
+            for _comp in device
+            if any(keyword in _comp for keyword in ["ram", "dram"])
+        ]
+        self.dram_readers = [
+            DeltaEnergyReader(_comp)
+            for device in self._devices
+            for _comp in device
+            if any(keyword in _comp for keyword in ["cores", "cpu"])
+        ]
+        self.igpu_readers = [
+            DeltaEnergyReader(_comp)
+            for device in self._devices
+            for _comp in device
+            if "gpu" in _comp
+        ]
+
     @cached_property
     def zones(self):
         """Get zone names, for all the tracked zones from RAPL"""
@@ -68,6 +161,7 @@ class IntelCPU(PowerGroup):
         return list(map(get_zone_name, self._zones))
 
     def __str__(self) -> str:
+        """The string representation of the IntelCPU PowerGroup"""
         return str(self.zones)
 
     @cached_property
@@ -81,45 +175,42 @@ class IntelCPU(PowerGroup):
             for device in devices:
                 with open(Path(device, "name"), "r") as f:
                     device_name = f.read().strip()
-                device_name  = f"{zone_name}/{device_name}"
+                device_name = f"{zone_name}/{device_name}"
             return device_name
 
         return list(map(get_device_name, self._zones, self._devices))
 
     def is_available(self):
+        """A check for availability of RAPL interface"""
         return os.path.exists(self.RAPL_DIR) and bool(os.listdir(self.RAPL_DIR))
 
-    def _read_energy(self):
-        """_summary_
-        Reports the energy consumption since the last reaadout for each package.
-        When subcomponents/devices level tracking available it is reported under
-        the `devices` key of the parent package.
+    def _read_energy(self) -> Mapping[str, float]:
         """
-        energy_zones = 0
-        energy_cores = np.nan
-        energy_dram = np.nan
-        energy_igpu = np.nan
+        Reports the acccumulated energy consumption of the tracked devices types. The readers are
+        created in the constructor and are called to obtain the energy delta. Reader of each type
+        are called in a loop and the energy delta is accumulated.
 
-        for zone_path in self._zones:
-            with open(Path(zone_path, "energy_uj"), "r") as f:
-                energy_zones += float(f.read())*1E-6
+        Returns (float):    A map of accumulated energy consumption (in joules) for each device
+                            type since the last call to this method.
+        """
+        energy_zones = 0.0
+        energy_cores = 0.0
+        energy_dram = 0.0
+        energy_igpu = 0.0
 
-        for component in self._devices:
-            if component:
-                with open(Path(component, "energy_uj"), "r") as f:
-                    value = float(f.read())*1E-6
-                    if any(keyword in component for keyword in ["ram", "dram"]):
-                        energy_dram = (
-                            value if np.isnan(energy_dram) else (value + energy_dram)
-                        )
-                    if any(keyword in component for keyword in ["cores", "cpu"]):
-                        energy_cores = (
-                            value if np.isnan(energy_cores) else (value + energy_cores)
-                        )
-                    if any(keyword in component for keyword in ["gpu"]):
-                        energy_igpu = (
-                            value if np.isnan(energy_igpu) else (energy_igpu + value)
-                        )
+        # accumulate energy delta from zones
+        for _reader in self.zone_readers:
+            energy_zones += _reader()
+        # accumulate energy delta from drams
+        for _reader in self.dram_readers:
+            energy_dram += _reader()
+        # accumulate energy delta form cores
+        for _reader in self.core_readers:
+            energy_cores += _reader()
+        # accumulate energy delta from igpus
+        for _reader in self.igpu_readers:
+            energy_igpu += _reader()
+
         return {
             "zones": energy_zones,
             "cores": energy_cores,
@@ -128,6 +219,15 @@ class IntelCPU(PowerGroup):
         }
 
     def _read_utilization(self) -> Mapping[str, float]:
+        """
+        Reports the utilization of the CPUs and DRAM by the tracked processes. The utilization is
+        obtained from the `psutil` library, which reports the utilization by the processes as a
+        fraction of the total utilization of the tracked devices.
+
+        The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
+        utilization is a number between 0 and 1, where 1 is 100%.
+        """
+
         cpu_utilization = np.nan
         memory_utilization = np.nan
 
@@ -142,23 +242,42 @@ class IntelCPU(PowerGroup):
             pass
 
         return {
-            "cpu": (cpu_utilization / psutil.cpu_count())/100.0,
-            "dram": memory_utilization/100.0,
+            "cpu": (cpu_utilization / psutil.cpu_count()) / 100.0,
+            "dram": memory_utilization / 100.0,
         }
 
     async def commence(self) -> None:
-        # tasks = self._measurement_tasks()
+        """
+        This commence a periodic execution at the set rate:
+            [energy_trace -> update_energy_consumption -> async_wait]
+        
+        A periodic execution is scheduled at a set rate, dictated by `self.sleep_interval`, during the
+        instantiation. The energy consumption is updated using the `_read_energy` and `_read_utilization`
+        methods. The method credits energy consumption to the tracked processes by weighting the energy
+        trace, obtained from the zones and the devices, by the utilization of the devices by the processes.
+        """
+
         while True:
             utilization_trace = self._read_utilization()
             energy_trace = self._read_energy()
 
-            if np.isnan(energy_trace['dram']):
-                self._consumed_energy += (energy_trace['zones'] * utilization_trace['cpu'])
-            else:
+            self._count_trace_calls += 1
+            self.logger.debug(
+                f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
+                f"utilizaton: {utilization_trace}\n"
+                f"energy:     {energy_trace}"
+            )
+
+            if self.dram_readers:
                 # fmt:off
                 self._consumed_energy += (
                     (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
                       energy_trace['dram'] * utilization_trace['dram']
+                ) 
+            else:
+                self._consumed_energy += (
+                    energy_trace["zones"] * utilization_trace["cpu"]
                 )
                 # fmt: on
+
             await asyncio.sleep(self.sleep_interval)
