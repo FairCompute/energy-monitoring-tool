@@ -87,10 +87,11 @@ class IntelCPU(PowerGroup):
         """
         Args:
             zone_pattern (str):             The pattern to match the RAPL zone name.
-                                             The default value is `intel-rapl`.
-            excluded_zones (Collection):    A collection of zone names to be excluded from monitoring. The
-                                            default is `("psys",)`, this excludes the power supply as a zone.
-            **kwargs:                       Additional arguments to be passed to the `PowerGroup` constructor.
+                                            The default value is `intel-rapl`.
+            excluded_zones (Collection):    A collection of zone names to be excluded from monitoring.
+                                            The default is `("psys",)`, this excludes the power supply
+                                            zone from the observed zones.
+            **kwargs:                       Additional arguments be passed to the `PowerGroup`.
         """
 
         # by default a rate 5Hz is used to collect energy_trace.
@@ -258,7 +259,7 @@ class IntelCPU(PowerGroup):
         """
         This commence a periodic execution at the set rate:
             [energy_trace -> update_energy_consumption -> async_wait]
-        
+
         A periodic execution is scheduled at a set rate, dictated by `self.sleep_interval`, during the
         instantiation. The energy consumption is updated using the `_read_energy` and `_read_utilization`
         methods. The method credits energy consumption to the tracked processes by weighting the energy
