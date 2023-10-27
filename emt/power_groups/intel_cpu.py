@@ -26,8 +26,8 @@ class DeltaEnergyReader:
                                         energy delta is set to zero and a warning is logged.
 
         Returns:
-            float:  The delta between the previously recorded value and the new value read by RAPL from the MSR registers of the CPU.
-                    The delta is returned in joules.
+            float:  The delta between the previously recorded value and the new value read by
+                    RAPL from the MSR registers of the CPU. The delta is returned in joules.
         """
 
         self._num_trails = num_trails
@@ -66,13 +66,14 @@ class DeltaEnergyReader:
 
 class IntelCPU(PowerGroup):
     """
-    This is a specialized PowerGroup for Intel CPUs. It provides a mechanism to track the energy consumption of the CPU and
-    its subcomponents (cores, dram, igpu). The energy consumption is obtained from the RAPL (Running Average Power Limit)
-    interface of the CPU. The RAPL interface is available on Intel CPUs since the Sandy Bridge micro-architecture.
+    This is a specialized PowerGroup for Intel CPUs. It provides a mechanism to track the energy
+    consumption of the CPU and its subcomponents (cores, dram, igpu). The energy consumption is
+    obtained from the RAPL (Running Average Power Limit) interface of the CPU. The RAPL interface
+    is available on Intel CPUs since the Sandy Bridge micro-architecture.
 
-    The energy consumption is reported in `joules` when the `consumed_energy` property is accessed. The energy consumption is
-    accumulated over the duration of the monitoring period, which starts when the `commence` method is called and ends when
-    the async task is cancelled externally.
+    The energy consumption is reported in `joules` when the `consumed_energy` property is accessed.
+    The energy consumption is accumulated over the duration of the monitoring period, which starts
+    when the `commence` method is called and ends when the async task is cancelled externally.
     """
 
     RAPL_DIR = "/sys/class/powercap/"
@@ -85,9 +86,10 @@ class IntelCPU(PowerGroup):
     ):
         """
         Args:
-            zone_pattern (str):             The pattern to match the RAPL zone name. The default value is `intel-rapl`.
-            excluded_zones (Collection):    A collection of zone names to be excluded from monitoring.
-                                            The default value is `("psys",)`, this excludes the power supply as a zone.
+            zone_pattern (str):             The pattern to match the RAPL zone name.
+                                             The default value is `intel-rapl`.
+            excluded_zones (Collection):    A collection of zone names to be excluded from monitoring. The
+                                            default is `("psys",)`, this excludes the power supply as a zone.
             **kwargs:                       Additional arguments to be passed to the `PowerGroup` constructor.
         """
 
@@ -151,7 +153,9 @@ class IntelCPU(PowerGroup):
 
     @cached_property
     def zones(self):
-        """Get zone names, for all the tracked zones from RAPL"""
+        """
+        Get zone names, for all the tracked zones from RAPL
+        """
 
         def get_zone_name(zone):
             with open(Path(zone, "name"), "r") as f:
@@ -161,12 +165,16 @@ class IntelCPU(PowerGroup):
         return list(map(get_zone_name, self._zones))
 
     def __str__(self) -> str:
-        """The string representation of the IntelCPU PowerGroup"""
+        """
+        The string representation of the IntelCPU PowerGroup
+        """
         return str(self.zones)
 
     @cached_property
     def devices(self):
-        """Get devices names, for all the tracked zones from RAPL"""
+        """
+        Get devices names, for all the tracked zones from RAPL
+        """
 
         def get_device_name(zone, devices):
             with open(Path(zone, "name"), "r") as f:
