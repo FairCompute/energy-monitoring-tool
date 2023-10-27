@@ -9,7 +9,7 @@ from functools import cached_property, reduce
 from ..power_group import PowerGroup
 
 
-class DeltaEnergyReader:
+class DeltaReader:
     """
     This class provides a method that provides the delta between the previously
     recorded value and the new value read by RAPL from the MSR registers of the CPU.
@@ -132,21 +132,21 @@ class IntelCPU(PowerGroup):
         )
 
         # create delta energy_readers for each types
-        self.zone_readers = [DeltaEnergyReader(_zone) for _zone in self._zones]
+        self.zone_readers = [DeltaReader(_zone) for _zone in self._zones]
         self.core_readers = [
-            DeltaEnergyReader(_comp)
+            DeltaReader(_comp)
             for device in self._devices
             for _comp in device
             if any(keyword in _comp for keyword in ["ram", "dram"])
         ]
         self.dram_readers = [
-            DeltaEnergyReader(_comp)
+            DeltaReader(_comp)
             for device in self._devices
             for _comp in device
             if any(keyword in _comp for keyword in ["cores", "cpu"])
         ]
         self.igpu_readers = [
-            DeltaEnergyReader(_comp)
+            DeltaReader(_comp)
             for device in self._devices
             for _comp in device
             if "gpu" in _comp
