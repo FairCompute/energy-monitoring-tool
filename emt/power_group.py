@@ -15,11 +15,11 @@ class PowerGroup:
 
         Args:
 
-        pid:                        The pid to be monitored, when `None` the current process is monitored.
+        pid:            The pid to be monitored, when `None` the current process is monitored.
 
-        rate:                       How often the energy consumption is readout from the devices and the running
-                                    average in a second. The rate defines the number of measurements in a single
-                                    second of wall-time.
+        rate:           How often the energy consumption is readout from the devices and the running
+                        average in a second. The rate defines the number of measurements in a single
+                        second of wall-time.
         """
         self._count_trace_calls = 0
         self._process = psutil.Process(pid=pid)
@@ -36,12 +36,6 @@ class PowerGroup:
     def tracked_process(self):
         return self._process
 
-    @property
-    def devices():
-        """
-        List all devices/components tracked by this EnergyGroup
-        """
-        ...
 
     def is_available(self) -> bool:
         """
@@ -55,12 +49,18 @@ class PowerGroup:
         """
         ...
 
-    def commence() -> None:
+    async def commence() -> None:
         """
-        This commence a periodic execution at the set rate:
-          [energy_trace -> update_energy_consumption -> async_wait]
+        This commence a periodic execution at a set rate:
+          [get_energy_trace -> update_energy_consumption -> async_wait]
         """
         ...
+    
+    def shutdown(self)->None:
+        """
+        This performs the any cleanup required at the shutdown of the PowerGroup.
+        """
+        set.logger.info(f'shutting down {type(self).__name__} ')
 
     @property
     def consumed_energy(self) -> float:

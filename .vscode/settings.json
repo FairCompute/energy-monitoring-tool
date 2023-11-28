@@ -1,9 +1,15 @@
 {
     "cSpell.words": [
+        "astype",
+        "finfo",
+        "igpu",
+        "pids",
+        "pmon",
         "powercap",
         "psutil",
         "psys",
         "pynvml",
-        "RAPL"
+        "RAPL",
+        "seperate"
     ]
 }

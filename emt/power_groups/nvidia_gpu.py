@@ -1,120 +1,208 @@
-import sys
+import time
+import asyncio
 import pynvml
-import os
+import subprocess
+import pandas as pd
+import numpy as np
+from typing import Mapping
+from functools import cached_property
+from ..power_group import PowerGroup
 
-    # def collect_trace(self, max_buffer_size:int=-1) -> Tuple[List[float], List[float]]:
-    #     """_summary_
-    #     A derived object must provide a way to collect power utilization at a certain instant in time.
 
-    #     Returns: A duple of lists, the first provides a monotonic clock time and the second provides
-    #              the value of the power estimate of the component at that instance.
-    #     """
-    #     ...
-class NvidiaGPU():
-    def devices(self):
+class PowerIntegrator:
+    """
+    Integrates the instantaneous power usages (W) over the time-delta between the previous call.
+    This performs a definite integral of the instantaneous power, using a high-resolution timer,
+    the timer measures the time passed since the last call and integrates the power using the
+    trapezoidal rule.
+    """
+
+    def __init__(self):
+        self._previous_time = time.perf_counter()
+        self._previous_power = 0.0
+        self._energy = 0
+
+    def __call__(self, current_power):
         """
-        Note:
-            Requires NVML to be initialized.
+        Add an instantaneous power value (in watts) for a power zone and calculate the cumulative energy
+        consumption in Joules.
+        Args:
+            power_watt (float): Instantaneous power usage in watts.
+        Returns:
+            float: Cumulative energy consumption in watt-seconds.
         """
-        names = [pynvml.nvmlDeviceGetName(handle) for handle in self._handles]
+        energy_delta = 0
+        current_time = time.perf_counter()
+        time_delta = current_time - self._previous_time
+        # Calculate the energy consumed during this time interval using the trapezoidal rule
+        energy_delta = ((current_power + self._previous_power) / 2.0) * time_delta
+        self._energy += energy_delta
 
-        # Decode names if Python version is less than 3.10
-        if sys.version_info < (3, 10):
-            names = [name.decode("utf-8") for name in names]
+        # Update the last time for the next call
+        self._previous_time = current_time
+        return self._energy
 
+
+class NvidiaGPU(PowerGroup):
+    """
+    __summary__
+    """
+
+    def __init__(self, **kwargs):
+        """
+        __summary__
+        Args:
+                **kwargs:     The arguments be passed to the `PowerGroup`.
+        """
+        # by default a rate 5Hz is used to collect energy_trace.
+        kwargs.update({"rate": kwargs.get("rate", 10)})
+        super().__init__(**kwargs)
+        # get the process tree for the tracked process
+        self.processes = [self.tracked_process] + self.tracked_process.children(
+            recursive=True
+        )
+        pynvml.nvmlInit()
+        zones = []
+        power_integrators = []
+        for index in range(pynvml.nvmlDeviceGetCount()):
+            zone_handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+            zones.append(zone_handle)
+            power_integrators.append(PowerIntegrator())
+        self._zones = zones
+        self._power_integrators = power_integrators
+
+    @cached_property
+    def pids(self):
+        pids = [p.pid for p in self.processes]
+        return pids
+
+    @cached_property
+    def zones(self):
+        """
+        Return unique IDs for each GPU in the system.
+        """
+        names = [pynvml.nvmlDeviceGetUUID(zone) for zone in self._zones]
         return names
 
     def available(self):
-        """Checks if NVML and any GPUs are available."""
+        """
+        Checks if the NVML is available.
+        """
         try:
             self.init()
-            if len(self._handles) > 0:
-                available = True
-            else:
-                available = False
+            available = True if self._zones else False
             self.shutdown()
         except pynvml.NVMLError:
             available = False
         return available
 
-    def power_usage(self):
-        """Retrieves instantaneous power usages (W) of all GPUs in a list.
-
-        Note:
-            Requires NVML to be initialized.
+    def _read_energy(self):
+        """Retrieves instantaneous power usages (W) of all GPUs in use by the tracked processes.
+        Integrates the power using the corresponding power intetgrator for the zone, reports
+        the cummulative energy fro each zone.
         """
-        gpu_power_usages = []
-
-        for handle in self._handles:
+        energy_zones = {zone: 0.0 for zone in self.zones}
+        for zone, zone_handle, integrator in zip(
+            self.zones, self._zones, self._power_integrators
+        ):
             try:
                 # Retrieves power usage in mW, divide by 1000 to get in W.
-                power_usage = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000
-                gpu_power_usages.append(power_usage)
+                power_usage = pynvml.nvmlDeviceGetPowerUsage(zone_handle) / 1000
+                energy_zones[zone] = integrator(power_usage)
             except pynvml.NVMLError:
                 raise Exception
-        return gpu_power_usages
+            # get time elapsed since
+        return energy_zones
 
-    def __init__(self):
-        pynvml.nvmlInit()
-        self._handles = self._get_handles()
+    def _get_utilization_frame(self):
+        """
+        __summary__
+        """
+        def _filter(pid):
+            keep = False
+            if not np.isnan(pid):
+                keep = True if int(pid) in self.pids else False
+            return keep
+        command = "nvidia-smi  pmon -c 1"
+        output = subprocess.check_output(command, shell=True, text=True)
+        lines = output.rstrip().split("\n")
+        header = lines[0][1:].split()  # Extract field names from the header
+        # the second line is units, data begins at the third line
+        data = [line.split() for line in lines[2:] if line.strip()]
+        df = pd.DataFrame(data, columns=header)[["gpu", "pid", "sm", "mem"]]
+        df = df.apply(pd.to_numeric, errors="coerce")
+        filter = df['pid'].apply(_filter)
+        df  = df[filter]
+        return df
+
+    def _read_utilization(self) -> Mapping[str, float]:
+        utilization_zones = {zone: {"sm": 0.0, "mem": 0.0} for zone in self.zones}
+        df_utilization = self._get_utilization_frame()
+    
+        gpu_pids = list(
+            filter(lambda x: not np.isnan(x), df_utilization["pid"].tolist())
+        )
+        for pid in filter(lambda x: x in self.pids, map(int, gpu_pids)):
+    
+            zone = pynvml.nvmlDeviceGetHandleByIndex()
+
+        # for zone in self._zones:
+        #     gpu_index = pynvml.nvmlDeviceGetIndex(zone)
+
+        #     #fmt: off
+        #     processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone) \
+        #         + pynvml.nvmlDeviceGetGraphicsRunningProcesses(zone)
+        #     #fmt: on
+        #     processes = filter(lambda process: process.pid in self.pids, processes)
+        #     gpu_utilization = 0.0
+        #     dram_utilization = 0.0
+        #     for process in processes:
+        #         gpu_utilization += process.gpu
+        #         dram_utilization += process.usedGPuMemory
+
+        # utilization_zones.update({zone: {'gpu': gpu_utilization,
+        #                                  'dram': dram_utilization
+        #                                  }})
+        return utilization_zones
+
+    async def commence(self) -> None:
+        """
+        This commence a periodic execution at a set rate:
+            [get_energy_trace -> update_energy_consumption -> async_wait]
+
+        The periodic execution is scheduled at the rate dictated by `self.sleep_interval`, during the
+        instantiation. The energy consumption is updated using the `_read_energy` and `_read_utilization`
+        methods. The method credits energy consumption to the tracked processes by weighting the energy
+        trace, obtained from each zone, by the utilization of the zone by the processes.
+        """
+        while True:
+            utilization_trace = self._read_utilization()
+            energy_trace = self._read_energy()
+
+            self._count_trace_calls += 1
+            self.logger.debug(
+                f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
+                f"utilizaton: {utilization_trace}\n"
+                f"energy:     {energy_trace}"
+            )
+
+            if self.dram_readers:
+                # fmt:off
+                self._consumed_energy += (
+                    (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
+                      energy_trace['dram'] * utilization_trace['dram']
+                ) 
+            else:
+                self._consumed_energy += (
+                    energy_trace["zones"] * utilization_trace["cpu"]
+                )
+                # fmt: on
+
+            await asyncio.sleep(self.sleep_interval)
 
     def shutdown(self):
+        """
+        The cleanup routine executed when the powergroup monitoring is finished
+        or aborted by the user.
+        """
         pynvml.nvmlShutdown()
-
-    def _get_handles(self):
-        """Returns handles of GPUs in slurm job if existent otherwise all
-        available GPUs."""
-        device_indices = self._slurm_gpu_indices()
-
-        # If we cannot retrieve indices from slurm then we retrieve all GPUs.
-        if not device_indices:
-            device_count = pynvml.nvmlDeviceGetCount()
-            device_indices = range(device_count)
-
-        return [pynvml.nvmlDeviceGetHandleByIndex(i) for i in device_indices]
-
-    def _slurm_gpu_indices(self):
-        """Returns indices of GPUs for the current slurm job if existent.
-
-        Note:
-            Relies on the environment variable CUDA_VISIBLE_DEVICES to not
-            overwritten. Alternative variables could be SLURM_JOB_GPUS and
-            GPU_DEVICE_ORDINAL.
-        """
-        index_str = os.environ.get("CUDA_VISIBLE_DEVICES")
-        try:
-            indices = [int(i) for i in index_str.split(",")]
-        except:
-            indices = None
-        return indices
-
-    def _get_handles_by_pid(self):
-        """Returns handles of GPU running at least one process from PIDS.
-
-        Note:
-            GPUs need to have started work before showing any processes.
-            Requires NVML to be initialized.
-            Bug: Containers need to be started with --pid=host for NVML to show
-            processes: https://github.com/NVIDIA/nvidia-docker/issues/179.
-        """
-        device_count = pynvml.nvmlDeviceGetCount()
-        devices = []
-
-        for index in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(index)
-            gpu_pids = [
-                p.pid
-                for p in pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
-                + pynvml.nvmlDeviceGetGraphicsRunningProcesses(handle)
-            ]
-
-            if set(gpu_pids).intersection(self.pids):
-                devices.append(handle)
-
-        return devices
-    
-if __name__ == '__main__':
-    gpu = NvidiaGPU()
-    print(gpu.devices())
-    print(gpu.power_usage())
-

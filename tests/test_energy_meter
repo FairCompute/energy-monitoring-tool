@@ -54,7 +54,7 @@ class TestIntelGroup(unittest.TestCase):
         # Runtime Error!
         energy_meter = EnergyMeter(self.power_groups)
         with self.assertRaises(RuntimeError):
-            # conculding before commencement
+            # concluding before commencement
             energy_meter.conclude()
 
         async def mock_commence():

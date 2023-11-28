@@ -21,14 +21,14 @@ class EnergyMeter:
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
         energy consumption at regular intervals. Each PowerGroup provides a set a task or a
         set of tasks, exposed via `commence` method of the powerGroup.  All such tasks are
-        gathered and asynchronouly awaited by the energyMeter. Ideally, the run method shoud
-        be executed in a sepearate background thread, so the asyncronous loop is not blocked
-        by the cpu intesive work going on in the main thread.
+        # gathered and asynchronously awaited by the energyMeter. Ideally, the run method should
+        be executed in a separate background thread, so the asynchronous loop is not blocked
+        by the cpu intensive work going on in the main thread.
 
         Args:
             power_groups (PowerGroup):  All power groups to be tracked by the energy meter.
-            logging_interval (int):     The energy reporting interval in secods, by default
-                                        the meter writes the logs everyu 15 mins.
+            logging_interval (int):     The energy reporting interval in seconds, by default
+                                        the meter writes the logs every 15 mins.
         """
         super().__init__()
         self._lock = RLock()
@@ -55,7 +55,7 @@ class EnergyMeter:
 
     async def _shutdown_asynchronous(self):
         """
-        Waits asyncronously for the shutdown envent. Once the event is set, a
+        Waits asynchronously for the shutdown event. Once the event is set, a
         `asyncio.CancelledError` exception is raised. The exception  is handled
         by the `run` method to breakout of the asyncio.run loop.
         """
@@ -75,7 +75,7 @@ class EnergyMeter:
     def run(self):
         """
         The entrypoint for the monitoring routines. This method collects and spins off the
-        `commmence` method for each PowerGroup object.  All commenced tasks are executed
+        `commence` method for each PowerGroup object.  All commenced tasks are executed
         asynchronously, i.e. the task are scheduled to execute at the earliest possibility.
         However, when the main thread is performing a cpu intensive task, the asynchronous
         loop might get blocked, therefore it is recommended to execute this method in a
@@ -96,7 +96,7 @@ class EnergyMeter:
     def conclude(self):
         """
          The entrypoint for the monitoring routines. This method collects and spins off the
-        `commmence` method for each PowerGroup object.  All commenced tasks are executed
+        `commence` method for each PowerGroup object.  All commenced tasks are executed
         asynchronously, i.e. the task are scheduled to execute at the earliest possibility.
         However, when the main thread is performing a cpu intensive task, the asynchronous
         loop might get blocked, therefore it is recommended to execute this method in a

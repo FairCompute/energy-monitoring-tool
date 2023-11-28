@@ -67,7 +67,7 @@ class DeltaReader:
 class IntelCPU(PowerGroup):
     """
     This is a specialized PowerGroup for Intel CPUs. It provides a mechanism to track the energy
-    consumption of the CPU and its subcomponents (cores, dram, igpu). The energy consumption is
+    consumption of the CPU and its sub-components (cores, dram, igpu). The energy consumption is
     obtained from the RAPL (Running Average Power Limit) interface of the CPU. The RAPL interface
     is available on Intel CPUs since the Sandy Bridge micro-architecture.
 
@@ -165,7 +165,7 @@ class IntelCPU(PowerGroup):
 
         return list(map(get_zone_name, self._zones))
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         """
         The string representation of the IntelCPU PowerGroup
         """
@@ -195,7 +195,7 @@ class IntelCPU(PowerGroup):
 
     def _read_energy(self) -> Mapping[str, float]:
         """
-        Reports the acccumulated energy consumption of the tracked devices types. The readers are
+        Reports the accumulated energy consumption of the tracked devices types. The readers are
         created in the constructor and are called to obtain the energy delta. Reader of each type
         are called in a loop and the energy delta is accumulated.
 
@@ -229,38 +229,49 @@ class IntelCPU(PowerGroup):
 
     def _read_utilization(self) -> Mapping[str, float]:
         """
-        Reports the utilization of the CPUs and DRAM by the tracked processes. The utilization is
-        obtained from the `psutil` library, which reports the utilization by the processes as a
-        fraction of the total utilization of the tracked devices.
+        Reports the relative utilization of the CPUs and DRAM by the tracked processes. The utilization
+        is obtained from the `psutil` library, which reports the utilization by the tracked processes as
+        a fraction of the total utilization of the tracked devices.
 
         The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
         utilization is a number between 0 and 1, where 1 is 100%.
         """
-
-        cpu_utilization = np.nan
-        memory_utilization = np.nan
-
+        cpu_utilization_system = psutil.cpu_percent()
+        memory_utilization_system = psutil.virtual_memory().percent
+        
+        cpu_utilization_process = np.nan
+        memory_utilization_process = np.nan
+        
         try:
-            cpu_utilization = reduce(
+            cpu_utilization_process = reduce(
                 lambda x, y: x + y, (ps.cpu_percent() for ps in self.processes)
             )
-            memory_utilization = reduce(
+            cpu_utilization_process /= psutil.cpu_count()
+
+            memory_utilization_process = reduce(
                 lambda x, y: x + y, (ps.memory_percent() for ps in self.processes)
             )
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             pass
 
+        # relative utilization
+        cpu_relative_utilization = cpu_utilization_process / cpu_utilization_system \
+            if cpu_utilization_system > 0.0 else 0.0
+        
+        memory_relative_utilization = memory_utilization_process / memory_utilization_system \
+            if memory_utilization_system > 0.0 else 0.0
+        
         return {
-            "cpu": (cpu_utilization / psutil.cpu_count()) / 100.0,
-            "dram": memory_utilization / 100.0,
+            "cpu": cpu_relative_utilization,
+            "dram":memory_relative_utilization,
         }
 
     async def commence(self) -> None:
         """
-        This commence a periodic execution at the set rate:
-            [energy_trace -> update_energy_consumption -> async_wait]
+        This commence a periodic execution at a set rate:
+            [get_energy_trace -> update_energy_consumption -> async_wait]
 
-        A periodic execution is scheduled at a set rate, dictated by `self.sleep_interval`, during the
+        The periodic execution is scheduled at the rate dictated by `self.sleep_interval`, during the
         instantiation. The energy consumption is updated using the `_read_energy` and `_read_utilization`
         methods. The method credits energy consumption to the tracked processes by weighting the energy
         trace, obtained from the zones and the devices, by the utilization of the devices by the processes.
@@ -273,7 +284,7 @@ class IntelCPU(PowerGroup):
             self._count_trace_calls += 1
             self.logger.debug(
                 f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"utilizaton: {utilization_trace}\n"
+                f"utilization: {utilization_trace}\n"
                 f"energy:     {energy_trace}"
             )
 
