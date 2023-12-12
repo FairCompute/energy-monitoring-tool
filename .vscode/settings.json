@@ -1,8 +1,12 @@
 {
     "cSpell.words": [
         "astype",
+        "fillna",
         "finfo",
         "igpu",
+        "iterrows",
+        "levelname",
+        "nvml",
         "pids",
         "pmon",
         "powercap",

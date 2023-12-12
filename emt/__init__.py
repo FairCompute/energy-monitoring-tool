@@ -1,7 +1,7 @@
 import os
 import logging
-from .energy_meter import *
 from .power_group import *
+from .energy_meter import *
 
 # Configure logging to write to a log file with a custom format
 

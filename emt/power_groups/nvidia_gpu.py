@@ -6,8 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Mapping
 from functools import cached_property
-from ..power_group import PowerGroup
-
+from emt import PowerGroup
 
 class PowerIntegrator:
     """
@@ -81,7 +80,7 @@ class NvidiaGPU(PowerGroup):
         """
         Return unique IDs for each GPU in the system.
         """
-        names = [pynvml.nvmlDeviceGetUUID(zone) for zone in self._zones]
+        names = [ pynvml.nvmlDeviceGetIndex(zone) for zone in self._zones]
         return names
 
     def available(self):
@@ -97,9 +96,10 @@ class NvidiaGPU(PowerGroup):
         return available
 
     def _read_energy(self):
-        """Retrieves instantaneous power usages (W) of all GPUs in use by the tracked processes.
-        Integrates the power using the corresponding power intetgrator for the zone, reports
-        the cummulative energy fro each zone.
+        """
+        Retrieves instantaneous power usages (W) of all GPUs in use by the tracked processes.
+        Integrates the power using the corresponding power integrator for the zone, reports
+        the cumulative energy fro each zone.
         """
         energy_zones = {zone: 0.0 for zone in self.zones}
         for zone, zone_handle, integrator in zip(
@@ -114,15 +114,23 @@ class NvidiaGPU(PowerGroup):
             # get time elapsed since
         return energy_zones
 
-    def _get_utilization_frame(self):
+
+    def _read_utilization(self) -> Mapping[int, float]:
         """
-        __summary__
+        This method provides utilization (per-zone) of the compute devices by the tracked
+        processes.The is used to attribute a proportionate energy credit to the processes.
+
         """
         def _filter(pid):
+            """
+            The filter masks out the `pid` entries not tracked 
+            by the energy monitor and returns the boolean mask.
+            """
             keep = False
             if not np.isnan(pid):
                 keep = True if int(pid) in self.pids else False
             return keep
+        
         command = "nvidia-smi  pmon -c 1"
         output = subprocess.check_output(command, shell=True, text=True)
         lines = output.rstrip().split("\n")
@@ -131,39 +139,12 @@ class NvidiaGPU(PowerGroup):
         data = [line.split() for line in lines[2:] if line.strip()]
         df = pd.DataFrame(data, columns=header)[["gpu", "pid", "sm", "mem"]]
         df = df.apply(pd.to_numeric, errors="coerce")
+        # filter out pids that are not relevant
         filter = df['pid'].apply(_filter)
-        df  = df[filter]
-        return df
-
-    def _read_utilization(self) -> Mapping[str, float]:
-        utilization_zones = {zone: {"sm": 0.0, "mem": 0.0} for zone in self.zones}
-        df_utilization = self._get_utilization_frame()
-    
-        gpu_pids = list(
-            filter(lambda x: not np.isnan(x), df_utilization["pid"].tolist())
-        )
-        for pid in filter(lambda x: x in self.pids, map(int, gpu_pids)):
-    
-            zone = pynvml.nvmlDeviceGetHandleByIndex()
-
-        # for zone in self._zones:
-        #     gpu_index = pynvml.nvmlDeviceGetIndex(zone)
-
-        #     #fmt: off
-        #     processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone) \
-        #         + pynvml.nvmlDeviceGetGraphicsRunningProcesses(zone)
-        #     #fmt: on
-        #     processes = filter(lambda process: process.pid in self.pids, processes)
-        #     gpu_utilization = 0.0
-        #     dram_utilization = 0.0
-        #     for process in processes:
-        #         gpu_utilization += process.gpu
-        #         dram_utilization += process.usedGPuMemory
-
-        # utilization_zones.update({zone: {'gpu': gpu_utilization,
-        #                                  'dram': dram_utilization
-        #                                  }})
-        return utilization_zones
+        df_system = df.drop(columns=['pid'])
+        df_processes  = df_system[filter]
+        df_processes= df_processes.groupby('gpu').sum().fillna(0.0)
+        return df_processes.to_dict(orient='index')
 
     async def commence(self) -> None:
         """
@@ -182,19 +163,14 @@ class NvidiaGPU(PowerGroup):
             self._count_trace_calls += 1
             self.logger.debug(
                 f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"utilizaton: {utilization_trace}\n"
+                f"utilization: {utilization_trace}\n"
                 f"energy:     {energy_trace}"
             )
 
-            if self.dram_readers:
-                # fmt:off
+            for zone in utilization_trace:    
+                #fmt: off
                 self._consumed_energy += (
-                    (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
-                      energy_trace['dram'] * utilization_trace['dram']
-                ) 
-            else:
-                self._consumed_energy += (
-                    energy_trace["zones"] * utilization_trace["cpu"]
+                    energy_trace[zone] * utilization_trace[zone]['sm']
                 )
                 # fmt: on
 

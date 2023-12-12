@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 from typing import Collection, Mapping
 from functools import cached_property, reduce
-from ..power_group import PowerGroup
+from emt import PowerGroup
 
 
 class DeltaReader:
@@ -229,41 +229,28 @@ class IntelCPU(PowerGroup):
 
     def _read_utilization(self) -> Mapping[str, float]:
         """
-        Reports the relative utilization of the CPUs and DRAM by the tracked processes. The utilization
-        is obtained from the `psutil` library, which reports the utilization by the tracked processes as
-        a fraction of the total utilization of the tracked devices.
+        Reports the  utilization of the CPUs and DRAM by the tracked processes. The utilization
+        is obtained from the `psutil` library, which reports the utilization as a percentage of 
+        the cpu_time offered to the processes compared to overall cpu_time.
 
         The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
         utilization is a number between 0 and 1, where 1 is 100%.
         """
-        cpu_utilization_system = psutil.cpu_percent()
-        memory_utilization_system = psutil.virtual_memory().percent
-        
-        cpu_utilization_process = np.nan
-        memory_utilization_process = np.nan
-        
+        cpu_utilization = np.nan
+        memory_utilization = np.nan
         try:
-            cpu_utilization_process = reduce(
+            cpu_utilization = reduce(
                 lambda x, y: x + y, (ps.cpu_percent() for ps in self.processes)
             )
-            cpu_utilization_process /= psutil.cpu_count()
-
-            memory_utilization_process = reduce(
+            memory_utilization = reduce(
                 lambda x, y: x + y, (ps.memory_percent() for ps in self.processes)
             )
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             pass
-
-        # relative utilization
-        cpu_relative_utilization = cpu_utilization_process / cpu_utilization_system \
-            if cpu_utilization_system > 0.0 else 0.0
-        
-        memory_relative_utilization = memory_utilization_process / memory_utilization_system \
-            if memory_utilization_system > 0.0 else 0.0
         
         return {
-            "cpu": cpu_relative_utilization,
-            "dram":memory_relative_utilization,
+            "cpu": cpu_utilization/psutil.cpu_count(),
+            "dram":memory_utilization,
         }
 
     async def commence(self) -> None:
@@ -281,11 +268,19 @@ class IntelCPU(PowerGroup):
             utilization_trace = self._read_utilization()
             energy_trace = self._read_energy()
 
+            # system_compute_utilization = psutil.cpu_percent()
+            # system_memory_utilization = psutil.virtual_memory().percent
+            #  # relative utilization
+            # relative_utilization_compute = utilization_trace / system_compute_utilization \
+            #     if system_compute_utilization > 0.0 else 0.0
+            # relative_utilization_memory = memory_utilization_process / system_memory_utilization \
+            #    if system_memory_utilization > 0.0 else 0.0
+
             self._count_trace_calls += 1
             self.logger.debug(
                 f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"utilization: {utilization_trace}\n"
-                f"energy:     {energy_trace}"
+                f"Utilization: {utilization_trace}\n"
+                f"Energy:     {energy_trace}"
             )
 
             if self.dram_readers:
