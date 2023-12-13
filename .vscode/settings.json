@@ -1,11 +1,14 @@
 {
     "cSpell.words": [
         "astype",
+        "dtype",
         "fillna",
         "finfo",
         "igpu",
         "iterrows",
         "levelname",
+        "maxval",
+        "minval",
         "nvml",
         "pids",
         "pmon",
