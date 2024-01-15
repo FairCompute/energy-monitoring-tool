@@ -42,7 +42,7 @@ class DeltaReader:
 
         Returns:   The delta in consumed energy between the previously and the current call.
                    The delta energy is obtained by RAPL from the MSR registers of the CPU
-                   (in micro-jouled) and is scaled to joules for the return value.
+                   (in micro-joules) and is scaled to joules for the return value.
         """
         value = np.nan
         for k_trail in range(self._num_trails):
@@ -165,7 +165,7 @@ class IntelCPU(PowerGroup):
 
         return list(map(get_zone_name, self._zones))
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         """
         The string representation of the IntelCPU PowerGroup
         """

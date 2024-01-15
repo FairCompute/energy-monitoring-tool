@@ -13,10 +13,8 @@ class PowerGroup:
         an 'nvidia-gpu' power-group represents all nvidia-gpus and accumulates their energy
         consumption weighted by their utilization by the `pid` process-tree.
 
-        Args:
-
+        Args
         pid:            The pid to be monitored, when `None` the current process is monitored.
-
         rate:           How often the energy consumption is readout from the devices and the running
                         average in a second. The rate defines the number of measurements in a single
                         second of wall-time.

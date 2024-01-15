@@ -8,22 +8,22 @@ from typing import Collection, Mapping
 # from emt import setup_logger
 import emt
 from emt import PowerGroup
-from emt.power_groups import *
+from emt import power_groups
 
 
 class EnergyMeter:
     def __init__(
         self,
-        power_groups: Collection[PowerGroup],
+        powergroups: Collection[PowerGroup],
         logging_interval: int = 900,
     ):
         """
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
         energy consumption at regular intervals. Each PowerGroup provides a set a task or a
         set of tasks, exposed via `commence` method of the powerGroup.  All such tasks are
-        # gathered and asynchronously awaited by the energyMeter. Ideally, the run method should
-        be executed in a separate background thread, so the asynchronous loop is not blocked
-        by the cpu intensive work going on in the main thread.
+        # gathered and asynchronously awaited by the energyMeter. Ideally, the run method 
+        should be executed in a separate background thread, so the asynchronous loop is not
+        blocked by the cpu intensive work going on in the main thread.
 
         Args:
             power_groups (PowerGroup):  All power groups to be tracked by the energy meter.
@@ -35,7 +35,7 @@ class EnergyMeter:
         self._monitoring = False
         self._concluded = False
         self._logging_interval = logging_interval
-        self._power_groups = power_groups
+        self._power_groups = powergroups
         self._shutdown_event = asyncio.Event()
         self.logger = logging.getLogger(__name__)
 
@@ -129,17 +129,28 @@ class EnergyMeter:
         return consumed_energy
 
 
+def get_powergroup_types(module):
+    candidates = [getattr(module, name) for name in dir(module) 
+                   if isinstance(getattr(module, name), type)]
+    pg_types =  filter(lambda x: issubclass(x, PowerGroup),
+                        candidates)
+    return list(pg_types)
+
+
 class EnergyMetering:
     def __enter__(self):
         if not logging.getLogger("emt").hasHandlers():
             emt.setup_logger()
-        # TODO Poll all modules and then filter power-groups based on their availability.
-        power_groups = [IntelCPU(), NvidiaGPU()]
-        # TODO: produce error when no main computing power-group is found
-        # TODO: produce warnings when no gpu power-group is found.
 
-        # Create a separate thread and start it
-        energy_meter = EnergyMeter(power_groups=power_groups)
+        powergroup_types = get_powergroup_types(power_groups)
+        powergroups = [pgt() for pgt in powergroup_types]
+        powergroups = list(filter(lambda x:x.is_available(), powergroups))
+        if not any(map(lambda x: isinstance(x, power_groups.IntelCPU), powergroups)):
+            raise RuntimeError('A CPU power-group is expected at minimum,'
+                               ' but I am not able to found one!')
+
+        # Create a separate thread and start it.
+        energy_meter = EnergyMeter(powergroups=powergroups)
         self.energy_meter_thread = threading.Thread(
             name="EnergyMonitoringThread", target=lambda: energy_meter.run()
         )
@@ -148,6 +159,6 @@ class EnergyMetering:
         time.sleep(1)
         return self.energy_meter
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, *_):
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
