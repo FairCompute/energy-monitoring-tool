@@ -49,6 +49,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## 📧 Contact
 
-For any inquiries or discussions, feel free to reach out to us at [email@example.com](mailto:email@example.com).
+For any inquiries or discussions, feel free to reach out to us at [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)
 
 Let's code responsibly and make a positive impact on the environment! 🌍✨
