@@ -21,9 +21,12 @@ In the era of climate awareness, it's essential for developers to contribute to 
 
 ## 🛠️ Getting Started
 
-1. Clone the repository: `git clone https://github.com/your-username/emt-tool.git`
-2. Install dependencies: `npm install`
-3. Run the tool: `npm start`
+1. Clone the repository: `git clone git@github.com:philips-internal/EMT.git`
+2. Install dependencies:
+   ```shell
+   cd emt
+   pip install .
+   ````
 
 That's it! You're now ready to analyze the energy footprint of your code.
 
