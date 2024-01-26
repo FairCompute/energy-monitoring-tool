@@ -1,4 +1,4 @@
-# EMT <img src="logo.png" alt="EMT Logo" width="60"/>
+# Energy Monitoring Tool (EMT) <img src="logo.png" alt="EMT Logo" width="60"/>
 EMT is a powerful utility designed to track the energy utilization (carbon footprint) of your software code. As developers, it's crucial for us to be aware of the environmental impact of our creations, and EMT Tool provides an insightful way to measure and optimize the energy consumption of your code.
 
 ## 🚀 Features
