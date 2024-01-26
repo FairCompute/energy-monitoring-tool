@@ -1,5 +1,5 @@
-# EMT Tool <img src="logo.png" alt="EMT Tool Logo" width="60"/>
-EMT Tool is a powerful utility designed to track the energy utilization (carbon footprint) of your software code. As developers, it's crucial for us to be aware of the environmental impact of our creations, and EMT Tool provides an insightful way to measure and optimize the energy consumption of your code.
+# EMT <img src="logo.png" alt="EMT Logo" width="60"/>
+EMT is a powerful utility designed to track the energy utilization (carbon footprint) of your software code. As developers, it's crucial for us to be aware of the environmental impact of our creations, and EMT Tool provides an insightful way to measure and optimize the energy consumption of your code.
 
 ## 🚀 Features
 
@@ -15,7 +15,7 @@ EMT Tool is a powerful utility designed to track the energy utilization (carbon 
   >   - Visualizations to identify energy-intensive processes. 
   >   - Environmentally conscious coding tips.
 
-## 🌍 Why EMT Tool?
+## 🌍 Why EMT?
 
 In the era of climate awareness, it's essential for developers to contribute to a sustainable future. EMT Tool empowers you to make informed decisions about your code's impact on the environment and take steps towards writing more energy-efficient software.
 
