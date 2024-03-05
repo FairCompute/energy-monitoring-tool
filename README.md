@@ -4,7 +4,7 @@ EMT is a powerful utility designed to track the energy utilization (carbon footp
 ## 🚀 Features
 
 - Real-time energy utilization tracking.
-- Process-level breakdown of energy consumption.
+- device-level breakdown of energy consumption.
 - Enegy/Power attribution of a multi-process resource.
 - Modular and extendable software architecture, currently supports following powergroups:
    - Intel CPU(s) with RAPL capabilites
