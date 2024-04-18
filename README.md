@@ -7,13 +7,18 @@ EMT is a powerful utility designed to track the energy utilization (carbon footp
 - Device-level breakdown of energy consumption.
 - Enegy/Power attribution to a process of interest in a multi-process shared resource setting.
 - Modular and extendable software architecture, currently supports following powergroups:
-   - Intel CPU(s) with RAPL capabilites
+   - Intel CPU(s) with RAPL capabilites.
    - Nvidia GPUs.
-   - Virtual CPU(s) covered by Teads dataset.
+
+   #### Supported Platforms
+  -  Linux
 
 > Future Releases:
   >   - Visualizations to identify energy-intensive processes. 
   >   - Environmentally conscious coding tips.
+  >   - Virtual CPU(s) covered by Teads dataset.
+  >   - Add support for Windows through PCM
+
 
 ## 🌍 Why EMT?
 
