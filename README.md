@@ -51,9 +51,6 @@ Please ensure that your pull request includes a clear description of the changes
 
 EMT Tool is an ongoing project, and we are actively working to enhance its features and usability. If you encounter any issues or have suggestions, please open an issue on the GitHub repository.
 
-## 📝 License
-
-This project is licensed under the [MIT License](LICENSE).
 
 ## 📧 Contact
 
