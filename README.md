@@ -26,7 +26,7 @@ In the era of climate awareness, it's essential for developers to contribute to 
 
 ## 🛠️ Getting Started
 
-1. Clone the repository: `git clone git@github.com:philips-internal/EMT.git`
+1. Clone the repository: `git clone git@github.com:philips-internal/energy-monitoring-tool.git`
 2. Install dependencies:
    ```shell
    cd energy-monitoring-tool
