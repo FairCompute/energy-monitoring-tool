@@ -34,7 +34,39 @@ In the era of climate awareness, it's essential for developers to contribute to 
    ````
 
 That's it! You're now ready to analyze the energy footprint of your code.
+###  *Usage*:
+>We currently plan to support three modes of usage: Python Context Managers,  Keras Callbacks and CLI.
+>The *callbacks* focus on working with popular ML library Keras, the python *context manager* mode can
+>be easily integrated into any python code, while the *CLI* mode allows usage of the tool for 
+> command-line application that are not writtern in python.  
+> **Only Python Context Manager Mode is implemented so far!**
 
+#### Using Python Context Managers
+```python
+import emt
+import tensorflow as tf
+from emt import EnergyMetering
+
+# setup logging
+emt.setup_logger(Path(Path(), 'emt.log’))
+
+def foo(device='gpu'): 
+    with tf.device(device):
+        # perform tensor operations.
+        …
+
+# Create an EnerrgyMeterting Context.
+# Eergy consumption of the function(s) is
+# recorded when called within the context.
+with EnergyMetering() as metering:
+    results = foo()
+
+# report energy at some later time.
+energy = metering.consumed_energy()
+ 
+```
+
+#### 
 ## 🤝 Contributions
 
 We welcome contributions from the community to make EMT Tool even more robust and feature-rich. To contribute, follow these steps:
