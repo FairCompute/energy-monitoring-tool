@@ -56,7 +56,7 @@ def foo(device='gpu'):
         …
 
 # Create an EnerrgyMeterting Context.
-# Eergy consumption of the function(s) is
+# Energy consumption of the function(s) is
 # recorded when called within the context.
 with EnergyMetering() as metering:
     results = foo()
