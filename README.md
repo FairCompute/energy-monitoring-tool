@@ -29,7 +29,7 @@ In the era of climate awareness, it's essential for developers to contribute to 
 1. Clone the repository: `git clone git@github.com:philips-internal/EMT.git`
 2. Install dependencies:
    ```shell
-   cd emt
+   cd energy-monitoring-tool
    pip install .
    ````
 
