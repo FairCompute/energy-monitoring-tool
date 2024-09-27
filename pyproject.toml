@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emt"
+description = "An energy measurement tool for machine learning related tasks"
+version = "0.1.0"
+readme = "README.md"
+authors = [
+    {name = "Rameez Ismail", email = "rameez.ismail@philips.com"},
+]
+license = {text = "MIT"}
+classifiers = [
+#     "Environment :: GPU :: NVIDIA CUDA",
+#     "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["deep-learning", "power", "energy", "carbon", "sustainability", "emt", "philips"]
+requires-python = ">=3.9"
+dependencies = [
+    "psutil",
+    "numpy",
+    "pandas",
+    "pynvml",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/philips-internal/energy-monitoring-tool"
+Homepage = ""
+Documentation = ""
+
+[project.optional-dependencies]
+test = ["tensorflow[and-cuda]"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
