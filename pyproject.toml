@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "emt"
 description = "An energy measurement tool for machine learning related tasks"
-version = "0.1.0"
+# version = "0.1.0"
 readme = "README.md"
 authors = [
     {name = "Rameez Ismail", email = "rameez.ismail@philips.com"},
 ]
-license = {text = "MIT"}
+license = {text = "Copyright(c) 2023 Koninklijke Philips N.V."}
 classifiers = [
 #     "Environment :: GPU :: NVIDIA CUDA",
 #     "License :: OSI Approved :: Apache Software License",
@@ -33,12 +33,13 @@ dynamic = ["version"]
 
 [project.urls]
 Repository = "https://github.com/philips-internal/energy-monitoring-tool"
-Homepage = ""
-Documentation = ""
+#Homepage = ""
+#Documentation = ""
 
 [project.optional-dependencies]
 test = ["tensorflow[and-cuda]"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["emt"]
 
