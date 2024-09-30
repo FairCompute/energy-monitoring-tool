@@ -7,7 +7,7 @@ EMT is a powerful utility designed to track the energy utilization (carbon footp
 - Device-level breakdown of energy consumption.
 - Enegy/Power attribution to a process of interest in a multi-process shared resource setting.
 - Modular and extendable software architecture, currently supports following powergroups:
-   - Intel CPU(s) with RAPL capabilites.
+   - CPU(s) with RAPL capabilites.
    - Nvidia GPUs.
 
    #### Supported Platforms
