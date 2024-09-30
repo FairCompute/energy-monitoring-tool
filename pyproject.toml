@@ -1,11 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=61.0.0", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "emt"
 description = "An energy measurement tool for machine learning related tasks"
-# version = "0.1.0"
 readme = "README.md"
 authors = [
     {name = "Rameez Ismail", email = "rameez.ismail@philips.com"},
@@ -42,4 +41,7 @@ test = ["tensorflow[and-cuda]"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["emt"]
+
+[tool.setuptools_scm]
+version_file = "_version.py"
 
