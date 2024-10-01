@@ -9,7 +9,6 @@ on:
 
 env:
   PYTHON_ENV_NAME: emt
-  PYTHON_ACTION_VERSION: microsoft/action-python@0.7.3
 
 jobs:
   linting:
@@ -28,27 +27,27 @@ jobs:
         shell: bash -li {0}
 
       - name: Run Black
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses:  microsoft/action-python@0.7.3}
         with:
           black: true
 
       - name: Run Bandit
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses:  microsoft/action-python@0.7.3
         with:
           bandit: true
 
       - name: Run Pylint
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses:  microsoft/action-python@0.7.3}
         with:
           pylint: true
 
       - name: Run Pyright
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses:  microsoft/action-python@0.7.3
         with:
           pyright: true
 
       - name: Run Flake8
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses:  microsoft/action-python@0.7.3
         with:
           flake8: true
 
@@ -68,6 +67,6 @@ jobs:
         shell: bash -li {0}
 
       - name: Run Pytest
-        uses: ${{ env.PYTHON_ACTION_VERSION }}
+        uses: microsoft/action-python@0.7.3
         with:
           testing: true
