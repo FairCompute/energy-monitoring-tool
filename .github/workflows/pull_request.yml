@@ -7,6 +7,8 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  PYTHON_ENV_NAME: emt
 
 jobs:
   linting:
@@ -22,37 +24,37 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
           cache-key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
-        - run: |
-            python -m pip install --upgrade pip
-            pip install -e .
 
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e .
 
       - name: Install Dependencies
         run: conda env update --file environment.yml
         shell: bash -li {0}
 
       - name: Run Black
-        uses:  microsoft/action-python@0.7.3
+        uses: microsoft/action-python@0.7.3
         with:
           black: true
 
       - name: Run Bandit
-        uses:  microsoft/action-python@0.7.3
+        uses: microsoft/action-python@0.7.3
         with:
           bandit: true
 
       - name: Run Pylint
-        uses:  microsoft/action-python@0.7.3
+        uses: microsoft/action-python@0.7.3
         with:
           pylint: true
 
       - name: Run Pyright
-        uses:  microsoft/action-python@0.7.3
+        uses: microsoft/action-python@0.7.3
         with:
           pyright: true
 
       - name: Run Flake8
-        uses:  microsoft/action-python@0.7.3
+        uses: microsoft/action-python@0.7.3
         with:
           flake8: true
 
@@ -69,9 +71,11 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
           cache-key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
-        - run: |
-            python -m pip install --upgrade pip
-            pip install -e .
+
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
       - name: Activate Conda Environment
         run: conda activate ${{ env.PYTHON_ENV_NAME }}
         shell: bash -li {0}
