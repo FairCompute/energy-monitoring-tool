@@ -27,7 +27,7 @@ jobs:
         shell: bash -li {0}
 
       - name: Run Black
-        uses:  microsoft/action-python@0.7.3}
+        uses:  microsoft/action-python@0.7.3
         with:
           black: true
 
@@ -37,7 +37,7 @@ jobs:
           bandit: true
 
       - name: Run Pylint
-        uses:  microsoft/action-python@0.7.3}
+        uses:  microsoft/action-python@0.7.3
         with:
           pylint: true
 
