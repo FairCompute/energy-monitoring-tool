@@ -1,4 +1,5 @@
 name: Pull Request
+
 on:
   push:
     branches: [ main ]
@@ -8,40 +9,65 @@ on:
 
 env:
   PYTHON_ENV_NAME: emt
+  PYTHON_ACTION_VERSION: microsoft/action-python@0.7.3
 
 jobs:
   linting:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     steps:
-      - name: Black
-        uses: &python_action microsoft/action-python@0.7.3
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Create Cached Conda Environment
+        uses: ./.github/actions/create-cached-conda-environment
+        with:
+          conda-environment-name: ${{ env.PYTHON_ENV_NAME }}
+
+      - name: Activate Conda Environment
+        run: conda activate ${{ env.PYTHON_ENV_NAME }}
+        shell: bash -li {0}
+
+      - name: Run Black
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           black: true
 
-      - name: Bandit
-        uses: *python_action
+      - name: Run Bandit
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           bandit: true
 
-      - name: Pylint
-        uses: *python_action
+      - name: Run Pylint
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           pylint: true
-          
-      - name: Pyright
-        uses: *python_action
+
+      - name: Run Pyright
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           pyright: true
-          
-      - name: Flake8
-        uses: *python_action
+
+      - name: Run Flake8
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           flake8: true
 
   testing:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     steps:
-      - name: Pytest
-        uses: *python_action
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Create Cached Conda Environment
+        uses: ./.github/actions/create-cached-conda-environment
+        with:
+          conda-environment-name: ${{ env.PYTHON_ENV_NAME }}
+
+      - name: Activate Conda Environment
+        run: conda activate ${{ env.PYTHON_ENV_NAME }}
+        shell: bash -li {0}
+
+      - name: Run Pytest
+        uses: ${{ env.PYTHON_ACTION_VERSION }}
         with:
           testing: true
