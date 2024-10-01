@@ -15,8 +15,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     strategy:
       matrix:
-        python-version:
-        - ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.9', '3.10', '3.11', '3.12']
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -27,9 +26,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
+
+      - name Install Dependencies
       - run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e . 
+          python --version
 
       - name: Run Black
         uses: microsoft/action-python@0.7.3
@@ -60,8 +62,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     strategy:
       matrix:
-        python-version:
-        - ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.9', '3.10', '3.11', '3.12']
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -72,9 +73,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
+
+      - name Install Dependencies
       - run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e . 
+          python --version
 
       - name: Run Pytest
         uses: microsoft/action-python@0.7.3
