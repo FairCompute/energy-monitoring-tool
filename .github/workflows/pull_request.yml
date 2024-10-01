@@ -26,6 +26,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
+          workdir: ${{ inputs.root }}
 
       - name: Create Virtual Environment
         run: python -m venv emt
@@ -35,7 +36,7 @@ jobs:
           source emt/bin/activate
           python --version
           python -m pip install --upgrade pip
-          pip install -e .
+          python -m pip install -e .
 
       - name: Run Black
         uses: microsoft/action-python@0.7.3
