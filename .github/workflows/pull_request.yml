@@ -32,7 +32,7 @@ jobs:
 
       - name: Activate Virtual Environment and Install Dependencies
         run: |
-          source venv/bin/activate
+          source emt/bin/activate
           python --version
           python -m pip install --upgrade pip
           pip install -e .
@@ -83,7 +83,7 @@ jobs:
 
       - name: Activate Virtual Environment and Install Dependencies
         run: |
-          source venv/bin/activate
+          source emt/bin/activate
           python --version
           python -m pip install --upgrade pip
           pip install -e .[test]
