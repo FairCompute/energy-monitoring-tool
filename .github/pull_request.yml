@@ -1,0 +1,47 @@
+name: Pull Request
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_ENV_NAME: emt
+
+jobs:
+  linting:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    steps:
+      - name: Black
+        uses: &python_action microsoft/action-python@0.7.3
+        with:
+          black: true
+
+      - name: Bandit
+        uses: *python_action
+        with:
+          bandit: true
+
+      - name: Pylint
+        uses: *python_action
+        with:
+          pylint: true
+          
+      - name: Pyright
+        uses: *python_action
+        with:
+          pyright: true
+          
+      - name: Flake8
+        uses: *python_action
+        with:
+          flake8: true
+
+  testing:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    steps:
+      - name: Pytest
+        uses: *python_action
+        with:
+          testing: true

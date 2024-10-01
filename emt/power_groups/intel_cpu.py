@@ -137,13 +137,13 @@ class IntelCPU(PowerGroup):
             DeltaReader(_comp)
             for device in self._devices
             for _comp in device
-            if any(keyword in _comp for keyword in ["ram", "dram"])
+            if any(keyword in _comp for keyword in ["cores", "cpu"])
         ]
         self.dram_readers = [
             DeltaReader(_comp)
             for device in self._devices
             for _comp in device
-            if any(keyword in _comp for keyword in ["cores", "cpu"])
+            if any(keyword in _comp for keyword in ["ram", "dram"])
         ]
         self.igpu_readers = [
             DeltaReader(_comp)
