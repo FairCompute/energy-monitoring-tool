@@ -128,21 +128,20 @@ class EnergyMeter:
                             for power_group in self.power_groups}
         return consumed_energy
 
+class EnergyMonitor:
+    
+    def get_powergroup_types(self, module):
+        candidates = [getattr(module, name) for name in dir(module) 
+                    if isinstance(getattr(module, name), type)]
+        pg_types =  filter(lambda x: issubclass(x, PowerGroup),
+                            candidates)
+        return list(pg_types)
 
-def get_powergroup_types(module):
-    candidates = [getattr(module, name) for name in dir(module) 
-                   if isinstance(getattr(module, name), type)]
-    pg_types =  filter(lambda x: issubclass(x, PowerGroup),
-                        candidates)
-    return list(pg_types)
-
-
-class EnergyMetering:
     def __enter__(self):
         if not logging.getLogger("emt").hasHandlers():
             emt.setup_logger()
 
-        powergroup_types = get_powergroup_types(power_groups)
+        powergroup_types = self.get_powergroup_types(power_groups)
         powergroups = [pgt() for pgt in powergroup_types]
         powergroups = list(filter(lambda x:x.is_available(), powergroups))
         if not any(map(lambda x: isinstance(x, power_groups.IntelCPU), powergroups)):
@@ -162,3 +161,5 @@ class EnergyMetering:
     def __exit__(self, *_):
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
+
+
