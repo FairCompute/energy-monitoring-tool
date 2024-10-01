@@ -1,6 +1,6 @@
 name: Pull Request
 on:
-push:
+  push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
@@ -10,57 +10,38 @@ env:
   PYTHON_ENV_NAME: emt
 
 jobs:
-  generate-documentation:
-    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Create cached conda environment
-        uses: ./.github/actions/create-cached-conda-environment
-        with:
-          conda-environment-name: ${{ env.PYTHON_ENV_NAME }}
-
-      - name: Activate Conda Environment amd Make Docs
-        run: |
-          conda activate ${{env.PYTHON_ENV_NAME}}
-          mkdocs build -d ./site
-        shell: bash -li {0} 
-
-jobs:
   linting:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     steps:
       - name: Black
-        uses: microsoft/action-python@0.7.0
+        uses: &python_action microsoft/action-python@0.7.3
         with:
           black: true
 
       - name: Bandit
-        uses: microsoft/action-python@0.7.0
-        with:          
+        uses: *python_action
+        with:
           bandit: true
 
       - name: Pylint
-        uses: microsoft/action-python@0.7.0
+        uses: *python_action
         with:
           pylint: true
           
       - name: Pyright
-        uses: microsoft/action-python@0.7.0
-        with:          
+        uses: *python_action
+        with:
           pyright: true
           
       - name: Flake8
-        uses: microsoft/action-python@0.7.0
-        with:          
+        uses: *python_action
+        with:
           flake8: true
 
   testing:
-   runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-    steps:    
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    steps:
       - name: Pytest
-        uses: microsoft/action-python@0.7.0
-        with:          
+        uses: *python_action
+        with:
           testing: true
