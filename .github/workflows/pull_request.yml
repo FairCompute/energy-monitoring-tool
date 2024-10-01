@@ -7,23 +7,28 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  PYTHON_ENV_NAME: emt
 
 jobs:
   linting:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Create Cached Conda Environment
-        uses: ./.github/actions/create-cached-conda-environment
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          conda-environment-name: ${{ env.PYTHON_ENV_NAME }}
+          python-version: 'pyproject.toml'
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+          cache-key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+        - run: |
+            python -m pip install --upgrade pip
+            pip install -e .
 
-      - name: Activate Conda Environment
-        run: conda activate ${{ env.PYTHON_ENV_NAME }}
+
+      - name: Install Dependencies
+        run: conda env update --file environment.yml
         shell: bash -li {0}
 
       - name: Run Black
@@ -55,13 +60,18 @@ jobs:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Create Cached Conda Environment
-        uses: ./.github/actions/create-cached-conda-environment
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          conda-environment-name: ${{ env.PYTHON_ENV_NAME }}
-
+          python-version: 'pyproject.toml'
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+          cache-key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+        - run: |
+            python -m pip install --upgrade pip
+            pip install -e .
       - name: Activate Conda Environment
         run: conda activate ${{ env.PYTHON_ENV_NAME }}
         shell: bash -li {0}
