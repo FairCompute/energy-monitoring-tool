@@ -1,0 +1,55 @@
+name: Create cached conda environment
+description: Create cached conda environment
+
+inputs:
+  conda-environment-name:
+    description: Name of the conda environment
+    required: true
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Install Mambaforge
+      run: |
+        echo "--------------------------------------------------------------------------------"
+        echo "Installing Mambaforge"
+        echo "--------------------------------------------------------------------------------"
+        echo "- 1. Downloading Mambaforge"
+        wget -O Mambaforge.sh  "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
+        echo "- 2. Running installer"
+        bash Mambaforge.sh -b -p "${HOME}/conda"
+        echo "- 3. Adjusting path to include Conda & Mamba"
+        echo "${HOME}/conda/bin" >> $GITHUB_PATH
+        echo "- 4. Sourcing conda/mamba profiles"
+        source "${HOME}/conda/etc/profile.d/conda.sh"
+        source "${HOME}/conda/etc/profile.d/mamba.sh"
+        # echo "- 5. Initialize conda"
+        conda init bash
+        echo "- 6. Remove Mambaforge install script"
+        rm -rf Mambaforge.sh
+      shell: bash -l {0}
+
+    - name: Get location of the to be cached conda environment
+      run: |
+        echo "Conda environment detection:"
+        echo "name: ${{ inputs.conda-environment-name }}"
+        CONDA_ENVIRONMENT_LOCATION=$(conda info --base)/envs/${{ inputs.conda-environment-name }}
+        echo "location: $CONDA_ENVIRONMENT_LOCATION"
+        echo "CONDA_ENVIRONMENT_LOCATION=$CONDA_ENVIRONMENT_LOCATION" >> $GITHUB_ENV
+      shell: bash -l {0}
+
+    - name: Cache conda environment
+      id: cache-conda-environment
+      uses: actions/cache@v3
+      env:
+        cache-name: cache-conda-environment
+      with:
+        path: ${{ env.CONDA_ENVIRONMENT_LOCATION }}
+        key: ${{ runner.os }}-build-cache-python-environment-${{ hashFiles('environment.yml') }}
+
+
+    - name: Create conda environment
+      run: mamba env update -n ${{ inputs.conda-environment-name }} -f environment.yml
+      if: steps.cache-conda-environment.outputs.cache-hit != 'true'
+      shell: bash -l {0}
