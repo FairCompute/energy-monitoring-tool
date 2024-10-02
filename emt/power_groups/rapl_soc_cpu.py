@@ -6,7 +6,8 @@ import numpy as np
 from pathlib import Path
 from typing import Collection, Mapping
 from functools import cached_property, reduce
-from emt import PowerGroup
+from emt.power_groups.power_group import PowerGroup
+
 
 
 class DeltaReader:
@@ -64,7 +65,7 @@ class DeltaReader:
         return delta
 
 
-class IntelCPU(PowerGroup):
+class RAPLSoC(PowerGroup):
     """
     This is a specialized PowerGroup for Intel CPUs. It provides a mechanism to track the energy
     consumption of the CPU and its sub-components (cores, dram, igpu). The energy consumption is
@@ -167,7 +168,7 @@ class IntelCPU(PowerGroup):
 
     def __str__(self) -> str:
         """
-        The string representation of the IntelCPU PowerGroup
+        The string representation of the PowerGroup
         """
         return str(self.zones)
 

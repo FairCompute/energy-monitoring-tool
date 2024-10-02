@@ -8,7 +8,7 @@ from itertools import product
 import tensorflow as tf
 
 import emt
-from emt import EnergyMetering
+from emt import EnergyMonitor
 
 emt.setup_logger(Path(Path(), 'emt.log'), logging_level=logging.DEBUG)
 
@@ -40,8 +40,8 @@ def foo(device='gpu'):
 
 # print('\n')
 
-with EnergyMetering() as metering:
+with EnergyMonitor() as Monitor:
     execution_time = timeit.timeit(foo, number=10000)
     print(f'execution time of foo is: {execution_time}')
-    print(f'energy consumption of foo: {metering.total_consumed_energy}')
-    print(f'energy consumption of foo: {metering.consumed_energy}')
+    print(f'energy consumption of foo: {Monitor.total_consumed_energy}')
+    print(f'energy consumption of foo: {Monitor.consumed_energy}')
