@@ -6,7 +6,8 @@ import numpy as np
 from pathlib import Path
 from typing import Collection, Mapping
 from functools import cached_property, reduce
-from emt import PowerGroup
+from emt.power_groups.power_group import PowerGroup
+
 
 
 class DeltaReader:

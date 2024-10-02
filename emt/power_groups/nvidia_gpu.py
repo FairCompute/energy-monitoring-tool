@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Mapping
 from functools import cached_property
-from emt import PowerGroup
+from emt.power_groups.power_group import PowerGroup
 
 class PowerIntegrator:
     """

@@ -7,7 +7,7 @@ from typing import Collection, Mapping
 
 # from emt import setup_logger
 import emt
-from emt import PowerGroup
+from emt.power_groups import PowerGroup
 from emt import power_groups
 
 
