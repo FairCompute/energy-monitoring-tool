@@ -28,12 +28,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
           
-      - name: Activate Virtual Environment and Install Dependencies
-        run: |
-          python --version
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-
       - name: Print workdir value and list contents
         run: |
           echo "workdir: ${{ inputs.workdir }}"
@@ -47,7 +41,7 @@ jobs:
       - name: Run Black
         uses: microsoft/action-python@0.7.3
         with:
-          workdir: $GITHUB_WORKSPACE
+          workdir: .
           black: true
 
 
