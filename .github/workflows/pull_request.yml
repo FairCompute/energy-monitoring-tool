@@ -21,6 +21,12 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
+
+      - name: Install Dependencies
+        run: |
+          python --version
+          python -m pip install --upgrade pip
+          python -m pip install -e .
           
       - name: Activate Virtual Environment and Install Dependencies
         run: |
@@ -38,11 +44,11 @@ jobs:
           echo "GITHUB_WORKSPACE"
           ls -al $GITHUB_WORKSPACE
           
-      # - name: Run Black
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     workdir: ./energy_monitoring_tool
-      #     black: true
+      - name: Run Black
+        uses: microsoft/action-python@0.7.3
+        with:
+          workdir: $GITHUB_WORKSPACE
+          black: true
 
 
       # - name: Run Bandit
