@@ -83,12 +83,12 @@ class NvidiaGPU(PowerGroup):
         names = [ pynvml.nvmlDeviceGetIndex(zone) for zone in self._zones]
         return names
 
-    def available(self):
+    def is_available(self):
         """
         Checks if the NVML is available.
         """
         try:
-            self.init()
+            self.__init__()
             available = True if self._zones else False
             self.shutdown()
         except pynvml.NVMLError:
