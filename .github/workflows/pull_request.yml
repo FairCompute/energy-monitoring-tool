@@ -26,17 +26,11 @@ jobs:
         run: |
           python --version
           python -m pip install --upgrade pip
+          python -m pip list
           python -m pip install -e .
+          python -m pip list
+
           
-      - name: Print workdir value and list contents
-        run: |
-          echo "workdir: ${{ inputs.workdir }}"
-          echo "Listing contents of ${{ inputs.root }}/${{ inputs.workdir }}"
-          ls -al ${{ inputs.root }}/${{ inputs.workdir }}
-          echo "cwd:"
-          ls -al .
-          echo "GITHUB_WORKSPACE"
-          ls -al $GITHUB_WORKSPACE
           
       - name: Run Black
         uses: microsoft/action-python@0.7.3
