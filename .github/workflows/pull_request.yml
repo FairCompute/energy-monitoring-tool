@@ -25,67 +25,56 @@ jobs:
       - name: Install Dependencies
         run: |
           python --version
-          python -m pip install --upgrade pip
-          python -m pip list
           python -m pip install -e .
-          python -m pip list
 
-          
-          
       - name: Run Black
         uses: microsoft/action-python@0.7.3
         with:
           workdir: .
           black: true
 
+      - name: Run Bandit
+        uses: microsoft/action-python@0.7.3
+        with:
+          bandit: true
 
-      # - name: Run Bandit
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     bandit: true
+      - name: Run Pylint
+        uses: microsoft/action-python@0.7.3
+        with:
+          pylint: true
 
-      # - name: Run Pylint
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     pylint: true
+      - name: Run Pyright
+        uses: microsoft/action-python@0.7.3
+        with:
+          pyright: true
 
-      # - name: Run Pyright
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     pyright: true
+      - name: Run Flake8
+        uses: microsoft/action-python@0.7.3
+        with:
+          flake8: true
 
-      # - name: Run Flake8
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     flake8: true
+  testing:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  # testing:
-  #   runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-  #   strategy:
-  #     matrix:
-  #       python-version: ['3.9', '3.10', '3.11', '3.12']
-  #   steps:
-  #     - name: Checkout Code
-  #       uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
 
-  #     - name: Setup Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #         cache: 'pip'
-  #         cache-dependency-path: 'pyproject.toml'
+      - name: Install Dependencies
+        run: |
+          python --version
+          python -m pip install -e .[test]
 
-  #     - name: Create Virtual Environment
-  #       run: python -m venv emt
-
-  #     - name: Activate Virtual Environment and Install Dependencies
-  #       run: |
-  #         source ./emt/bin/activate
-  #         python --version
-  #         python -m pip install --upgrade pip
-  #         python -m pip install -e .[test]
-
-  #     - name: Pytest
-  #       uses: microsoft/action-python@0.7.0
-  #       with:          
-  #         testing: true
+      - name: Pytest
+        uses: microsoft/action-python@0.7.0
+        with:          
+          testing: true
