@@ -37,10 +37,10 @@ jobs:
 
       - name: Print workdir value and list contents
         run: |
-        echo "workdir: ${{ inputs.workdir }}"
-        echo "Listing contents of ${{ inputs.root }}/${{ inputs.workdir }}"
-        ls -al ${{ inputs.root }}
-
+          echo "workdir: ${{ inputs.workdir }}"
+          echo "Listing contents of ${{ inputs.root }}/${{ inputs.workdir }}"
+          ls -al ${{ inputs.root }}/${{ inputs.workdir }}
+          
       # - name: Run Black
       #   uses: microsoft/action-python@0.7.3
       #   with:
