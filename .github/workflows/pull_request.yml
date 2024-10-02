@@ -34,8 +34,11 @@ jobs:
 
       - name: Print workdir value and list contents
         run: |
+          
           echo "workdir: ${{ inputs.workdir }}"
           echo "Listing contents of ${{ inputs.root }}/${{ inputs.workdir }}"
+          ls -al ${{ inputs.root }}/${{ inputs.workdir }}
+          echo "cwd:"
           ls -al ${{ inputs.root }}/${{ inputs.workdir }}
           
       # - name: Run Black
