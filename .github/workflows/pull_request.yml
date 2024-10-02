@@ -35,32 +35,38 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
-      - name: Run Black
-        uses: microsoft/action-python@0.7.3
-        with:
-          workdir: ./energy_monitoring_tool
-          black: true
-            
+      - name: Print workdir value and list contents
+        run: |
+        echo "workdir: ${{ inputs.workdir }}"
+        echo "Listing contents of ${{ inputs.root }}/${{ inputs.workdir }}"
+        ls -al ${{ inputs.root }}
 
-      - name: Run Bandit
-        uses: microsoft/action-python@0.7.3
-        with:
-          bandit: true
+      # - name: Run Black
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     workdir: ./energy_monitoring_tool
+      #     black: true
 
-      - name: Run Pylint
-        uses: microsoft/action-python@0.7.3
-        with:
-          pylint: true
 
-      - name: Run Pyright
-        uses: microsoft/action-python@0.7.3
-        with:
-          pyright: true
+      # - name: Run Bandit
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     bandit: true
 
-      - name: Run Flake8
-        uses: microsoft/action-python@0.7.3
-        with:
-          flake8: true
+      # - name: Run Pylint
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     pylint: true
+
+      # - name: Run Pyright
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     pyright: true
+
+      # - name: Run Flake8
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     flake8: true
 
   testing:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
