@@ -38,8 +38,9 @@ jobs:
       - name: Run Black
         uses: microsoft/action-python@0.7.3
         with:
-          workdir: .
-          black: true  
+          workdir: ./energy_monitoring_tool
+          black: true
+            
 
       - name: Run Bandit
         uses: microsoft/action-python@0.7.3
@@ -87,7 +88,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[test]
 
-      - name: Run Pytest
-        uses: microsoft/action-python@0.7.3
-        with:
+      - name: Pytest
+        uses: microsoft/action-python@0.7.0
+        with:          
           testing: true
