@@ -38,9 +38,8 @@ jobs:
       - name: Run Black
         uses: microsoft/action-python@0.7.3
         with:
-          workdir: ${{ inputs.root }}
-          black: true
-          workdir:  
+          workdir: .
+          black: true  
 
       - name: Run Bandit
         uses: microsoft/action-python@0.7.3
