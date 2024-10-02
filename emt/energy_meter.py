@@ -144,7 +144,7 @@ class EnergyMonitor:
         powergroup_types = self.get_powergroup_types(power_groups)
         powergroups = [pgt() for pgt in powergroup_types]
         powergroups = list(filter(lambda x:x.is_available(), powergroups))
-        if not any(map(lambda x: isinstance(x, power_groups.IntelCPU), powergroups)):
+        if not any(map(lambda x: isinstance(x, power_groups.RAPLSoC), powergroups)):
             raise RuntimeError('A CPU power-group is expected at minimum,'
                                ' but I am not able to found one!')
 
