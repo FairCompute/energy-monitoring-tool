@@ -189,10 +189,13 @@ class RAPLSoC(PowerGroup):
             return device_name
 
         return list(map(get_device_name, self._zones, self._devices))
-
-    def is_available(self):
+    @classmethod
+    def is_available(cls):
         """A check for availability of RAPL interface"""
-        return os.path.exists(self.RAPL_DIR) and bool(os.listdir(self.RAPL_DIR))
+        try:
+            return bool(os.path.exists(cls.RAPL_DIR) and bool(os.listdir(cls.RAPL_DIR)))
+        except: 
+            return False
 
     def _read_energy(self) -> Mapping[str, float]:
         """

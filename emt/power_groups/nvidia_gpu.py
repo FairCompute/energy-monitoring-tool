@@ -67,6 +67,7 @@ class NvidiaGPU(PowerGroup):
             zone_handle = pynvml.nvmlDeviceGetHandleByIndex(index)
             zones.append(zone_handle)
             power_integrators.append(PowerIntegrator())
+        available = True if zones else False
         self._zones = zones
         self._power_integrators = power_integrators
 
@@ -82,19 +83,18 @@ class NvidiaGPU(PowerGroup):
         """
         names = [ pynvml.nvmlDeviceGetIndex(zone) for zone in self._zones]
         return names
-
-    def is_available(self):
+    
+    @classmethod
+    def is_available(cls):
         """
         Checks if the NVML is available.
         """
         try:
-            self.__init__()
-            available = True if self._zones else False
-            self.shutdown()
+            pynvml.nvmlInit()
+            return True
         except pynvml.NVMLError:
-            available = False
-        return available
-
+            return False
+        
     def _read_energy(self):
         """
         Retrieves instantaneous power usages (W) of all GPUs in use by the tracked processes.

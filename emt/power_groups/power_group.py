@@ -34,8 +34,8 @@ class PowerGroup:
     def tracked_process(self):
         return self._process
 
-
-    def is_available(self) -> bool:
+    @classmethod
+    def is_available(cls) -> bool:
         """
         A status flag, provides information if the virtual group is available for monitoring.
         When false a mechanism to trace a particular device type is not available.
