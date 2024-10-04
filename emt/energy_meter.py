@@ -143,13 +143,13 @@ class EnergyMonitor:
 
         powergroup_types = self.get_powergroup_types(power_groups)
         # check for availabe power_groups
-        powergroups = list(filter(lambda x:x.is_available(), powergroup_types))
+        available_powergroups = list(filter(lambda x:x.is_available(), powergroup_types))
         # instantiate only available powergroups
-        powergroups = [pgt() for pgt in powergroups]
+        powergroups = [pgt() for pgt in available_powergroups]
         # if not any(map(lambda x: isinstance(x, power_groups.RAPLSoC), powergroups)):
         #     raise RuntimeError('A CPU power-group is expected at minimum,'
         #                        ' but I am not able to found one!')
-
+        # TODO: Check if no power groups are selected then raise warning and exit
         # Create a separate thread and start it.
         energy_meter = EnergyMeter(powergroups=powergroups)
         self.energy_meter_thread = threading.Thread(

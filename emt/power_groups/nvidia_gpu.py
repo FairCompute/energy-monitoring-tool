@@ -17,8 +17,8 @@ class PowerIntegrator:
     """
 
     def __init__(self):
-        self._previous_time = time.perf_counter()
-        self._previous_power = 0.0
+        self._init_time = time.perf_counter()
+        self._init_power = 0.0
         self._energy = 0
 
     def __call__(self, current_power):
@@ -32,13 +32,14 @@ class PowerIntegrator:
         """
         energy_delta = 0
         current_time = time.perf_counter()
-        time_delta = current_time - self._previous_time
+        time_delta = current_time - self._init_time
         # Calculate the energy consumed during this time interval using the trapezoidal rule
-        energy_delta = ((current_power + self._previous_power) / 2.0) * time_delta
+        energy_delta = ((current_power + self._init_power) / 2.0) * time_delta
         self._energy += energy_delta
+        # Update previous time and power for the next call
+        self._init_time = current_time
+        self._init_power = current_power
 
-        # Update the last time for the next call
-        self._previous_time = current_time
         return self._energy
 
 
@@ -67,7 +68,6 @@ class NvidiaGPU(PowerGroup):
             zone_handle = pynvml.nvmlDeviceGetHandleByIndex(index)
             zones.append(zone_handle)
             power_integrators.append(PowerIntegrator())
-        available = True if zones else False
         self._zones = zones
         self._power_integrators = power_integrators
 
