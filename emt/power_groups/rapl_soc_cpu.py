@@ -45,6 +45,7 @@ class DeltaReader:
                    The delta energy is obtained by RAPL from the MSR registers of the CPU
                    (in micro-joules) and is scaled to joules for the return value.
         """
+        #NOTE: check the logic!!
         value = np.nan
         for k_trail in range(self._num_trails):
             delta = 0.0
@@ -289,12 +290,12 @@ class RAPLSoC(PowerGroup):
 
             if self.dram_readers:
                 # fmt:off
-                self._consumed_energy += (
+                self._consumed_power += (
                     (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
                       energy_trace['dram'] * utilization_trace['dram']
                 ) 
             else:
-                self._consumed_energy += (
+                self._consumed_power += (
                     energy_trace["zones"] * utilization_trace["cpu"]
                 )
                 # fmt: on

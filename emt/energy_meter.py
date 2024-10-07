@@ -116,17 +116,17 @@ class EnergyMeter:
             self._monitoring = False
 
     @property
-    def total_consumed_energy(self) -> float:
-        total_consumed_energy = 0.0
+    def total_consumed_power(self) -> float:
+        total_consumed_power = 0.0
         for power_group in self.power_groups:
-            total_consumed_energy += power_group.consumed_energy
-        return total_consumed_energy
+            total_consumed_power += power_group.consumed_power
+        return total_consumed_power
     
     @property
-    def consumed_energy(self) -> Mapping[str, float]:
-        consumed_energy = {type(power_group).__name__: power_group.consumed_energy
+    def consumed_power(self) -> Mapping[str, float]:
+        consumed_power = {type(power_group).__name__: power_group.consumed_power
                             for power_group in self.power_groups}
-        return consumed_energy
+        return consumed_power
 
 class EnergyMonitor:
     

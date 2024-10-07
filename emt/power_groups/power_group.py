@@ -21,7 +21,7 @@ class PowerGroup:
         """
         self._count_trace_calls = 0
         self._process = psutil.Process(pid=pid)
-        self._consumed_energy = 0.0
+        self._consumed_power = 0.0
         self._rate = rate
         self.logger = logging.getLogger(__name__)
         self.logger.info(f'A PowerGroup of type `{self.__class__.__name__}` created')
@@ -61,8 +61,8 @@ class PowerGroup:
         set.logger.info(f'shutting down {type(self).__name__} ')
 
     @property
-    def consumed_energy(self) -> float:
+    def consumed_power(self) -> float:
         """
         This provides the total consumed energy, attributed to the process for the whole power-group.
         """
-        return self._consumed_energy
+        return self._consumed_power
