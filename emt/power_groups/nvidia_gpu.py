@@ -9,7 +9,7 @@ from functools import cached_property
 from collections import defaultdict
 from emt.power_groups.power_group import PowerGroup
 
-class PowerCalculator:
+class EenergyCalculator:
     """
     Integrates the instantaneous power usages (W) over the time-delta between the previous call.
     This performs a definite integral of the instantaneous power, using a high-resolution timer,
@@ -18,7 +18,7 @@ class PowerCalculator:
     """
 
     def __init__(self, init_energy: float = 0.0):
-        self._init_time = time.perf_counter()
+        # self._init_time = time.perf_counter()
         self._init_energy = init_energy
 
     def __call__(self, current_energy: float):
@@ -30,16 +30,16 @@ class PowerCalculator:
         Returns:
             float: Power consumption in watts.
         """
-        current_time = time.perf_counter()
-        time_delta = current_time - self._init_time
-        # Update previous time for the next call
-        self._init_time = current_time
+        # current_time = time.perf_counter()
+        # time_delta = current_time - self._init_time
+        # # Update previous time for the next call
+        # self._init_time = current_time
         # Calculate the energy consumed during this time interval 
         # also convert energy unit from mJ to J
-        self._power = ((current_energy - self._init_energy) / 1000 * time_delta)
+        self._energy = (current_energy - self._init_energy) / 1000
         # Update previous energy for the next call
         self._init_energy = current_energy
-        return self._power
+        return self._energy
 
 
 class NvidiaGPU(PowerGroup):
@@ -62,14 +62,14 @@ class NvidiaGPU(PowerGroup):
         )
         pynvml.nvmlInit()
         zones = []
-        power_calculators = []
+        energy_calculators = []
         for index in range(pynvml.nvmlDeviceGetCount()):
             zone_handle = pynvml.nvmlDeviceGetHandleByIndex(index)
             zone_current_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(zone_handle)
             zones.append(zone_handle)
-            power_calculators.append(PowerCalculator(zone_current_energy))
+            energy_calculators.append(EenergyCalculator(zone_current_energy))
         self._zones = zones
-        self._power_calculators = power_calculators
+        self._energy_calculators = energy_calculators
 
     @cached_property
     def pids(self):
@@ -99,22 +99,22 @@ class NvidiaGPU(PowerGroup):
         """
         """    
         # initialize energy_zones using defaultdict
-        consumed_utilized_power = 0.0
-        for zone, zone_handle, power_calculator in zip(
-            self.zones, self._zones, self._power_calculators
+        consumed_utilized_energy = 0.0
+        for zone, zone_handle, delta_calculator in zip(
+            self.zones, self._zones, self._energy_calculators
         ):
             try:
                 # Retrieves energy consumption in mJ, divide by 1000 to get in J.
                 # Measure total energy consumption at this point in time
                 current_total_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(zone_handle)
-                # get the zone level utilizations
-                zone_power = power_calculator(current_total_energy)
+                # get the zone level utilizations and delta energy
+                zone_energy = delta_calculator(current_total_energy)
                 zone_gpu_utilization = pynvml.nvmlDeviceGetUtilizationRates(zone_handle).gpu
                 zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
-                self.logger.debug(
-                f"Zone: {zone}, power: {zone_power: .2f} W,"
-                f" gpu_util: {zone_gpu_utilization} %, memory_total: {zone_memory_total / (1024 ** 2)} MB"
-                )
+                # self.logger.debug(
+                # f"Zone: {zone}, power: {zone_power: .2f} W,"
+                # f" gpu_util: {zone_gpu_utilization} %, memory_total: {zone_memory_total / (1024 ** 2)} MB"
+                # )
                 # Get running processes on the GPU
                 processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone_handle)
                 # Filter processes based on self.pids and if the memory usage is not N/A
@@ -122,28 +122,28 @@ class NvidiaGPU(PowerGroup):
                     process for process in processes
                     if (process.pid in self.pids) and (process.usedGpuMemory) 
                 ]
-                self.logger.debug(f"Total # processes: {len(filtered_processes)}")
-                zone_consumed_power = 0.0
+                # self.logger.debug(f"Total # processes: {len(filtered_processes)}")
+                zone_consumed_energy = 0.0
                 for process in filtered_processes:
                     pid = process.pid
                     memory_used = process.usedGpuMemory  # Memory used by this specific process   
                     # Here you might estimate energy usage based on memory usage or other metrics
                     # This is a simplistic approach and might not be accurate
                     #TODO: can we get the streaming media
-                    # TODO: check for better proxies
+                    #TODO: check for better proxies
                     memeory_util = (memory_used / zone_memory_total)
-                    estimated_utilized_power = memeory_util * zone_power
-                    self.logger.debug(f"    PID: {pid}, Memory Used: {memory_used / (1024 ** 2)} MB,"
-                                      f" Memory Utilization: {memeory_util*100:.2f} %" 
-                                      f" Estimated utilized Power: {estimated_utilized_power:.2f} W"
-                                     )
-                    zone_consumed_power += estimated_utilized_power
+                    estimated_utilized_energy = memeory_util * zone_energy
+                    # self.logger.debug(f"    PID: {pid}, Memory Used: {memory_used / (1024 ** 2)} MB,"
+                                    #   f" Memory Utilization: {memeory_util*100:.2f} %" 
+                                    #   f" Estimated utilized Power: {estimated_utilized_power:.2f} W"
+                                    #  )
+                    zone_consumed_energy += estimated_utilized_energy
             except pynvml.NVMLError:
                 raise Exception
-            consumed_utilized_power += zone_consumed_power
-            self.logger.debug(f"Total consumed utilized Power: {consumed_utilized_power: .2f} W")
+            consumed_utilized_energy += zone_consumed_energy
+            # self.logger.debug(f"Total consumed utilized Power: {consumed_utilized_power: .2f} W")
             # get time elapsed since
-        return consumed_utilized_power
+        return consumed_utilized_energy
 
     
     async def commence(self) -> None:
@@ -157,13 +157,13 @@ class NvidiaGPU(PowerGroup):
         trace, obtained from each zone, by the utilization of the zone by the processes.
         """
         while True:
-            consumed_utilized_power = self._read_utilized_energy()
+            consumed_utilized_energy = self._read_utilized_energy()
             self._count_trace_calls += 1
             self.logger.debug(
                 f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"consumed utilized power: {consumed_utilized_power:.2f} W"
+                f"consumed utilized energy: {consumed_utilized_energy:.2f} J"
             )
-            self._consumed_power = consumed_utilized_power
+            self._consumed_energy += consumed_utilized_energy
             await asyncio.sleep(self.sleep_interval)
 
     def shutdown(self):

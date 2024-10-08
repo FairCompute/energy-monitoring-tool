@@ -105,19 +105,16 @@ class RAPLSoC(PowerGroup):
             Path(self.RAPL_DIR, zone)
             for zone in filter(lambda x: ":" in x, os.listdir(self.RAPL_DIR))
         ]
-
         # filter out zones that do not match zone_pattern
         zones = list(
             filter(lambda zone: not re.fullmatch(zone_pattern, str(zone)), zones)
         )
-
         # Get components for each zone (if available);
         #  Not all processors expose components.
         components = [
             list(filter(lambda x: len(x.stem.split(":")) > 2, Path(zone).rglob("*")))
             for zone in zones
         ]
-
         self.zones_count = len(zones)
         self._zones = []
         self._devices = []
@@ -132,7 +129,6 @@ class RAPLSoC(PowerGroup):
         self.processes = [self.tracked_process] + self.tracked_process.children(
             recursive=True
         )
-
         # create delta energy_readers for each types
         self.zone_readers = [DeltaReader(_zone) for _zone in self._zones]
         self.core_readers = [
@@ -159,7 +155,6 @@ class RAPLSoC(PowerGroup):
         """
         Get zone names, for all the tracked zones from RAPL
         """
-
         def get_zone_name(zone):
             with open(Path(zone, "name"), "r") as f:
                 name = f.read().strip()
@@ -188,7 +183,7 @@ class RAPLSoC(PowerGroup):
                     device_name = f.read().strip()
                 device_name = f"{zone_name}/{device_name}"
             return device_name
-
+        
         return list(map(get_device_name, self._zones, self._devices))
     @classmethod
     def is_available(cls):
@@ -282,22 +277,21 @@ class RAPLSoC(PowerGroup):
             #    if system_memory_utilization > 0.0 else 0.0
 
             self._count_trace_calls += 1
-            self.logger.debug(
-                f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"Utilization: {utilization_trace}\n"
-                f"Energy:     {energy_trace}"
-            )
-
             if self.dram_readers:
                 # fmt:off
-                self._consumed_power += (
+                self._consumed_energy += (
                     (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
                       energy_trace['dram'] * utilization_trace['dram']
                 ) 
             else:
-                self._consumed_power += (
+                self._consumed_energy += (
                     energy_trace["zones"] * utilization_trace["cpu"]
                 )
                 # fmt: on
-
+            self.logger.debug(
+                f"\nObtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
+                f"Utilization: {utilization_trace}\n"
+                f"Energy:     {energy_trace}\n"
+                f"Consumed Energy: {self._consumed_energy: .2f} J"
+            )
             await asyncio.sleep(self.sleep_interval)
