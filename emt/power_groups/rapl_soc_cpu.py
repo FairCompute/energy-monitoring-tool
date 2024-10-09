@@ -9,7 +9,6 @@ from functools import cached_property, reduce
 from emt.power_groups.power_group import PowerGroup
 
 
-
 class DeltaReader:
     """
     This class provides a method that provides the delta between the previously
@@ -45,7 +44,7 @@ class DeltaReader:
                    The delta energy is obtained by RAPL from the MSR registers of the CPU
                    (in micro-joules) and is scaled to joules for the return value.
         """
-        #NOTE: check the logic!!
+        # NOTE: check the logic!!
         value = np.nan
         for k_trail in range(self._num_trails):
             delta = 0.0
@@ -59,9 +58,13 @@ class DeltaReader:
                     delta = _delta
                     break
 
-            self.logger.warning(
-                f"Energy counter overflow detected for: \n{self._file}"
-            ) if k_trail >= (self._num_trails - 1) and delta < 0 else None
+            (
+                self.logger.warning(
+                    f"Energy counter overflow detected for: \n{self._file}"
+                )
+                if k_trail >= (self._num_trails - 1) and delta < 0
+                else None
+            )
         self._previous_value = value
         return delta
 
@@ -155,6 +158,7 @@ class RAPLSoC(PowerGroup):
         """
         Get zone names, for all the tracked zones from RAPL
         """
+
         def get_zone_name(zone):
             with open(Path(zone, "name"), "r") as f:
                 name = f.read().strip()
@@ -183,14 +187,15 @@ class RAPLSoC(PowerGroup):
                     device_name = f.read().strip()
                 device_name = f"{zone_name}/{device_name}"
             return device_name
-        
+
         return list(map(get_device_name, self._zones, self._devices))
+
     @classmethod
     def is_available(cls):
         """A check for availability of RAPL interface"""
         try:
             return bool(os.path.exists(cls.RAPL_DIR) and bool(os.listdir(cls.RAPL_DIR)))
-        except: 
+        except:
             return False
 
     def _read_energy(self) -> Mapping[str, float]:
@@ -230,7 +235,7 @@ class RAPLSoC(PowerGroup):
     def _read_utilization(self) -> Mapping[str, float]:
         """
         Reports the  utilization of the CPUs and DRAM by the tracked processes. The utilization
-        is obtained from the `psutil` library, which reports the utilization as a percentage of 
+        is obtained from the `psutil` library, which reports the utilization as a percentage of
         the cpu_time offered to the processes compared to overall cpu_time.
 
         The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
@@ -247,10 +252,10 @@ class RAPLSoC(PowerGroup):
             )
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             pass
-        
+
         return {
-            "cpu": cpu_utilization/psutil.cpu_count(),
-            "dram":memory_utilization,
+            "cpu": cpu_utilization / psutil.cpu_count(),
+            "dram": memory_utilization,
         }
 
     async def commence(self) -> None:
