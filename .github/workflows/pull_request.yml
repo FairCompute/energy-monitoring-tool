@@ -7,15 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  PYTHON_ENV_NAME: emt
-
 jobs:
   linting:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -23,73 +18,74 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
 
-      - name: Create Virtual Environment
-        run: python -m venv emt
-
-      - name: Activate Virtual Environment and Install Dependencies
+      - name: Install Dependencies
         run: |
-          source emt/bin/activate
           python --version
           python -m pip install --upgrade pip
+          python -m pip list
           python -m pip install -e .
+          python -m pip list
 
+          
+          
       - name: Run Black
         uses: microsoft/action-python@0.7.3
         with:
-          workdir: ${{ inputs.root }}
+          workdir: .
           black: true
 
-      - name: Run Bandit
-        uses: microsoft/action-python@0.7.3
-        with:
-          bandit: true
 
-      - name: Run Pylint
-        uses: microsoft/action-python@0.7.3
-        with:
-          pylint: true
+      # - name: Run Bandit
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     bandit: true
 
-      - name: Run Pyright
-        uses: microsoft/action-python@0.7.3
-        with:
-          pyright: true
+      # - name: Run Pylint
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     pylint: true
 
-      - name: Run Flake8
-        uses: microsoft/action-python@0.7.3
-        with:
-          flake8: true
+      # - name: Run Pyright
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     pyright: true
 
-  testing:
-    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      # - name: Run Flake8
+      #   uses: microsoft/action-python@0.7.3
+      #   with:
+      #     flake8: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: 'pyproject.toml'
+  # testing:
+  #   runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+  #   strategy:
+  #     matrix:
+  #       python-version: ['3.9', '3.10', '3.11', '3.12']
+  #   steps:
+  #     - name: Checkout Code
+  #       uses: actions/checkout@v4
 
-      - name: Create Virtual Environment
-        run: python -m venv emt
+  #     - name: Setup Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: ${{ matrix.python-version }}
+  #         cache: 'pip'
+  #         cache-dependency-path: 'pyproject.toml'
 
-      - name: Activate Virtual Environment and Install Dependencies
-        run: |
-          source emt/bin/activate
-          python --version
-          python -m pip install --upgrade pip
-          python -m pip install -e .[test]
+  #     - name: Create Virtual Environment
+  #       run: python -m venv emt
 
-      - name: Run Pytest
-        uses: microsoft/action-python@0.7.3
-        with:
-          testing: true
+  #     - name: Activate Virtual Environment and Install Dependencies
+  #       run: |
+  #         source ./emt/bin/activate
+  #         python --version
+  #         python -m pip install --upgrade pip
+  #         python -m pip install -e .[test]
+
+  #     - name: Pytest
+  #       uses: microsoft/action-python@0.7.0
+  #       with:          
+  #         testing: true
