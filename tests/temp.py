@@ -46,4 +46,3 @@ with EnergyMonitor() as Monitor:
     print(f"execution time of foo is: {execution_time}")
     print(f"energy consumption of foo: {Monitor.total_consumed_energy:.2f} J")
     print(f"energy consumption of foo: {Monitor.consumed_energy}")
-
