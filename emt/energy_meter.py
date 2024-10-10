@@ -132,7 +132,6 @@ class EnergyMeter:
 
 
 class EnergyMonitor:
-
     def get_powergroup_types(self, module):
         candidates = [
             getattr(module, name)
