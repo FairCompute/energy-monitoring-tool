@@ -103,9 +103,7 @@ class NvidiaGPU(PowerGroup):
                     zone_handle
                 )
                 # get the zone level utilizations and delta energy
-                zone_consumed_energy[zone] = delta_calculator(
-                    current_total_energy
-                )
+                zone_consumed_energy[zone] = delta_calculator(current_total_energy)
             except pynvml.NVMLError:
                 raise Exception
             return zone_consumed_energy
@@ -115,9 +113,7 @@ class NvidiaGPU(PowerGroup):
         Measures the process level memory utilization for each zone, and uses that as a proxy for GPU energy utilization.
         """
         zone_process_utilization = defaultdict(int)
-        for zone, zone_handle in zip(
-            self.zones, self._zones
-        ):
+        for zone, zone_handle in zip(self.zones, self._zones):
             try:
                 zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
                 # get the active processes in that particular zone
@@ -135,13 +131,11 @@ class NvidiaGPU(PowerGroup):
                         process.usedGpuMemory
                     )  # Memory used by this specific process
                     zone_memory_use += memory_used
-                zone_process_utilization[zone] = (
-                    zone_memory_use / zone_memory_total
-                )
+                zone_process_utilization[zone] = zone_memory_use / zone_memory_total
             except pynvml.NVMLError:
                 raise Exception
         return zone_process_utilization
-    
+
     async def commence(self) -> None:
         """
         This commence a periodic execution at a set rate:
