@@ -106,7 +106,7 @@ class NvidiaGPU(PowerGroup):
                 zone_consumed_energy[zone] = delta_calculator(current_total_energy)
             except pynvml.NVMLError:
                 raise Exception
-            return zone_consumed_energy
+        return zone_consumed_energy
 
     def _read_utilization(self):
         """
