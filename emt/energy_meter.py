@@ -146,7 +146,7 @@ class EnergyMonitor:
         if not logging.getLogger("emt").hasHandlers():
             emt.setup_logger()
         powergroup_types = self.get_powergroup_types(power_groups)
-        # check for availabe power_groups
+        # check for available power_groups
         available_powergroups = list(
             filter(lambda x: x.is_available(), powergroup_types)
         )
