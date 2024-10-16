@@ -3,7 +3,7 @@ import asyncio
 import math, random 
 from itertools import product
 from typing import Collection
-from emt.power_groups import IntelCPU
+from emt.power_groups import RAPLSoC
 
 def foo():
     a = [random.randint(1, 100) for _ in range(1000)]
@@ -15,11 +15,11 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     for task in tasks:
         task.cancel()
 
-class TestIntelGroup(unittest.IsolatedAsyncioTestCase):
+class TestRAPLGroup(unittest.IsolatedAsyncioTestCase):
 
     def test_object_creation(self):
-        intel_group = IntelCPU()
-        self.assertTrue(intel_group.devices)
+        rapl_group = RAPLSoC()
+        self.assertTrue(rapl_group.devices)
         
     async def test_power_group(self):
         power_groups = [IntelCPU()]

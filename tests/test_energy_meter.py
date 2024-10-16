@@ -18,7 +18,7 @@ def foo():
     return [math.factorial(x) for x in map(sum, product(a, b))]
 
 
-class TestIntelGroup(unittest.TestCase):
+class TestEnergyMeter(unittest.TestCase):
     def setUp(self):
         # Create some mock PowerGroup instances for testing
         self.log_dir = tempfile.TemporaryDirectory()
