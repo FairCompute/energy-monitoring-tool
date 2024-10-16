@@ -44,5 +44,5 @@ def foo(device="gpu"):
 with EnergyMonitor() as Monitor:
     execution_time = timeit.timeit(foo, number=10000)
     print(f"execution time of foo is: {execution_time}")
-    print(f"energy consumption of foo: {Monitor.total_consumed_energy}")
-    print(    f"energy consumption of foo: {Monitor.consumed_energy}")
+    print(f"energy consumption of foo: {Monitor.total_consumed_energy:.2f} J")
+    print(f"energy consumption of foo: {Monitor.consumed_energy}")

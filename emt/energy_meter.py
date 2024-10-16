@@ -125,7 +125,7 @@ class EnergyMeter:
     @property
     def consumed_energy(self) -> Mapping[str, float]:
         consumed_energy = {
-            type(power_group).__name__: power_group.consumed_energy
+            type(power_group).__name__: round(power_group.consumed_energy, 2)
             for power_group in self.power_groups
         }
         return consumed_energy
@@ -145,15 +145,14 @@ class EnergyMonitor:
     def __enter__(self):
         if not logging.getLogger("emt").hasHandlers():
             emt.setup_logger()
-
         powergroup_types = self.get_powergroup_types(power_groups)
-        powergroups = [pgt() for pgt in powergroup_types]
-        powergroups = list(filter(lambda x: x.is_available(), powergroups))
-        if not any(map(lambda x: isinstance(x, power_groups.RAPLSoC), powergroups)):
-            raise RuntimeError(
-                "A CPU power-group is expected at minimum,"
-                " but I am not able to found one!"
-            )
+        # check for availabe power_groups
+        available_powergroups = list(
+            filter(lambda x: x.is_available(), powergroup_types)
+        )
+        # instantiate only available powergroups
+        powergroups = [pgt() for pgt in available_powergroups]
+        # TODO: Check if no power groups are selected then raise warning and exit
 
         # Create a separate thread and start it.
         energy_meter = EnergyMeter(powergroups=powergroups)
