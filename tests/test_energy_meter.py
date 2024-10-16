@@ -86,9 +86,8 @@ class TestEnergyMeter(unittest.TestCase):
         The run method is run in a seperate thread while conclude is
         executed on the main thread after a while.
         """
-        
-        emt.setup_logger(Path(Path(), "emt.log"),
-         logging_level=logging.DEBUG)
+
+        emt.setup_logger(Path(Path(), "emt.log"), logging_level=logging.DEBUG)
 
         energy_meter = EnergyMeter(
             self.power_groups,
