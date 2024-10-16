@@ -7,6 +7,7 @@ from emt.power_groups import NvidiaGPU
 
 try:
     import pynvml
+
     pynvml.nvmlInit()
     nvml_available = True
 except (ImportError, pynvml.NVMLError):
