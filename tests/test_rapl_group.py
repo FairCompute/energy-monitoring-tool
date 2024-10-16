@@ -7,7 +7,7 @@ from emt.power_groups import RAPLSoC
 
 
 
-
+def foo():
     a = [random.randint(1, 100) for _ in range(1000)]
     b = [random.randint(1, 10) for _ in range(1000)]
     return [math.factorial(x) for x in map(sum, product(a , b))]
@@ -16,9 +16,6 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     await asyncio.sleep(delay)
     for task in tasks:
         task.cancel()
-
-
-
 
     def test_object_creation(self):
         rapl_group = RAPLSoC()
