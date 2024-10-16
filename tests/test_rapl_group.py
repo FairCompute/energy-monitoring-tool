@@ -17,7 +17,8 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     for task in tasks:
         task.cancel()
 
-class TestRAPLGroup(unittest.IsolatedAsyncioTestCase):
+
+
 
     def test_object_creation(self):
         rapl_group = RAPLSoC()
