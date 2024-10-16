@@ -43,8 +43,7 @@ class TestEnergyMeter(unittest.TestCase):
         executed by a parallel thread asynchronously.
         """
 
-        emt.setup_logger(Path(Path(), "emt.log"),
-         logging_level=logging.INFO)
+        emt.setup_logger(Path(Path(), "emt.log"), logging_level=logging.INFO)
 
         energy_meter = EnergyMeter(
             self.power_groups,
