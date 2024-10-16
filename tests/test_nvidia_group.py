@@ -15,7 +15,7 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     for task in tasks:
         task.cancel()
 
-class TestIntelGroup(unittest.IsolatedAsyncioTestCase):
+class TestNvidiaGroup(unittest.IsolatedAsyncioTestCase):
 
     def test_object_creation(self):
         nvidia_group = NvidiaGPU()

@@ -21,7 +21,7 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
         self.assertTrue(rapl_group.devices)
 
     async def test_power_group(self):
-        power_groups = [IntelCPU()]
+        power_groups = [RAPLSoC()]
         tasks = [asyncio.create_task(pG.commence()) for pG in power_groups]
         cancel_task = asyncio.create_task(cancel_after(1, tasks))
         with self.assertRaises(asyncio.CancelledError):

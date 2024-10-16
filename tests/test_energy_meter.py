@@ -1,15 +1,16 @@
+import time
 import tempfile
 import unittest
 import math, random
 import logging
 import asyncio
 from pathlib import Path
-import time
 from threading import Thread
 from itertools import product
-from emt import EnergyMeter
-from unittest.mock import Mock
 import unittest
+from unittest.mock import Mock
+from emt import EnergyMeter
+from emt.power_groups import RAPLSoC
 
 
 def foo():
@@ -117,8 +118,8 @@ class TestEnergyMeter(unittest.TestCase):
         self.assertTrue(self.mock_power_group_1.commence.awaited)
         self.assertTrue(self.mock_power_group_2.commence.awaited)
 
-    def test_intel_cpu(self):
-        intel_group = IntelCPU()
+    def test_rapl_powergroup(self):
+        intel_group = RAPLSoC()
         energy_meter = EnergyMeter((intel_group,))
         _thread = Thread(target=lambda: energy_meter.run())
         _thread.start()
