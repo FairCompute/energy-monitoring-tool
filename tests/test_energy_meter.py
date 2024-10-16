@@ -111,7 +111,7 @@ class TestEnergyMeter(unittest.TestCase):
 
         with self.assertLogs("EnergyMonitor", level="DEBUG"):
             _thread.start()
-            conclude_after_t_sec(1)    
+            conclude_after_t_sec(1)
             _thread.join()
             
         self.assertTrue(self.mock_power_group_1.commence.called)
