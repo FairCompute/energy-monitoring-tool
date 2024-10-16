@@ -9,8 +9,10 @@ from threading import Thread
 from itertools import product
 import unittest
 from unittest.mock import Mock
+
+# emt related imports
+import emt
 from emt import EnergyMeter
-from emt.power_groups import RAPLSoC
 
 
 def foo():
@@ -22,8 +24,6 @@ def foo():
 class TestEnergyMeter(unittest.TestCase):
     def setUp(self):
         # Create some mock PowerGroup instances for testing
-        self.log_dir = tempfile.TemporaryDirectory()
-        self.log_file = str(Path(self.log_dir.name, "energy_meter.log"))
         self.mock_power_group_1 = Mock()
         self.mock_power_group_2 = Mock()
         self.power_groups = [self.mock_power_group_1, self.mock_power_group_2]
@@ -31,10 +31,7 @@ class TestEnergyMeter(unittest.TestCase):
     def test_init(self):
         # Test the __init__ method
         logging_interval = 900
-        logging_level = logging.NOTSET
-        energy_meter = EnergyMeter(
-            self.power_groups, self.log_file, logging_interval, logging_level
-        )
+        energy_meter = EnergyMeter(self.power_groups, logging_interval)
         self.assertEqual(energy_meter.power_groups, self.power_groups)
         self.assertEqual(energy_meter.monitoring, False)
         self.assertEqual(energy_meter.concluded, False)
@@ -45,9 +42,12 @@ class TestEnergyMeter(unittest.TestCase):
         The run method is run in the main thread while conclude is
         executed by a parallel thread asynchronously.
         """
+
+        emt.setup_logger(Path(Path(), "emt.log"),
+         logging_level=logging.INFO)
+
         energy_meter = EnergyMeter(
             self.power_groups,
-            self.log_file,
             logging_interval=1,
         )
 
@@ -87,9 +87,12 @@ class TestEnergyMeter(unittest.TestCase):
         The run method is run in a seperate thread while conclude is
         executed on the main thread after a while.
         """
+        
+        emt.setup_logger(Path(Path(), "emt.log"),
+         logging_level=logging.DEBUG)
+
         energy_meter = EnergyMeter(
             self.power_groups,
-            self.log_file,
             logging_interval=1,
         )
 
@@ -108,7 +111,7 @@ class TestEnergyMeter(unittest.TestCase):
         self.mock_power_group_2.commence.side_effect = mock_commence
         _thread = Thread(target=lambda: energy_meter.run())
 
-        with self.assertLogs("EnergyMonitor", level="INFO"):
+        with self.assertLogs("EnergyMonitor", level="DEBUG"):
             _thread.start()
             conclude_after_t_sec(1)    
             _thread.join()
@@ -117,19 +120,6 @@ class TestEnergyMeter(unittest.TestCase):
         self.assertTrue(self.mock_power_group_2.commence.called)
         self.assertTrue(self.mock_power_group_1.commence.awaited)
         self.assertTrue(self.mock_power_group_2.commence.awaited)
-
-    def test_rapl_powergroup(self):
-        intel_group = RAPLSoC()
-        energy_meter = EnergyMeter((intel_group,))
-        _thread = Thread(target=lambda: energy_meter.run())
-        _thread.start()
-        time.sleep(1)
-        energy_meter.conclude()
-        _thread.join
-
-    def tearDown(self):
-        # This will remove the temporary directory and all its contents
-        self.log_dir.cleanup()
 
 
 if __name__ == "__main__":
