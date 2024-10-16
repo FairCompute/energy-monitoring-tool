@@ -35,8 +35,8 @@ class TestEnergyMeter(unittest.TestCase):
         logging_interval = 14
         energy_meter = EnergyMeter(self.power_groups, logging_interval)
         self.assertEqual(energy_meter.power_groups, self.power_groups)
-        self.assertEqual(energy_meter.monitoring, False)
-        self.assertEqual(energy_meter.concluded, False)
+        self.assertFalse(energy_meter.monitoring)
+        self.assertFalse(energy_meter.concluded)
         self.assertEqual(energy_meter._logging_interval, logging_interval)
 
     def test_asynchronous_shutdown(self):

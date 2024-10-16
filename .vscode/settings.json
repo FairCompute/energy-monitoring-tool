@@ -24,9 +24,13 @@
         "pynvml",
         "pyright",
         "pytest",
+        "Qube",
         "Rameez",
         "RAPL",
-        "seperate",
-        "setuptools"
-    ]
+        "seperate"
+    ],
+    "sonarlint.connectedMode.project": {
+        "connectionId": "https-sonarqube-internal-philips",
+        "projectKey": "philips-internal.energy-monitoring-tool"
+    }
 }

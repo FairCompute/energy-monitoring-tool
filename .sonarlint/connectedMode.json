@@ -1,0 +1,4 @@
+{
+    "sonarQubeUri": "https://sonarqube.internal.philips",
+    "projectKey": "philips-internal.energy-monitoring-tool"
+}
