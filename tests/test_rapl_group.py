@@ -1,6 +1,6 @@
 import unittest
 import asyncio
-import math, random 
+import math, random
 from itertools import product
 from typing import Collection
 from emt.power_groups import RAPLSoC
