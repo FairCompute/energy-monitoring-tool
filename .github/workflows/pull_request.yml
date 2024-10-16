@@ -53,7 +53,7 @@ jobs:
           reviewdog -f=diff\
                     -name=BLACK\
                     -reporter=github-pr-review\
-                    -filter-mode='diff_context'\
+                    -filter-mode='nofilter'\
                     -fail-level=error\
                     -diff="git diff FETCH_HEAD"\
                     -level=warning\
