@@ -24,6 +24,7 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     for task in tasks:
         task.cancel()
 
+
 @unittest.skipUnless(nvml_available, "NVML library is not available!")
 class TestNvidiaGroup(unittest.IsolatedAsyncioTestCase):
 
