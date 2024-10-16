@@ -87,30 +87,30 @@ jobs:
         #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
      
-  # Test Suite:
-  #   runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-  #   strategy:
-  #     matrix:
-  #       python-version: ['3.9', '3.10', '3.11', '3.12']
-  #   steps:
-  #     - name: Checkout Code
-  #       uses: actions/checkout@v4
+  TestSuite:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  #     - name: Setup Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #         cache: 'pip'
-  #         cache-dependency-path: 'pyproject.toml'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
 
-  #     - name: Install Dependencies
-  #       run: |
-  #         python --version
-  #         python -m pip install -e .[test]
+      - name: Install Dependencies
+        run: |
+          python --version
+          python -m pip install -e .[test]
 
-  #     - name: Pytest
-  #       uses: microsoft/action-python@0.7.3
-  #       with:
-  #         workdir: .
-  #         python_version: ${{ matrix.python-version }}
-  #         pytest: true
+      - name: Pytest
+        uses: microsoft/action-python@0.7.3
+        with:
+          workdir: .
+          python_version: ${{ matrix.python-version }}
+          pytest: true
