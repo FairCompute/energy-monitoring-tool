@@ -49,7 +49,8 @@ jobs:
           echo "Running Black"
           TEMPFILE="$(mktemp)"
           git diff > $TEMPFILE
-          git stash -u && git stash drop
+          git stash -u || true
+          git stash drop || true
           reviewdog -f=diff\
                     -name=BLACK\
                     -reporter=github-pr-review\
