@@ -23,6 +23,7 @@
         "pycache",
         "pynvml",
         "pyright",
+        "pytest",
         "Rameez",
         "RAPL",
         "seperate",
