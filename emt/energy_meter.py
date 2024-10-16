@@ -21,7 +21,7 @@ class EnergyMeter:
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
         energy consumption at regular intervals. Each PowerGroup provides a set a task or a
         set of tasks, exposed via `commence` method of the powerGroup.  All such tasks are
-        # gathered and asynchronously awaited by the energyMeter. Ideally, the run method 
+        # gathered and asynchronously awaited by the energyMeter. Ideally, the run method
         should be executed in a separate background thread, so the asynchronous loop is not
         blocked by the cpu intensive work going on in the main thread.
 
@@ -103,7 +103,7 @@ class EnergyMeter:
         seperate independent thread.
         """
         if not self.monitoring:
-            logging.ERROR(
+            self.logger.error(
                 "Attempting to conclude monitoring before commencement.\n"
                 "It is illegal to conclude before commencement. Shutting Down!"
             )
@@ -121,20 +121,25 @@ class EnergyMeter:
         for power_group in self.power_groups:
             total_consumed_energy += power_group.consumed_energy
         return total_consumed_energy
-    
+
     @property
     def consumed_energy(self) -> Mapping[str, float]:
-        consumed_energy = {type(power_group).__name__: power_group.consumed_energy
-                            for power_group in self.power_groups}
+        consumed_energy = {
+            type(power_group).__name__: power_group.consumed_energy
+            for power_group in self.power_groups
+        }
         return consumed_energy
 
+
 class EnergyMonitor:
-    
+
     def get_powergroup_types(self, module):
-        candidates = [getattr(module, name) for name in dir(module) 
-                    if isinstance(getattr(module, name), type)]
-        pg_types =  filter(lambda x: issubclass(x, PowerGroup),
-                            candidates)
+        candidates = [
+            getattr(module, name)
+            for name in dir(module)
+            if isinstance(getattr(module, name), type)
+        ]
+        pg_types = filter(lambda x: issubclass(x, PowerGroup), candidates)
         return list(pg_types)
 
     def __enter__(self):
@@ -143,10 +148,12 @@ class EnergyMonitor:
 
         powergroup_types = self.get_powergroup_types(power_groups)
         powergroups = [pgt() for pgt in powergroup_types]
-        powergroups = list(filter(lambda x:x.is_available(), powergroups))
+        powergroups = list(filter(lambda x: x.is_available(), powergroups))
         if not any(map(lambda x: isinstance(x, power_groups.RAPLSoC), powergroups)):
-            raise RuntimeError('A CPU power-group is expected at minimum,'
-                               ' but I am not able to found one!')
+            raise RuntimeError(
+                "A CPU power-group is expected at minimum,"
+                " but I am not able to found one!"
+            )
 
         # Create a separate thread and start it.
         energy_meter = EnergyMeter(powergroups=powergroups)
@@ -161,5 +168,3 @@ class EnergyMonitor:
     def __exit__(self, *_):
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
-
-

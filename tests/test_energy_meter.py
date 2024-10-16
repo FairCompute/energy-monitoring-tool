@@ -4,6 +4,7 @@ import unittest
 import math, random
 import logging
 import asyncio
+import shutil
 from pathlib import Path
 from threading import Thread
 from itertools import product
@@ -24,13 +25,14 @@ def foo():
 class TestEnergyMeter(unittest.TestCase):
     def setUp(self):
         # Create some mock PowerGroup instances for testing
+        self.log_dir = Path(tempfile.mkdtemp())
         self.mock_power_group_1 = Mock()
         self.mock_power_group_2 = Mock()
         self.power_groups = [self.mock_power_group_1, self.mock_power_group_2]
 
     def test_init(self):
         # Test the __init__ method
-        logging_interval = 900
+        logging_interval = 14
         energy_meter = EnergyMeter(self.power_groups, logging_interval)
         self.assertEqual(energy_meter.power_groups, self.power_groups)
         self.assertEqual(energy_meter.monitoring, False)
@@ -39,11 +41,14 @@ class TestEnergyMeter(unittest.TestCase):
 
     def test_asynchronous_shutdown(self):
         """
-        The run method is run in the main thread while conclude is
-        executed by a parallel thread asynchronously.
+        The run method is executed in the main thread while conclude is
+        executed by a seperate thread asynchronously.
         """
 
-        emt.setup_logger(Path(Path(), "emt.log"), logging_level=logging.INFO)
+        emt.setup_logger(
+            Path(self.log_dir, "test.log"),
+            logging_level=logging.INFO,
+        )
 
         energy_meter = EnergyMeter(
             self.power_groups,
@@ -71,9 +76,9 @@ class TestEnergyMeter(unittest.TestCase):
         self.mock_power_group_1.commence.side_effect = mock_commence
         self.mock_power_group_2.commence.side_effect = mock_commence
 
-        # Create a seperate thread to cancel the tracking aftert 1 sec.
+        # Create a seperate thread to cancel the tracking after1 sec.
         Thread(target=conclude_after_t_sec, args=(1,)).start()
-        with self.assertLogs("EnergyMonitor", level="INFO"):
+        with self.assertLogs("emt", level="INFO"):
             energy_meter.run()
 
         self.assertTrue(self.mock_power_group_1.commence.called)
@@ -83,11 +88,14 @@ class TestEnergyMeter(unittest.TestCase):
 
     def test_run_threaded(self):
         """
-        The run method is run in a seperate thread while conclude is
+        The run method is executed in a seperate thread while conclude is
         executed on the main thread after a while.
         """
 
-        emt.setup_logger(Path(Path(), "emt.log"), logging_level=logging.DEBUG)
+        emt.setup_logger(
+            Path(self.log_dir, "test.log"),
+            logging_level=logging.DEBUG,
+        )
 
         energy_meter = EnergyMeter(
             self.power_groups,
@@ -109,15 +117,19 @@ class TestEnergyMeter(unittest.TestCase):
         self.mock_power_group_2.commence.side_effect = mock_commence
         _thread = Thread(target=lambda: energy_meter.run())
 
-        with self.assertLogs("EnergyMonitor", level="DEBUG"):
+        with self.assertLogs("emt", level="DEBUG"):
             _thread.start()
             conclude_after_t_sec(1)
             _thread.join()
-            
+
         self.assertTrue(self.mock_power_group_1.commence.called)
         self.assertTrue(self.mock_power_group_2.commence.called)
         self.assertTrue(self.mock_power_group_1.commence.awaited)
         self.assertTrue(self.mock_power_group_2.commence.awaited)
+
+    def tearDown(self):
+        shutil.rmtree(self.log_dir)
+        super().tearDown()
 
 
 if __name__ == "__main__":
