@@ -6,7 +6,8 @@ from typing import Collection
 from emt.power_groups import RAPLSoC
 
 
-def foo():
+
+
     a = [random.randint(1, 100) for _ in range(1000)]
     b = [random.randint(1, 10) for _ in range(1000)]
     return [math.factorial(x) for x in map(sum, product(a , b))]
