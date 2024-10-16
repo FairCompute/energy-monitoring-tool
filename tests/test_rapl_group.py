@@ -18,6 +18,7 @@ async def cancel_after(delay, tasks: Collection[asyncio.Task]):
         task.cancel()
 
 
+@unittest.skipUnless(RAPLSoC.is_available(), "RAPL is not available!")
 class TestIntelGroup(unittest.IsolatedAsyncioTestCase):
     def test_object_creation(self):
         rapl_group = RAPLSoC()
