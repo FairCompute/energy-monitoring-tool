@@ -6,39 +6,30 @@ import pandas as pd
 import numpy as np
 from typing import Mapping
 from functools import cached_property
+from collections import defaultdict
 from emt.power_groups.power_group import PowerGroup
 
-class PowerIntegrator:
+
+class DeltaCalculator:
     """
-    Integrates the instantaneous power usages (W) over the time-delta between the previous call.
-    This performs a definite integral of the instantaneous power, using a high-resolution timer,
-    the timer measures the time passed since the last call and integrates the power using the
-    trapezoidal rule.
+    Calculates the difference between two energy readings in Joules. it is initialized with an initial energy of 0.0 .
     """
 
-    def __init__(self):
-        self._previous_time = time.perf_counter()
-        self._previous_power = 0.0
-        self._energy = 0
+    def __init__(self, init_energy: float = 0.0):
+        self._init_energy = init_energy
 
-    def __call__(self, current_power):
+    def __call__(self, current_energy: float):
         """
-        Add an instantaneous power value (in watts) for a power zone and calculate the cumulative energy
+        Add an instantaneous energy value (in joules) for a power zone and calculate the differnece in energy
         consumption in Joules.
         Args:
-            power_watt (float): Instantaneous power usage in watts.
+            current_energy (float): total consumed energy till current point in J
         Returns:
-            float: Cumulative energy consumption in watt-seconds.
+            float: Energy consumption in J.
         """
-        energy_delta = 0
-        current_time = time.perf_counter()
-        time_delta = current_time - self._previous_time
-        # Calculate the energy consumed during this time interval using the trapezoidal rule
-        energy_delta = ((current_power + self._previous_power) / 2.0) * time_delta
-        self._energy += energy_delta
-
-        # Update the last time for the next call
-        self._previous_time = current_time
+        self._energy = (current_energy - self._init_energy) / 1000
+        # Update previous energy for the next call
+        self._init_energy = current_energy
         return self._energy
 
 
@@ -62,13 +53,16 @@ class NvidiaGPU(PowerGroup):
         )
         pynvml.nvmlInit()
         zones = []
-        power_integrators = []
+        delta_calculators = []
         for index in range(pynvml.nvmlDeviceGetCount()):
             zone_handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+            zone_current_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(
+                zone_handle
+            )
             zones.append(zone_handle)
-            power_integrators.append(PowerIntegrator())
+            delta_calculators.append(DeltaCalculator(zone_current_energy))
         self._zones = zones
-        self._power_integrators = power_integrators
+        self._delta_calculators = delta_calculators
 
     @cached_property
     def pids(self):
@@ -80,71 +74,67 @@ class NvidiaGPU(PowerGroup):
         """
         Return unique IDs for each GPU in the system.
         """
-        names = [ pynvml.nvmlDeviceGetIndex(zone) for zone in self._zones]
+        names = [pynvml.nvmlDeviceGetIndex(zone) for zone in self._zones]
         return names
 
-    def is_available(self):
+    @classmethod
+    def is_available(cls):
         """
         Checks if the NVML is available.
         """
         try:
-            self.__init__()
-            available = True if self._zones else False
-            self.shutdown()
+            pynvml.nvmlInit()
+            return True
         except pynvml.NVMLError:
-            available = False
-        return available
+            return False
 
     def _read_energy(self):
         """
-        Retrieves instantaneous power usages (W) of all GPUs in use by the tracked processes.
-        Integrates the power using the corresponding power integrator for the zone, reports
-        the cumulative energy fro each zone.
+        Retrieves the instantaneous consumed energy, and calculates the delta of energy for each zone.
         """
-        energy_zones = {zone: 0.0 for zone in self.zones}
-        for zone, zone_handle, integrator in zip(
-            self.zones, self._zones, self._power_integrators
+        # initialize energy_zones using defaultdict
+        zone_consumed_energy = defaultdict(int)
+        for zone, zone_handle, delta_calculator in zip(
+            self.zones, self._zones, self._delta_calculators
         ):
             try:
-                # Retrieves power usage in mW, divide by 1000 to get in W.
-                power_usage = pynvml.nvmlDeviceGetPowerUsage(zone_handle) / 1000
-                energy_zones[zone] = integrator(power_usage)
+                # Retrieve total energy consumption at this point in time
+                current_total_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(
+                    zone_handle
+                )
+                # get the zone level utilizations and delta energy
+                zone_consumed_energy[zone] = delta_calculator(current_total_energy)
             except pynvml.NVMLError:
                 raise Exception
-            # get time elapsed since
-        return energy_zones
+        return zone_consumed_energy
 
-
-    def _read_utilization(self) -> Mapping[int, float]:
+    def _read_utilization(self):
         """
-        This method provides utilization (per-zone) of the compute devices by the tracked
-        processes.The is used to attribute a proportionate energy credit to the processes.
-
+        Measures the process level memory utilization for each zone, and uses that as a proxy for GPU energy utilization.
         """
-        def _filter(pid):
-            """
-            The filter masks out the `pid` entries not tracked 
-            by the energy monitor and returns the boolean mask.
-            """
-            keep = False
-            if not np.isnan(pid):
-                keep = True if int(pid) in self.pids else False
-            return keep
-        
-        command = "nvidia-smi  pmon -c 1"
-        output = subprocess.check_output(command, shell=True, text=True)
-        lines = output.rstrip().split("\n")
-        header = lines[0][1:].split()  # Extract field names from the header
-        # the second line is units, data begins at the third line
-        data = [line.split() for line in lines[2:] if line.strip()]
-        df = pd.DataFrame(data, columns=header)[["gpu", "pid", "sm", "mem"]]
-        df = df.apply(pd.to_numeric, errors="coerce")
-        # filter out pids that are not relevant
-        filter = df['pid'].apply(_filter)
-        df_system = df.drop(columns=['pid'])
-        df_processes  = df_system[filter]
-        df_processes= df_processes.groupby('gpu').sum().fillna(0.0)
-        return df_processes.to_dict(orient='index')
+        zone_process_utilization = defaultdict(int)
+        for zone, zone_handle in zip(self.zones, self._zones):
+            try:
+                zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
+                # get the active processes in that particular zone
+                processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone_handle)
+                # Filter processes based on self.pids and if the memory usage is not N/A
+                filtered_processes = [
+                    process
+                    for process in processes
+                    if (process.pid in self.pids) and (process.usedGpuMemory)
+                ]
+                zone_memory_use = 0.0
+                for process in filtered_processes:
+                    pid = process.pid
+                    memory_used = (
+                        process.usedGpuMemory
+                    )  # Memory used by this specific process
+                    zone_memory_use += memory_used
+                zone_process_utilization[zone] = zone_memory_use / zone_memory_total
+            except pynvml.NVMLError:
+                raise Exception
+        return zone_process_utilization
 
     async def commence(self) -> None:
         """
@@ -157,23 +147,21 @@ class NvidiaGPU(PowerGroup):
         trace, obtained from each zone, by the utilization of the zone by the processes.
         """
         while True:
-            utilization_trace = self._read_utilization()
-            energy_trace = self._read_energy()
-
+            zone_consumed_energy = self._read_energy()
+            zone_utilization = self._read_utilization()
+            if zone_consumed_energy.keys() != zone_utilization.keys():
+                raise ValueError("Dictionaries do not have the same zone_handle keys.")
+            # get weighted sum of energy utilization
+            consumed_utilized_energy = sum(
+                zone_consumed_energy[zone] * zone_utilization[zone]
+                for zone in zone_consumed_energy
+            )
             self._count_trace_calls += 1
             self.logger.debug(
                 f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"utilization: {utilization_trace}\n"
-                f"energy:     {energy_trace}"
+                f"consumed utilized energy: {consumed_utilized_energy:.2f} J"
             )
-
-            for zone in utilization_trace:    
-                #fmt: off
-                self._consumed_energy += (
-                    energy_trace[zone] * utilization_trace[zone]['sm']
-                )
-                # fmt: on
-
+            self._consumed_energy = consumed_utilized_energy
             await asyncio.sleep(self.sleep_interval)
 
     def shutdown(self):

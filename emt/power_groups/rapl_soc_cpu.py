@@ -9,7 +9,6 @@ from functools import cached_property, reduce
 from emt.power_groups.power_group import PowerGroup
 
 
-
 class DeltaReader:
     """
     This class provides a method that provides the delta between the previously
@@ -45,6 +44,7 @@ class DeltaReader:
                    The delta energy is obtained by RAPL from the MSR registers of the CPU
                    (in micro-joules) and is scaled to joules for the return value.
         """
+        # NOTE: check the logic!!
         value = np.nan
         for k_trail in range(self._num_trails):
             delta = 0.0
@@ -58,9 +58,13 @@ class DeltaReader:
                     delta = _delta
                     break
 
-            self.logger.warning(
-                f"Energy counter overflow detected for: \n{self._file}"
-            ) if k_trail >= (self._num_trails - 1) and delta < 0 else None
+            (
+                self.logger.warning(
+                    f"Energy counter overflow detected for: \n{self._file}"
+                )
+                if k_trail >= (self._num_trails - 1) and delta < 0
+                else None
+            )
         self._previous_value = value
         return delta
 
@@ -104,19 +108,16 @@ class RAPLSoC(PowerGroup):
             Path(self.RAPL_DIR, zone)
             for zone in filter(lambda x: ":" in x, os.listdir(self.RAPL_DIR))
         ]
-
         # filter out zones that do not match zone_pattern
         zones = list(
             filter(lambda zone: not re.fullmatch(zone_pattern, str(zone)), zones)
         )
-
         # Get components for each zone (if available);
         #  Not all processors expose components.
         components = [
             list(filter(lambda x: len(x.stem.split(":")) > 2, Path(zone).rglob("*")))
             for zone in zones
         ]
-
         self.zones_count = len(zones)
         self._zones = []
         self._devices = []
@@ -131,7 +132,6 @@ class RAPLSoC(PowerGroup):
         self.processes = [self.tracked_process] + self.tracked_process.children(
             recursive=True
         )
-
         # create delta energy_readers for each types
         self.zone_readers = [DeltaReader(_zone) for _zone in self._zones]
         self.core_readers = [
@@ -190,9 +190,13 @@ class RAPLSoC(PowerGroup):
 
         return list(map(get_device_name, self._zones, self._devices))
 
-    def is_available(self):
+    @classmethod
+    def is_available(cls):
         """A check for availability of RAPL interface"""
-        return os.path.exists(self.RAPL_DIR) and bool(os.listdir(self.RAPL_DIR))
+        try:
+            return bool(os.path.exists(cls.RAPL_DIR) and bool(os.listdir(cls.RAPL_DIR)))
+        except:
+            return False
 
     def _read_energy(self) -> Mapping[str, float]:
         """
@@ -231,7 +235,7 @@ class RAPLSoC(PowerGroup):
     def _read_utilization(self) -> Mapping[str, float]:
         """
         Reports the  utilization of the CPUs and DRAM by the tracked processes. The utilization
-        is obtained from the `psutil` library, which reports the utilization as a percentage of 
+        is obtained from the `psutil` library, which reports the utilization as a percentage of
         the cpu_time offered to the processes compared to overall cpu_time.
 
         The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
@@ -248,10 +252,10 @@ class RAPLSoC(PowerGroup):
             )
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
             pass
-        
+
         return {
-            "cpu": cpu_utilization/psutil.cpu_count(),
-            "dram":memory_utilization,
+            "cpu": cpu_utilization / psutil.cpu_count(),
+            "dram": memory_utilization,
         }
 
     async def commence(self) -> None:
@@ -278,12 +282,6 @@ class RAPLSoC(PowerGroup):
             #    if system_memory_utilization > 0.0 else 0.0
 
             self._count_trace_calls += 1
-            self.logger.debug(
-                f"Obtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"Utilization: {utilization_trace}\n"
-                f"Energy:     {energy_trace}"
-            )
-
             if self.dram_readers:
                 # fmt:off
                 self._consumed_energy += (
@@ -295,5 +293,10 @@ class RAPLSoC(PowerGroup):
                     energy_trace["zones"] * utilization_trace["cpu"]
                 )
                 # fmt: on
-
+            self.logger.debug(
+                f"\nObtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
+                f"Utilization: {utilization_trace}\n"
+                f"Energy:     {energy_trace}\n"
+                f"Consumed Energy: {self._consumed_energy: .2f} J"
+            )
             await asyncio.sleep(self.sleep_interval)

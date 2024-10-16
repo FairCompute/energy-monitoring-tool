@@ -24,18 +24,18 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f'A PowerGroup of type `{self.__class__.__name__}` created')
+        self.logger.info(f"A PowerGroup of type `{self.__class__.__name__}` created")
 
     @cached_property
-    def sleep_interval(self)->float:
-        return (1.0/self._rate)
-    
+    def sleep_interval(self) -> float:
+        return 1.0 / self._rate
+
     @property
     def tracked_process(self):
         return self._process
 
-
-    def is_available(self) -> bool:
+    @classmethod
+    def is_available(cls) -> bool:
         """
         A status flag, provides information if the virtual group is available for monitoring.
         When false a mechanism to trace a particular device type is not available.
@@ -53,12 +53,12 @@ class PowerGroup:
           [get_energy_trace -> update_energy_consumption -> async_wait]
         """
         ...
-    
-    def shutdown(self)->None:
+
+    def shutdown(self) -> None:
         """
         This performs the any cleanup required at the shutdown of the PowerGroup.
         """
-        set.logger.info(f'shutting down {type(self).__name__} ')
+        set.logger.info(f"shutting down {type(self).__name__} ")
 
     @property
     def consumed_energy(self) -> float:
