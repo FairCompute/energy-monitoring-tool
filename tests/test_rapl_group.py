@@ -9,13 +9,16 @@ from emt.power_groups import RAPLSoC
 def foo():
     a = [random.randint(1, 100) for _ in range(1000)]
     b = [random.randint(1, 10) for _ in range(1000)]
-    return [math.factorial(x) for x in map(sum, product(a , b))]
+    return [math.factorial(x) for x in map(sum, product(a, b))]
 
-async def cancel_after(delay, tasks:Collection[asyncio.Task]):
+
+async def cancel_after(delay, tasks: Collection[asyncio.Task]):
     await asyncio.sleep(delay)
     for task in tasks:
         task.cancel()
 
+
+class TestIntelGroup(unittest.IsolatedAsyncioTestCase):
     def test_object_creation(self):
         rapl_group = RAPLSoC()
         self.assertTrue(rapl_group.devices)
@@ -27,5 +30,6 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
         with self.assertRaises(asyncio.CancelledError):
             await asyncio.gather(*tasks, cancel_task)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

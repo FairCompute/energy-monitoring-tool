@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "astype",
+        "cuda",
         "dtype",
         "fillna",
         "finfo",
@@ -10,6 +11,7 @@
         "levelname",
         "maxval",
         "minval",
+        "numpy",
         "nvml",
         "pids",
         "pmon",
@@ -18,8 +20,12 @@
         "powergroups",
         "psutil",
         "psys",
+        "pycache",
         "pynvml",
+        "pyright",
+        "Rameez",
         "RAPL",
-        "seperate"
+        "seperate",
+        "setuptools"
     ]
 }
