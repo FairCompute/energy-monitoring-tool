@@ -19,6 +19,7 @@ async def cancel_after(delay, tasks:Collection[asyncio.Task]):
     def test_object_creation(self):
         rapl_group = RAPLSoC()
         self.assertTrue(rapl_group.devices)
+
     async def test_power_group(self):
         power_groups = [IntelCPU()]
         tasks = [asyncio.create_task(pG.commence()) for pG in power_groups]
