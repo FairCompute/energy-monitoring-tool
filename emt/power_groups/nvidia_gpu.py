@@ -1,10 +1,5 @@
-import time
 import asyncio
 import pynvml
-import subprocess
-import pandas as pd
-import numpy as np
-from typing import Mapping
 from functools import cached_property
 from collections import defaultdict
 from emt.power_groups.power_group import PowerGroup
@@ -20,7 +15,7 @@ class DeltaCalculator:
 
     def __call__(self, current_energy: float):
         """
-        Add an instantaneous energy value (in joules) for a power zone and calculate the differnece in energy
+        Add an instantaneous energy value (in joules) for a power zone and calculate the difference in energy
         consumption in Joules.
         Args:
             current_energy (float): total consumed energy till current point in J
@@ -97,15 +92,12 @@ class NvidiaGPU(PowerGroup):
         for zone, zone_handle, delta_calculator in zip(
             self.zones, self._zones, self._delta_calculators
         ):
-            try:
-                # Retrieve total energy consumption at this point in time
-                current_total_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(
-                    zone_handle
-                )
-                # get the zone level utilizations and delta energy
-                zone_consumed_energy[zone] = delta_calculator(current_total_energy)
-            except pynvml.NVMLError:
-                raise Exception
+            # Retrieve total energy consumption at this point in time
+            current_total_energy = pynvml.nvmlDeviceGetTotalEnergyConsumption(
+                zone_handle
+            )
+            # get the zone level utilizations and delta energy
+            zone_consumed_energy[zone] = delta_calculator(current_total_energy)
         return zone_consumed_energy
 
     def _read_utilization(self):
@@ -114,26 +106,22 @@ class NvidiaGPU(PowerGroup):
         """
         zone_process_utilization = defaultdict(int)
         for zone, zone_handle in zip(self.zones, self._zones):
-            try:
-                zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
-                # get the active processes in that particular zone
-                processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone_handle)
-                # Filter processes based on self.pids and if the memory usage is not N/A
-                filtered_processes = [
-                    process
-                    for process in processes
-                    if (process.pid in self.pids) and (process.usedGpuMemory)
-                ]
-                zone_memory_use = 0.0
-                for process in filtered_processes:
-                    pid = process.pid
-                    memory_used = (
-                        process.usedGpuMemory
-                    )  # Memory used by this specific process
-                    zone_memory_use += memory_used
-                zone_process_utilization[zone] = zone_memory_use / zone_memory_total
-            except pynvml.NVMLError:
-                raise Exception
+            zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
+            # get the active processes in that particular zone
+            processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone_handle)
+            # Filter processes based on self.pids and if the memory usage is not N/A
+            filtered_processes = [
+                process
+                for process in processes
+                if (process.pid in self.pids) and (process.usedGpuMemory)
+            ]
+            zone_memory_use = 0.0
+            for process in filtered_processes:
+                memory_used = (
+                    process.usedGpuMemory
+                )  # Memory used by this specific process
+                zone_memory_use += memory_used
+            zone_process_utilization[zone] = zone_memory_use / zone_memory_total
         return zone_process_utilization
 
     async def commence(self) -> None:

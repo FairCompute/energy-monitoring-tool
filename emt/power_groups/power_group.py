@@ -47,7 +47,7 @@ class PowerGroup:
         """
         ...
 
-    async def commence() -> None:
+    async def commence(self) -> None:
         """
         This commence a periodic execution at a set rate:
           [get_energy_trace -> update_energy_consumption -> async_wait]
