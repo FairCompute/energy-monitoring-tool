@@ -1,15 +1,19 @@
+import time
 import tempfile
 import unittest
 import math, random
 import logging
 import asyncio
+import shutil
 from pathlib import Path
-import time
 from threading import Thread
 from itertools import product
-from emt import EnergyMeter
-from unittest.mock import Mock
 import unittest
+from unittest.mock import Mock
+
+# emt related imports
+import emt
+from emt import EnergyMeter
 
 
 def foo():
@@ -18,22 +22,18 @@ def foo():
     return [math.factorial(x) for x in map(sum, product(a, b))]
 
 
-class TestIntelGroup(unittest.TestCase):
+class TestEnergyMeter(unittest.TestCase):
     def setUp(self):
         # Create some mock PowerGroup instances for testing
-        self.log_dir = tempfile.TemporaryDirectory()
-        self.log_file = str(Path(self.log_dir.name, "energy_meter.log"))
+        self.log_dir = Path(tempfile.mkdtemp())
         self.mock_power_group_1 = Mock()
         self.mock_power_group_2 = Mock()
         self.power_groups = [self.mock_power_group_1, self.mock_power_group_2]
 
     def test_init(self):
         # Test the __init__ method
-        logging_interval = 900
-        logging_level = logging.NOTSET
-        energy_meter = EnergyMeter(
-            self.power_groups, self.log_file, logging_interval, logging_level
-        )
+        logging_interval = 14
+        energy_meter = EnergyMeter(self.power_groups, logging_interval)
         self.assertEqual(energy_meter.power_groups, self.power_groups)
         self.assertEqual(energy_meter.monitoring, False)
         self.assertEqual(energy_meter.concluded, False)
@@ -41,12 +41,17 @@ class TestIntelGroup(unittest.TestCase):
 
     def test_asynchronous_shutdown(self):
         """
-        The run method is run in the main thread while conclude is
-        executed by a parallel thread asynchronously.
+        The run method is executed in the main thread while conclude is
+        executed by a seperate thread asynchronously.
         """
+
+        emt.setup_logger(
+            Path(self.log_dir, "test.log"),
+            logging_level=logging.INFO,
+        )
+
         energy_meter = EnergyMeter(
             self.power_groups,
-            self.log_file,
             logging_interval=1,
         )
 
@@ -71,9 +76,9 @@ class TestIntelGroup(unittest.TestCase):
         self.mock_power_group_1.commence.side_effect = mock_commence
         self.mock_power_group_2.commence.side_effect = mock_commence
 
-        # Create a seperate thread to cancel the tracking aftert 1 sec.
+        # Create a seperate thread to cancel the tracking after1 sec.
         Thread(target=conclude_after_t_sec, args=(1,)).start()
-        with self.assertLogs("EnergyMonitor", level="INFO"):
+        with self.assertLogs("emt", level="INFO"):
             energy_meter.run()
 
         self.assertTrue(self.mock_power_group_1.commence.called)
@@ -83,12 +88,17 @@ class TestIntelGroup(unittest.TestCase):
 
     def test_run_threaded(self):
         """
-        The run method is run in a seperate thread while conclude is
+        The run method is executed in a seperate thread while conclude is
         executed on the main thread after a while.
         """
+
+        emt.setup_logger(
+            Path(self.log_dir, "test.log"),
+            logging_level=logging.DEBUG,
+        )
+
         energy_meter = EnergyMeter(
             self.power_groups,
-            self.log_file,
             logging_interval=1,
         )
 
@@ -107,28 +117,19 @@ class TestIntelGroup(unittest.TestCase):
         self.mock_power_group_2.commence.side_effect = mock_commence
         _thread = Thread(target=lambda: energy_meter.run())
 
-        with self.assertLogs("EnergyMonitor", level="INFO"):
+        with self.assertLogs("emt", level="DEBUG"):
             _thread.start()
-            conclude_after_t_sec(1)    
+            conclude_after_t_sec(1)
             _thread.join()
-            
+
         self.assertTrue(self.mock_power_group_1.commence.called)
         self.assertTrue(self.mock_power_group_2.commence.called)
         self.assertTrue(self.mock_power_group_1.commence.awaited)
         self.assertTrue(self.mock_power_group_2.commence.awaited)
 
-    def test_intel_cpu(self):
-        intel_group = IntelCPU()
-        energy_meter = EnergyMeter((intel_group,))
-        _thread = Thread(target=lambda: energy_meter.run())
-        _thread.start()
-        time.sleep(1)
-        energy_meter.conclude()
-        _thread.join
-
     def tearDown(self):
-        # This will remove the temporary directory and all its contents
-        self.log_dir.cleanup()
+        shutil.rmtree(self.log_dir)
+        super().tearDown()
 
 
 if __name__ == "__main__":

@@ -5,12 +5,91 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    types: [ opened, synchronize, reopened, edited ]
   workflow_dispatch:
 
+
+permissions:
+  contents: write
+  checks: write
+  issues: write
+  pull-requests: write
+  actions: read
+
+
 jobs:
-  linting:
+
+  CodeFormatter:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
 
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Setup ReviewDog
+        uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+      
+      - name : setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Setup Black
+        uses:  psf/black@stable
+        id: action_black
+        with:
+          options: ""
+          src: "."
+
+      - name: Submit Review via ReviewDog [Black]
+        run: |
+          set -euxo pipefail
+          echo "Running Black"
+          TEMPFILE="$(mktemp)"
+          git diff > $TEMPFILE
+          git stash -u || true
+          git stash drop || true
+          reviewdog -f=diff\
+                    -name=BLACK\
+                    -reporter=github-pr-review\
+                    -filter-mode='nofilter'\
+                    -fail-level=error\
+                    -diff="git diff FETCH_HEAD"\
+                    -level=warning\
+                    -tee < $TEMPFILE
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+
+  SonarQube:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install SonarQube Scanner
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+            SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        # If you wish to fail your job when the Quality Gate is red, uncomment the
+        # following lines. This would typically be used to fail a deployment.
+        # We do not recommend to use this in a pull request. Prefer using pull request
+        # decoration instead.
+        # - uses: sonarsource/sonarqube-quality-gate-action@master
+        #   timeout-minutes: 5
+        #   env:
+        #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+     
+  TestSuite:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -18,74 +97,18 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: 'pyproject.toml'
 
       - name: Install Dependencies
         run: |
           python --version
-          python -m pip install --upgrade pip
-          python -m pip list
-          python -m pip install -e .
-          python -m pip list
+          python -m pip install -e .[test]
 
-          
-          
-      - name: Run Black
+      - name: Pytest
         uses: microsoft/action-python@0.7.3
         with:
           workdir: .
-          black: true
-
-
-      # - name: Run Bandit
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     bandit: true
-
-      # - name: Run Pylint
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     pylint: true
-
-      # - name: Run Pyright
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     pyright: true
-
-      # - name: Run Flake8
-      #   uses: microsoft/action-python@0.7.3
-      #   with:
-      #     flake8: true
-
-  # testing:
-  #   runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-  #   strategy:
-  #     matrix:
-  #       python-version: ['3.9', '3.10', '3.11', '3.12']
-  #   steps:
-  #     - name: Checkout Code
-  #       uses: actions/checkout@v4
-
-  #     - name: Setup Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #         cache: 'pip'
-  #         cache-dependency-path: 'pyproject.toml'
-
-  #     - name: Create Virtual Environment
-  #       run: python -m venv emt
-
-  #     - name: Activate Virtual Environment and Install Dependencies
-  #       run: |
-  #         source ./emt/bin/activate
-  #         python --version
-  #         python -m pip install --upgrade pip
-  #         python -m pip install -e .[test]
-
-  #     - name: Pytest
-  #       uses: microsoft/action-python@0.7.0
-  #       with:          
-  #         testing: true
+          python_version: ${{ matrix.python-version }}
+          pytest: true

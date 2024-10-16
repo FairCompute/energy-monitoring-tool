@@ -103,7 +103,7 @@ class EnergyMeter:
         seperate independent thread.
         """
         if not self.monitoring:
-            logging.ERROR(
+            self.logger.error(
                 "Attempting to conclude monitoring before commencement.\n"
                 "It is illegal to conclude before commencement. Shutting Down!"
             )
@@ -132,6 +132,7 @@ class EnergyMeter:
 
 
 class EnergyMonitor:
+
     def get_powergroup_types(self, module):
         candidates = [
             getattr(module, name)
@@ -144,18 +145,15 @@ class EnergyMonitor:
     def __enter__(self):
         if not logging.getLogger("emt").hasHandlers():
             emt.setup_logger()
-
         powergroup_types = self.get_powergroup_types(power_groups)
-        # check for availabe power_groups
+        # check for available power_groups
         available_powergroups = list(
             filter(lambda x: x.is_available(), powergroup_types)
         )
         # instantiate only available powergroups
         powergroups = [pgt() for pgt in available_powergroups]
-        # if not any(map(lambda x: isinstance(x, power_groups.RAPLSoC), powergroups)):
-        #     raise RuntimeError('A CPU power-group is expected at minimum,'
-        #                        ' but I am not able to found one!')
         # TODO: Check if no power groups are selected then raise warning and exit
+
         # Create a separate thread and start it.
         energy_meter = EnergyMeter(powergroups=powergroups)
         self.energy_meter_thread = threading.Thread(
