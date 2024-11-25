@@ -35,7 +35,7 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 
 [project.optional-dependencies]
 dev = ["black"]
-test = ["tensorflow[and-cuda]", "pytest"]
+test = ["tensorflow[and-cuda]", "pytest", "coverage"]
 
 
 [tool.setuptools.packages.find]

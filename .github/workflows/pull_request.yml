@@ -63,22 +63,6 @@ jobs:
                     -tee < $TEMPFILE
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
-
-  SonarQube:
-    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install SonarQube Scanner
-        uses: sonarsource/sonarqube-scan-action@master
-        env:
-            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-            SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
 
      
@@ -109,3 +93,47 @@ jobs:
           workdir: .
           python_version: ${{ matrix.python-version }}
           pytest: true
+
+      - name: Coverage
+        run: |
+          python -m coverage run -m pytest
+          python -m coverage xml -o coverage.xml  
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: coverage.xml
+          retention-days: 1
+          overwrite: true
+
+        
+
+  SonarQube:
+    runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
+    needs: TestSuite
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Coverage Report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: .
+
+      - name: Sonarqube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+            SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Delete Coverage Report Artifact
+        run: |
+          curl -X DELETE \
+               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               https://api.github.com/repos/${{ github.repository }}/actions/artifacts/coverage-report-${{ github.sha }}
+
+
