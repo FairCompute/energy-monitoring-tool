@@ -2,6 +2,7 @@ import logging
 import psutil
 import logging
 from typing import Optional
+from collections import defaultdict
 from functools import cached_property
 
 
@@ -25,6 +26,7 @@ class PowerGroup:
         self._rate = rate
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"A PowerGroup of type `{self.__class__.__name__}` created")
+        self._energy_trace = defaultdict(list)
 
     @cached_property
     def sleep_interval(self) -> float:
@@ -33,6 +35,13 @@ class PowerGroup:
     @property
     def tracked_process(self):
         return self._process
+
+    @tracked_process.setter
+    def tracked_process(self, value):
+        """
+        This setter is motsly created for testing purpose
+        """
+        self._tracked_process = value
 
     @classmethod
     def is_available(cls) -> bool:

@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import asyncio
 import psutil
 import numpy as np
@@ -31,8 +32,9 @@ class DeltaReader:
         """
 
         self._num_trails = num_trails
-        self._previous_value = np.nan
+        self._previous_value = None
         self._file = file_path
+        self.track_energy_traces = None
 
     def __call__(self):
         """
@@ -45,27 +47,25 @@ class DeltaReader:
                    (in micro-joules) and is scaled to joules for the return value.
         """
         # NOTE: check the logic!!
-        value = np.nan
-        for k_trail in range(self._num_trails):
+        value = None
+        for _ in range(self._num_trails):
             delta = 0.0
             with open(Path(self._file, "energy_uj"), "r") as f:
                 value = int(f.read())
 
-            # if there is reference value, compute delta
-            if not np.isnan(self._previous_value):
+            # if there is a previous reference value, compute delta
+            if self._previous_value is not None:
                 _delta = float(value - self._previous_value) * 1e-6
                 if _delta >= 0:
+                    # break the loop of the new reading is greater or equal to the previous one
+                    # else read again
                     delta = _delta
                     break
-
-            (
-                self.logger.warning(
-                    f"Energy counter overflow detected for: \n{self._file}"
-                )
-                if k_trail >= (self._num_trails - 1) and delta < 0
-                else None
-            )
+        # after first ever call this value is set and then for consecutive calls its used and reset
         self._previous_value = value
+        if delta < 0:
+            self.logger.warning(f"Energy counter overflow detected for: \n{self._file}")
+            return 0.0
         return delta
 
 
@@ -102,7 +102,6 @@ class RAPLSoC(PowerGroup):
         # by default a rate 5Hz is used to collect energy_trace.
         kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
-
         # Get intel-rapl power zones/domains
         zones = [
             Path(self.RAPL_DIR, zone)
@@ -195,7 +194,7 @@ class RAPLSoC(PowerGroup):
         """A check for availability of RAPL interface"""
         try:
             return bool(os.path.exists(cls.RAPL_DIR) and bool(os.listdir(cls.RAPL_DIR)))
-        except:
+        except OSError:
             return False
 
     def _read_energy(self) -> Mapping[str, float]:
@@ -234,29 +233,43 @@ class RAPLSoC(PowerGroup):
 
     def _read_utilization(self) -> Mapping[str, float]:
         """
-        Reports the  utilization of the CPUs and DRAM by the tracked processes. The utilization
-        is obtained from the `psutil` library, which reports the utilization as a percentage of
+        calculates the relative utilization of the CPUs and DRAM of the tracked processes.
+        process_utilization = (process_cpu_percent / cpu_count * total_cpu_percent).
+        The utilization is obtained from the `psutil` library, which reports the utilization as a percentage of
         the cpu_time offered to the processes compared to overall cpu_time.
+        It is normalized to get the utilization wrt. other active processes that contribute to energy consumption.
 
-        The cpu utilization is a number between 0 and 1, where 1 is 100%. Similarly, the dram
-        utilization is a number between 0 and 1, where 1 is 100%.
+        Returns:
+            dict: cpu and memeory utilizations
+
+
         """
-        cpu_utilization = np.nan
-        memory_utilization = np.nan
-        try:
-            cpu_utilization = reduce(
-                lambda x, y: x + y, (ps.cpu_percent() for ps in self.processes)
-            )
-            memory_utilization = reduce(
-                lambda x, y: x + y, (ps.memory_percent() for ps in self.processes)
-            )
-        except (psutil.NoSuchProcess, psutil.ZombieProcess):
-            pass
-
-        return {
-            "cpu": cpu_utilization / psutil.cpu_count(),
-            "dram": memory_utilization,
+        utilizations = {
+            "dram": 0.0,
+            "ps_util": 0.0,
+            "cpu_util": 0.0,
+            "norm_ps_util": 0.0,
         }
+        try:
+            # process level cpu utilization for all the process
+            ps_cpu_util = sum(ps.cpu_percent() for ps in self.processes)
+            ps_mem_util = sum(ps.memory_percent() for ps in self.processes)
+            # divind by cpu count normalizes the utilization to [0-100]% for each process
+            utilizations["cpu_util"] = psutil.cpu_percent()
+            utilizations["ps_util"] = ps_cpu_util / psutil.cpu_count()
+            utilizations["norm_ps_util"] = (
+                utilizations["ps_util"] / utilizations["cpu_util"]
+            )
+
+            utilizations["dram"] = ps_mem_util
+        except psutil.NoSuchProcess:
+            self.logger.error("Process utilization could not be found.")
+        except ZeroDivisionError:
+            self.logger.error(
+                "Total CPU usage is zero, cannot calculate CPU usage fraction."
+            )
+
+        return utilizations
 
     async def commence(self) -> None:
         """
@@ -270,33 +283,55 @@ class RAPLSoC(PowerGroup):
         """
 
         while True:
-            utilization_trace = self._read_utilization()
+            start_time = time.perf_counter()
             energy_trace = self._read_energy()
+            measuremnet_time = time.perf_counter() - start_time
 
-            # system_compute_utilization = psutil.cpu_percent()
-            # system_memory_utilization = psutil.virtual_memory().percent
-            #  # relative utilization
-            # relative_utilization_compute = utilization_trace / system_compute_utilization \
-            #     if system_compute_utilization > 0.0 else 0.0
-            # relative_utilization_memory = memory_utilization_process / system_memory_utilization \
-            #    if system_memory_utilization > 0.0 else 0.0
+            utilization_trace = self._read_utilization()
 
-            self._count_trace_calls += 1
             if self.dram_readers:
                 # fmt:off
-                self._consumed_energy += (
-                    (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['cpu'] +
+                consumed_utilized_energy = (
+                    (energy_trace['zones'] - energy_trace['dram']) * utilization_trace['norm_ps_util'] +
                       energy_trace['dram'] * utilization_trace['dram']
                 ) 
             else:
-                self._consumed_energy += (
-                    energy_trace["zones"] * utilization_trace["cpu"]
+                consumed_utilized_energy = (
+                    energy_trace["zones"] * utilization_trace["norm_ps_util"]
                 )
                 # fmt: on
-            self.logger.debug(
-                f"\nObtained energy trace no.{self._count_trace_calls} from {type(self).__name__ }:\n"
-                f"Utilization: {utilization_trace}\n"
-                f"Energy:     {energy_trace}\n"
-                f"Consumed Energy: {self._consumed_energy: .2f} J"
+            # consume energy is sum of all the utilized consumed enrergies across the intervals
+            self._consumed_energy += consumed_utilized_energy
+
+            # add trace info
+            self._energy_trace["trace_num"].append(self._count_trace_calls)
+            self._energy_trace["measuremnet_time"].append(round(measuremnet_time, 4))
+            self._energy_trace["ps_util"].append(round(utilization_trace["ps_util"], 2))
+            self._energy_trace["cpu_util"].append(
+                round(utilization_trace["cpu_util"], 4)
             )
+            self._energy_trace["norm_ps_util"].append(
+                round(utilization_trace["norm_ps_util"], 2)
+            )
+            if self.dram_readers:
+                self._energy_trace["total_energy_cpu"].append(
+                    round(energy_trace["zones"] - energy_trace["dram"], 2)
+                )
+                self._energy_trace["total_energy_dram"].append(
+                    round(energy_trace["dram"], 2)
+                )
+                self._energy_trace["utilization_dram"].append(
+                    round(utilization_trace["dram"], 2)
+                )
+            else:
+                self._energy_trace["total_energy_cpu"].append(
+                    round(energy_trace["zones"], 2)
+                )
+            self._energy_trace["consumed_utilized_energy"].append(
+                round(consumed_utilized_energy, 2)
+            )
+            self._energy_trace["consumed_utilized_energy_cumsum"].append(
+                round(self._consumed_energy, 2)
+            )
+            self._count_trace_calls += 1
             await asyncio.sleep(self.sleep_interval)
