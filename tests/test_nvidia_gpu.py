@@ -103,10 +103,10 @@ def setup_gpu():
 
             # Mock memory info for each GPU
             mock_memory_info_1 = MagicMock(
-                total=1024 * 1024 * 1024
+                used=1024 * 1024 * 1024
             )  # 1 GB total memory for GPU 1
             mock_memory_info_2 = MagicMock(
-                total=2048 * 1024 * 1024
+                used=2048 * 1024 * 1024
             )  # 2 GB total memory for GPU 2
             mock_pynvml.nvmlDeviceGetMemoryInfo.side_effect = [
                 mock_memory_info_1,
@@ -189,15 +189,19 @@ def test_read_energy(setup_gpu):
 
 def test_read_utilization(setup_gpu):
     gpu, _ = setup_gpu
-    utilization_data = gpu._read_utilization()
-    expected_util_data = {
+    used_mem_zones, ps_mem_zones, ps_util_zones = gpu._read_utilization()
+    exp_available_mem_zones = {0: 1024 * 1024 * 1024, 1: 2048 * 1024 * 1024}
+    exp_ps_mem_zones = {0: 512 * 1024 * 1024, 1: 256 * 1024 * 1024}
+    exp_ps_util_zones = {
         0: 0.5,
         1: 0.125,
     }  # Adjust based on the expected delta energy calculation
-    assert len(utilization_data) == 2  # Ensure there are energy readings for both zones
+    assert len(ps_util_zones) == 2  # Ensure there are energy readings for both zones
+    assert all(value in ps_util_zones.values() for value in exp_ps_util_zones.values())
     assert all(
-        value in utilization_data.values() for value in expected_util_data.values()
+        value in used_mem_zones.values() for value in exp_available_mem_zones.values()
     )
+    assert all(value in ps_mem_zones.values() for value in exp_ps_mem_zones.values())
 
 
 def test_utilized_energy_calcualtoin(setup_gpu):
@@ -205,14 +209,14 @@ def test_utilized_energy_calcualtoin(setup_gpu):
     Check the logic of energy utilization
     """
     gpu, _ = setup_gpu
-    zone_consumed_energy = gpu._read_energy()
-    zone_utilization = gpu._read_utilization()
-    if zone_consumed_energy.keys() != zone_utilization.keys():
+    consumed_energy_zones = gpu._read_energy()
+    _, _, ps_util_zones = gpu._read_utilization()
+    if consumed_energy_zones.keys() != ps_util_zones.keys():
         raise ValueError("Dictionaries do not have the same zone_handle keys.")
     # get weighted sum of energy utilization
     consumed_utilized_energy = sum(
-        zone_consumed_energy[zone] * zone_utilization[zone]
-        for zone in zone_consumed_energy
+        consumed_energy_zones[zone] * ps_util_zones[zone]
+        for zone in consumed_energy_zones
     )
     # energy - [2.0, 4.0] , utilization [0.5, 0.125] utilized energy = (2.0 * 0.5 + 4.0 * 0.125) = 1.5
     assert abs(consumed_utilized_energy - 1.5) < tolerance

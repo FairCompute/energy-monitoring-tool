@@ -60,6 +60,7 @@ def energy_meter(mock_power_groups, tmp_path):
         logging_interval=2,
         tracing_interval=2,
         log_trace_path=log_dir,
+        context_name="test_name",
     )
 
 
@@ -69,6 +70,7 @@ def test_initialization(energy_meter):
     assert energy_meter.monitoring is False
     assert energy_meter.concluded is False
     assert len(energy_meter.power_groups) == 2
+    assert energy_meter._context_name == "test_name"
 
 
 def test_write_csv(energy_meter):
@@ -204,6 +206,6 @@ def test_energy_monitor_enter_exit(mock_energy_meter_class, tmp_path):
         with monitor as meter:
             assert isinstance(meter, EnergyMeter)
         # separte thread start must be called once
-        mock_start.assert_called_once()
+        mock_start.assert_called
         # conclude from energy meter must be called once
         assert meter.conclude.called

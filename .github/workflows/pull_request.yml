@@ -2,12 +2,11 @@ name: Pull Request
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-    types: [ opened, synchronize, reopened, edited ]
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
-
 
 permissions:
   contents: write
@@ -16,9 +15,7 @@ permissions:
   pull-requests: write
   actions: read
 
-
 jobs:
-
   CodeFormatter:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
 
@@ -27,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Setup ReviewDog
         uses: reviewdog/action-setup@v1
         with:
@@ -36,10 +33,10 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Setup Black
-        uses:  psf/black@stable
+        uses: psf/black@stable
         id: action_black
         with:
           options: ""
@@ -64,13 +61,11 @@ jobs:
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
-     
   TestSuite:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -79,13 +74,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: 'pyproject.toml'
+          cache: "pip"
+          cache-dependency-path: "pyproject.toml"
 
       - name: Install Dependencies
         run: |
           python --version
-          python -m pip install -e .[test]
+          python -m pip install -e .[test,gui]
 
       - name: Pytest
         uses: microsoft/action-python@0.7.3
@@ -97,7 +92,7 @@ jobs:
       - name: Coverage
         run: |
           python -m coverage run -m pytest
-          python -m coverage xml -o coverage.xml  
+          python -m coverage xml -o coverage.xml
 
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
@@ -106,8 +101,6 @@ jobs:
           path: coverage.xml
           retention-days: 1
           overwrite: true
-
-        
 
   SonarQube:
     runs-on: [self-hosted, linux, x64, philips-code-hub, ubuntu-latest]
@@ -127,13 +120,11 @@ jobs:
       - name: Sonarqube Scan
         uses: sonarsource/sonarqube-scan-action@master
         env:
-            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-            SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
       - name: Delete Coverage Report Artifact
         run: |
           curl -X DELETE \
                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                https://api.github.com/repos/${{ github.repository }}/actions/artifacts/coverage-report-${{ github.sha }}
-
-

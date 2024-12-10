@@ -13,6 +13,7 @@ from typing import Collection, Mapping
 import emt
 from emt.power_groups import PowerGroup
 from emt import power_groups
+from emt.utils import GUI
 
 
 class EnergyMeter:
@@ -22,6 +23,7 @@ class EnergyMeter:
         logging_interval: int | None = 1000,
         tracing_interval: int | None = 50,
         log_trace_path: os.PathLike = "logs/energy_traces/",
+        context_name: str = "monitor",
     ):
         """
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
@@ -44,7 +46,8 @@ class EnergyMeter:
         self._shutdown_event = asyncio.Event()
         self._logging_interval = logging_interval
         self._log_trace_interval = tracing_interval  # set this None for stop tracing
-        self._log_trace_dir = log_trace_path
+        self._context_name = context_name
+        self._log_trace_dir = os.path.join(log_trace_path, context_name)
         self.logger = logging.getLogger(__name__)
 
     @property
@@ -195,13 +198,18 @@ class EnergyMeter:
 
 
 class EnergyMonitor:
+
     def __init__(
         self,
         tracing_interval: int = 20,
         log_trace_path: os.PathLike = "logs/energy_traces/",
+        enable_gui: bool = True,
+        context_name: str = "monitor",
     ):
         self.tracing_interval = tracing_interval
         self.log_trace_path = log_trace_path
+        self.enable_gui = enable_gui
+        self.context_name = context_name
 
     def get_powergroup_types(self, module):
         candidates = [
@@ -223,18 +231,31 @@ class EnergyMonitor:
         )
         # instantiate only available powergroups
         powergroups = [pgt() for pgt in available_powergroups]
-        # TODO: Check if no power groups are selected then raise warning and exit
 
-        # Create a separate thread and start it.
         energy_meter = EnergyMeter(
             tracing_interval=self.tracing_interval,
             log_trace_path=self.log_trace_path,
             powergroups=powergroups,
+            context_name=self.context_name,
         )
+        # run EnergyMonitoring as a separate thread
         self.energy_meter_thread = threading.Thread(
-            name="EnergyMonitoringThread", target=lambda: energy_meter.run()
+            name="EnergyMonitoringThread", target=energy_meter.run
         )
         self.energy_meter_thread.start()
+
+        if self.enable_gui:
+            logging.info("Starting GUI on a separate thread...")
+            # create gui object
+            self.gui = GUI(self.log_trace_path, self.tracing_interval)
+            # run UI as a separate thread
+            self.gui_thread = threading.Thread(
+                name="UIThread",
+                target=self.gui.run,
+                daemon=True,
+            )
+            self.gui_thread.start()
+
         self.energy_meter = energy_meter
         time.sleep(1)
         return self.energy_meter
@@ -250,3 +271,11 @@ class EnergyMonitor:
         self.energy_meter.logger.info(
             f"Power group energy consumptions: {self.energy_meter.consumed_energy}"
         )
+        if self.enable_gui and self.gui_thread.is_alive():
+            logging.info("Shutting down GUI...")
+            try:
+                self.gui.stop()  # Signal the thread to stop
+            except RuntimeError as e:
+                logging.error(f"Error during GUI shutdown: {e}")
+            self.gui_thread.join()  # Wait for the thread to finish
+            logging.info("GUI server has been shut down.")

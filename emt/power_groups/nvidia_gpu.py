@@ -92,7 +92,7 @@ class NvidiaGPU(PowerGroup):
             defaultdict: energy usage of each zone
         """
         # initialize energy_zones using defaultdict
-        zone_consumed_energy = defaultdict(int)
+        consumed_energy_zones = defaultdict(int)
         for zone, zone_handle, delta_calculator in zip(
             self.zones, self._zones, self._delta_calculators
         ):
@@ -102,10 +102,10 @@ class NvidiaGPU(PowerGroup):
                     zone_handle
                 )
                 # get the zone level utilizations and delta energy
-                zone_consumed_energy[zone] = delta_calculator(current_total_energy)
+                consumed_energy_zones[zone] = delta_calculator(current_total_energy)
             except pynvml.NVMLError as e:
                 self.logger.warning(f"Could not read energy due to NVML error: {e}")
-        return zone_consumed_energy
+        return consumed_energy_zones
 
     def _read_utilization(self):
         """ "
@@ -114,32 +114,37 @@ class NvidiaGPU(PowerGroup):
         Returns:
             defaultdict: memory utilization of each zone
         """
-        zone_process_utilization = defaultdict(int)
+        used_mem_zones = defaultdict(int)
+        ps_mem_zones = defaultdict(int)
+        ps_util_zones = defaultdict(int)
         for zone, zone_handle in zip(self.zones, self._zones):
             try:
-                # get total available memory of a zone (zone: gpu 0,1,2 etc)
-                zone_memory_total = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).total
+                # get total used memory of a zone (zone: gpu 0,1,2 etc)
+                zone_memory_used = pynvml.nvmlDeviceGetMemoryInfo(zone_handle).used
                 # get the active processes in a zone
                 processes = pynvml.nvmlDeviceGetComputeRunningProcesses(zone_handle)
                 # filter processes based on self.pids and if the memory usage is not N/A
                 filtered_processes = [
-                    process
-                    for process in processes
-                    if (process.pid in self.pids) and (process.usedGpuMemory)
+                    ps
+                    for ps in processes
+                    if (ps.pid in self.pids) and (ps.usedGpuMemory)
                 ]
-                zone_memory_use = 0.0
+                zone_ps_memory = 0.0
                 for process in filtered_processes:
                     memory_used = (
                         process.usedGpuMemory
                     )  # Memory used by a specific process
                     # memory usage of all filtered processes in a zone
-                    zone_memory_use += memory_used
-                zone_process_utilization[zone] = zone_memory_use / zone_memory_total
+                    zone_ps_memory += memory_used
+                # store values
+                used_mem_zones[zone] = zone_memory_used
+                ps_mem_zones[zone] = zone_ps_memory
+                ps_util_zones[zone] = zone_ps_memory / zone_memory_used
             except pynvml.NVMLError as e:
                 self.logger.warning(
                     f"Could not read utilizations due to NVML error: {e}"
                 )
-        return zone_process_utilization
+        return used_mem_zones, ps_mem_zones, ps_util_zones
 
     async def commence(self) -> None:
         """
@@ -155,27 +160,40 @@ class NvidiaGPU(PowerGroup):
         while True:
 
             start_time = time.perf_counter()
-            zone_consumed_energy = self._read_energy()
+            consumed_energy_zones = self._read_energy()
             measuremnet_time = time.perf_counter() - start_time
 
-            zone_utilization = self._read_utilization()
-            if zone_consumed_energy.keys() != zone_utilization.keys():
+            used_mem_zones, ps_mem_zones, ps_util_zones = self._read_utilization()
+            if consumed_energy_zones.keys() != ps_util_zones.keys():
                 raise ValueError("Dictionaries do not have the same zone_handle keys.")
             # get weighted sum of energy utilization
             consumed_utilized_energy = sum(
-                zone_consumed_energy[zone] * zone_utilization[zone]
-                for zone in zone_consumed_energy
+                consumed_energy_zones[zone] * ps_util_zones[zone]
+                for zone in consumed_energy_zones
             )
+            # get sum of gpu used memory across all zones
+            used_mem = sum(used_mem_zones[zone] for zone in used_mem_zones)
+            # get sum of process memory usage across all zones
+            ps_mem = sum(ps_mem_zones[zone] for zone in ps_mem_zones)
             # consume energy is sum of all the utilized consumed enrergies across the intervals
             self._consumed_energy += consumed_utilized_energy
 
             # add trace info
             self._energy_trace["trace_num"].append(self._count_trace_calls)
-            self._energy_trace["total_energy"].append(
-                round(np.sum(np.array(list(zone_consumed_energy.values()))), 2)
+            self._energy_trace["measuremnet_time"].append(round(measuremnet_time, 4))
+
+            self._energy_trace["gpu_used_mem"].append(
+                round(used_mem / 2**30, 2)
+            )  # convert in GiB
+            self._energy_trace["ps_used_mem"].append(
+                round(ps_mem / 2**30, 2)
+            )  # convert in GiB
+            self._energy_trace["ps_util"].append(
+                round(np.mean(np.array(list(ps_util_zones.values()))), 2)
             )
-            self._energy_trace["avg_utilization"].append(
-                round(np.mean(np.array(list(zone_utilization.values()))), 2)
+
+            self._energy_trace["raw_energy"].append(
+                round(np.sum(np.array(list(consumed_energy_zones.values()))), 2)
             )
             self._energy_trace["consumed_utilized_energy"].append(
                 round(consumed_utilized_energy, 2)
@@ -183,7 +201,6 @@ class NvidiaGPU(PowerGroup):
             self._energy_trace["consumed_utilized_energy_cumsum"].append(
                 round(self._consumed_energy, 2)
             )
-            self._energy_trace["measuremnet_time"].append(round(measuremnet_time, 4))
             # increase trace number by 1
             self._count_trace_calls += 1
             await asyncio.sleep(self.sleep_interval)

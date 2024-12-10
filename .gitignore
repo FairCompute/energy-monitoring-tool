@@ -6,3 +6,4 @@ dist/
 logs/
 _version.py
 *.coverage
+build/

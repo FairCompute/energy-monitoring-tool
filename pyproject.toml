@@ -6,26 +6,27 @@ build-backend = "setuptools.build_meta"
 name = "emt"
 description = "An energy measurement tool for machine learning related tasks"
 readme = "README.md"
-authors = [
-    {name = "Rameez Ismail", email = "rameez.ismail@philips.com"},
-]
-license = {text = "Copyright(c) 2023 Koninklijke Philips N.V."}
+authors = [{ name = "Rameez Ismail", email = "rameez.ismail@philips.com" }]
+license = { text = "Copyright(c) 2023 Koninklijke Philips N.V." }
 classifiers = [
-#     "Environment :: GPU :: NVIDIA CUDA",
-#     "License :: OSI Approved :: Apache Software License",
+    #     "Environment :: GPU :: NVIDIA CUDA",
+    #     "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3.10+",
 ]
 
-keywords = ["deep-learning", "power", "energy", "carbon", "sustainability", "emt", "philips"]
-requires-python = ">=3.10"
-dependencies = [
-    "psutil",
-    "numpy",
-    "pandas",
-    "pynvml",
+keywords = [
+    "deep-learning",
+    "power",
+    "energy",
+    "carbon",
+    "sustainability",
+    "emt",
+    "philips",
 ]
+requires-python = ">=3.10"
+dependencies = ["psutil", "numpy", "pandas", "pynvml"]
 dynamic = ["version"]
 
 [project.urls]
@@ -35,11 +36,8 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 
 [project.optional-dependencies]
 dev = ["black"]
-test = [
-    "tensorflow[and-cuda]", 
-    "pytest",
-    "pytest-asyncio",
-]
+test = ["tensorflow[and-cuda]", "pytest", "pytest-asyncio"]
+gui = ["dash"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -60,4 +58,5 @@ exclude = '''
   | docs
 )/
 '''
-
+[tool.coverage.run]
+omit = ["examples/*"]

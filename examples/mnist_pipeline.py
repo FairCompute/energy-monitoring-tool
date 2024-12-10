@@ -18,7 +18,8 @@ from emt import EnergyMonitor
 
 LOG_DIR = "./logs/mnist_pipeline/"
 LOG_TRACE_PATH = LOG_DIR + "traces/"
-LOG_FILE_NAME = "emt.log"
+CONTEXT_NAME = "mnist_example"
+LOG_FILE_NAME = f"{CONTEXT_NAME}.log"
 
 emt.setup_logger(
     log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
@@ -101,9 +102,14 @@ class MNIST:
 if __name__ == "__main__":
     # run MNIST flow
 
-    with EnergyMonitor(tracing_interval=5, log_trace_path=LOG_TRACE_PATH) as Monitor:
+    with EnergyMonitor(
+        tracing_interval=200,
+        log_trace_path=LOG_TRACE_PATH,
+        enable_gui=False,
+        context_name=CONTEXT_NAME,
+    ) as Monitor:
         start_time = time.time()
-        MNIST(epochs=5)
+        MNIST(epochs=25)
         execution_time = time.time() - start_time
         print(f"execution time: {execution_time:.2f} Seconds.")
         print(f"energy consumption: {Monitor.total_consumed_energy:.2f} J")
