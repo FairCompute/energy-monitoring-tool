@@ -91,7 +91,7 @@ jobs:
 
       - name: Coverage
         run: |
-          python -m coverage run -m pytest
+          python -m coverage run --rcfile=.coveragerc -m pytest
           python -m coverage xml -o coverage.xml
 
       - name: Upload Coverage Report
