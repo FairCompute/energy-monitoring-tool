@@ -7,7 +7,7 @@
 [![Lines of Code](https://sonarqube.internal.philips/api/project_badges/measure?project=philips-internal.energy-monitoring-tool&metric=ncloc&token=sqb_a8e3afd92e27cebb6abced82da278d6cd6c593dd)](https://sonarqube.internal.philips/dashboard?id=philips-internal.energy-monitoring-tool)
 
 # Energy Monitoring Tool (EMT) <img src="logo.png" alt="EMT Logo" width="60"/>
-EMT is a powerful utility designed to track the energy utilization (carbon footprint) of your software code. As developers, it's crucial for us to be aware of the environmental impact of our creations, and EMT  provides an insightful way to measure and optimize the energy consumption of your code.
+EMT is a handy tool that helps you track your code’s energy consumption. As developers, being mindful of the environmental impact of our software is important. EMT makes it easy to monitor and optimize how much energy your code uses, helping you build more eco-friendly applications.
 
 ## 🚀 Features
 
