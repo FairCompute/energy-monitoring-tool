@@ -18,20 +18,18 @@ EMT is a light weight python based tool that tracks the energy consumption of an
 - Modular and extendable software architecture, currently supports following powergroups:
   - CPU(s) with RAPL capabilites.
   - Nvidia GPUs.
-- Supports and provides GUIs for energy tracking- EMT GUI, Tensorboard
-- Deep Learning framework agnostic.
+- Visualization interface for energy data using TensorBoard,  making it easy to analyze energy usage trends.
 
   #### Supported Platforms
-
   - Linux
-  - Windows
+  
 
 > Road Map & Future Releases:
 >
 > - Inline prediction of energy consumption.
 > - Environmentally conscious coding tips.
 > - Virtual CPU(s) covered by Teads dataset.
-> - Add support for Windows through PCM
+> - Add support for Windows through PCM/OpenHardwareMonitor
 
 ## 🌍 Why EMT?
 
@@ -81,9 +79,10 @@ def add_tensors_gpu():
 
 # Create a context manager
 with EnergyMonitor as monitor:
-    # EMT will track energy for any code inside this context
+    # EMT will track energy for any code under this context
     # Repeat the addition 10000 times
     execution_time = timeit.timeit(add_tensors_gpu, number=1000000)
+
 print(f"execution time: {execution_time:.2f} Seconds.")
 print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
 print(f"energy consumption: {monitor.consumed_energy}")
@@ -94,9 +93,9 @@ Refer to the following folder for example codes:
 
 ####
 
-## ⚙️ Method
+## ⚙️ Methodology
 
-The EMT context manager spins out a new thread that runs the main monitoring code. This new thread runs a function that measures the raw energy of the different power groups like- CPUs, GPUs and also measures the work load of the concerned process, ex- Normalized Utilization at a certain interval. From this, EMT estimates the consumed energy by factoring the total energy by the work load.
+The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.
 
 <div align="center">
   <img src="assets/emt_method.png" alt="EMT Methods Illustration" width="40%">
