@@ -1,29 +1,33 @@
-import os
+import math
 import time
 import timeit
+import numpy as np
 import random
 import logging
-import numpy as np
 from pathlib import Path
 from itertools import product
-from tqdm import tqdm
-from typing import Union
-
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.datasets import mnist
 
 import emt
 from emt import EnergyMonitor
+from emt.utils import CSVRecorder, TensorboardRecorder
 
-LOG_DIR = "./logs/mnist_pipeline/"
-LOG_TRACE_PATH = LOG_DIR + "traces/"
-CONTEXT_NAME = "mnist_example"
-LOG_FILE_NAME = f"{CONTEXT_NAME}.log"
+LOG_DIR = "./logs/multi_scope_tf/"
+LOG_FILE_NAME = "multi_scope.log"
 
 emt.setup_logger(
     log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
 )
+
+
+def add_tensors_gpu(device="gpu"):
+    with tf.device(device):
+        # Generate random data
+        a = tf.random.uniform(shape=(1000,), minval=1, maxval=100, dtype=tf.int32)
+        b = tf.random.uniform(shape=(1000,), minval=1, maxval=100, dtype=tf.int32)
+        return a + b
 
 
 # This implementation ensures that MNIST runs only on gpu 0
@@ -90,7 +94,7 @@ class MNIST:
             epochs=epochs,
             batch_size=batch_size,
             validation_split=0.2,
-            verbose=0,  # Suppress progress bar
+            verbose=1,
         )
 
     def evaluate_model(self, x_test, y_test):
@@ -100,17 +104,39 @@ class MNIST:
 
 
 if __name__ == "__main__":
-    # run MNIST flow
 
     with EnergyMonitor(
-        tracing_interval=200,
-        log_trace_path=LOG_TRACE_PATH,
-        enable_gui=False,
-        context_name=CONTEXT_NAME,
-    ) as Monitor:
-        start_time = time.time()
-        MNIST(epochs=25)
-        execution_time = time.time() - start_time
-        print(f"execution time: {execution_time:.2f} Seconds.")
-        print(f"energy consumption: {Monitor.total_consumed_energy:.2f} J")
-        print(f"energy consumption: {Monitor.consumed_energy}")
+        name="tf_and_mnist",
+        trace_recorders=[
+            CSVRecorder(write_interval=50),
+            TensorboardRecorder(write_interval=10),
+        ],
+    ) as monitor_tf_add:
+        start_time_1 = time.time()
+        # repeat the addition 10000 times
+        _ = timeit.timeit(add_tensors_gpu, number=30000)
+
+        with EnergyMonitor(
+            name="mnist",
+            trace_recorders=[
+                CSVRecorder(write_interval=50),
+                TensorboardRecorder(write_interval=10),
+            ],
+        ) as monitor_mnist:
+
+            start_time = time.time()
+            MNIST(epochs=20)
+            execution_time = time.time() - start_time
+            print(f"\n\nMNIST execution time: {execution_time:.2f} Seconds.")
+            print(
+                f"MNIST energy consumption: {monitor_mnist.total_consumed_energy:.2f} J"
+            )
+            print(f"MNIST energy consumption: {monitor_mnist.consumed_energy}")
+
+        execution_time_1 = time.time() - start_time_1
+
+    print(f"\n\nTF + MNIST execution time: {execution_time_1:.2f} Seconds.")
+    print(
+        f"TF + MNIST energy consumption: {monitor_tf_add.total_consumed_energy:.2f} J"
+    )
+    print(f"TF + MNIST energy consumption: {monitor_tf_add.consumed_energy}")

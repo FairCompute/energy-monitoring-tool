@@ -3,10 +3,13 @@ import os
 import asyncio
 from collections import defaultdict
 import shutil
+import threading
 from datetime import datetime
-import logging
-from unittest.mock import MagicMock, patch, mock_open
+
+from unittest.mock import MagicMock, patch, mock_open, AsyncMock
 from emt.energy_meter import EnergyMeter, PowerGroup, EnergyMonitor
+from emt.utils import TraceRecorder
+from emt import power_groups
 
 TOLERANCE = 1e-9
 
@@ -14,8 +17,8 @@ TOLERANCE = 1e-9
 class MockPGCPU(PowerGroup):
     """Mock PowerGroup class to simulate CPU PowerGroup behavior."""
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self):
+        self.name = "RAPLSoC"
         self._energy_trace = defaultdict(list)
         self._consumed_energy = 1000.0
 
@@ -31,8 +34,8 @@ class MockPGCPU(PowerGroup):
 class MockPGGPU(PowerGroup):
     """Mock PowerGroup class to simulate CPU PowerGroup behavior."""
 
-    def __init__(self, name):
-        self.name = name
+    def __init__(self):
+        self.name = "NvidiaGPU"
         self._energy_trace = defaultdict(list)
         self._consumed_energy = 1000.0
 
@@ -48,19 +51,16 @@ class MockPGGPU(PowerGroup):
 @pytest.fixture
 def mock_power_groups():
     """Fixture to provide mock power groups."""
-    return [MockPGCPU("mock_pg_cpu"), MockPGGPU("mock_pg_gpu")]
+    return [MockPGCPU(), MockPGGPU()]
 
 
 @pytest.fixture
-def energy_meter(mock_power_groups, tmp_path):
+def energy_meter(mock_power_groups):
     """Fixture to create an EnergyMeter instance."""
-    log_dir = tmp_path / "logs"
     return EnergyMeter(
         powergroups=mock_power_groups,
-        logging_interval=2,
-        tracing_interval=2,
-        log_trace_path=log_dir,
         context_name="test_name",
+        trace_recorders=None,
     )
 
 
@@ -71,54 +71,7 @@ def test_initialization(energy_meter):
     assert energy_meter.concluded is False
     assert len(energy_meter.power_groups) == 2
     assert energy_meter._context_name == "test_name"
-
-
-def test_write_csv(energy_meter):
-    """Test writing data to CSV."""
-    data = {"col1": [1, 2], "col2": [3, 4]}
-    filename = "test.csv"
-    # create the directory as write_csv does not handle that
-    energy_meter.write_csv(data, filename)
-    file_path = os.path.join(energy_meter._log_trace_dir, filename)
-    assert os.path.exists(file_path)
-
-    with open(file_path, "r") as file:
-        content = file.readlines()
-    assert content == ["col1,col2\n", "1,3\n", "2,4\n"]
-    # remove the diretory once done
-    shutil.rmtree(energy_meter._log_trace_dir)
-
-
-def test_log_traces_once(energy_meter):
-    with (
-        patch("datetime.datetime") as mock_datetime,
-        patch.object(energy_meter, "write_csv") as mock_write_csv,
-    ):
-
-        mock_datetime.now.strftime.return_value = datetime(2024, 1, 1, 12, 0, 0)
-        energy_meter._log_traces_once()
-        # Assert
-        # must be called twice for the two powergroups
-        assert mock_write_csv.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_log_traces(energy_meter, mock_power_groups):
-    """Test periodic logging of traces."""
-    mock_power_groups[0]._energy_trace = {"key1": [1, 2], "key2": [3, 4]}
-
-    with patch.object(EnergyMeter, "write_csv", return_value=None) as mock_write_csv:
-
-        # Schedule the _log_traces coroutine
-        log_traces_task = asyncio.create_task(energy_meter._log_traces())
-        # Allow some time for the loop to start
-        await asyncio.sleep(0.1)
-        # Set the shutdown event to stop the loop
-        energy_meter._shutdown_event.set()
-        # Await the task to ensure it completes cleanly
-        await log_traces_task
-    # Assertions to check behavior
-    assert mock_write_csv.call_count >= 0
+    assert energy_meter.trace_recorders == []
 
 
 @pytest.mark.asyncio
@@ -131,45 +84,69 @@ async def test_run_tasks_asynchronous(energy_meter):
 
     with (
         patch.object(
-            energy_meter._power_groups[0], "commence", return_value=None
+            energy_meter._power_groups[0], "commence", new_callable=AsyncMock
         ) as mock_commence_1,
         patch.object(
-            energy_meter._power_groups[1], "commence", return_value=None
+            energy_meter._power_groups[1], "commence", new_callable=AsyncMock
         ) as mock_commence_2,
         patch.object(
             energy_meter, "_shutdown_asynchronous", new=mocked_shutdown_asynchronous
         ),
     ):
-        energy_meter._log_trace_interval = None
+        mock_trace_emitter_1 = AsyncMock()
+        mock_trace_emitter_2 = AsyncMock()
+        energy_meter.trace_recorders = [mock_trace_emitter_1, mock_trace_emitter_2]
         run_async_task = asyncio.create_task(energy_meter._run_tasks_asynchronous())
         await asyncio.sleep(0.1)
         await run_async_task
 
-    # the commence from both the powergroups should be called once each
-    assert mock_commence_1.called
-    assert mock_commence_2.called
+    # Assert `commence` is awaited for both power groups
+    mock_commence_1.assert_awaited_once()
+    mock_commence_2.assert_awaited_once()
+
+    # Assert trace emitters are called
+    mock_trace_emitter_1.assert_awaited_once()
+    mock_trace_emitter_2.assert_awaited_once()
+
+
+def test_run(energy_meter):
+    """Test the synchronous `run` method of EnergyMeter."""
+
+    # Mock the `_run_tasks_asynchronous` to avoid running actual asynchronous tasks
+    with patch.object(
+        energy_meter, "_run_tasks_asynchronous", new_callable=AsyncMock
+    ) as mock_async_run:
+        # Run the method in a separate thread (as the real implementation suggests)
+        energy_meter_thread = threading.Thread(target=energy_meter.run)
+        energy_meter_thread.start()
+
+        # Wait for the thread to finish execution
+        energy_meter_thread.join()
+
+    # Check that the `_run_tasks_asynchronous` was called once
+    mock_async_run.assert_awaited_once()
+
+    # Assertions for changes in the object state
+    assert energy_meter._monitoring is True
+    assert energy_meter._shutdown_event.is_set() is False
 
 
 def test_conclude(energy_meter):
     """Test concluding monitoring."""
     energy_meter._monitoring = True
-    with patch.object(
-        EnergyMeter, "_log_traces_once", return_value=None
-    ) as mock_log_traces:
-        energy_meter.conclude()
+    mock_trace_emitter_1 = MagicMock()
+    mock_trace_emitter_2 = MagicMock()
 
+    energy_meter.trace_recorders = [mock_trace_emitter_1, mock_trace_emitter_2]
+    energy_meter.conclude()
     assert energy_meter.concluded is True
     assert energy_meter._shutdown_event.is_set() is True
     assert energy_meter._monitoring is False
-    assert mock_log_traces.called
+    assert len(energy_meter.trace_recorders) == 2
 
-
-def test_consumed_energy(energy_meter):
-    """Test consumed energy per power group."""
-    consumed_energy = energy_meter.consumed_energy
-    assert len(consumed_energy.keys()) == 2
-    for key, value in consumed_energy.items():
-        assert abs(value - 1000.0) < TOLERANCE
+    # Assert that write_traces method is called on the mock trace emitter
+    mock_trace_emitter_1.write_traces.assert_called_once()
+    mock_trace_emitter_2.write_traces.assert_called_once()
 
 
 def test_total_consumed_energy(energy_meter):
@@ -180,32 +157,108 @@ def test_total_consumed_energy(energy_meter):
     )  # 2 power groups with 1000 energy each
 
 
+def test_consumed_energy(energy_meter):
+    """Test consumed energy per power group."""
+    consumed_energy = energy_meter.consumed_energy
+    assert len(consumed_energy.keys()) == 2
+    for key, value in consumed_energy.items():
+        assert abs(value - 1000.0) < TOLERANCE
+
+
+def test_energymonitor_initialization():
+    """Test proper initialization of EnergyMonitor."""
+    mock_trace_recorder = MagicMock(spec=TraceRecorder)
+    mock_trace_recorder.__class__ = TraceRecorder
+
+    # Valid initialization
+    monitor = EnergyMonitor(name="test_context", trace_recorders=[mock_trace_recorder])
+    assert monitor.context_name == "test_context"
+    assert monitor._trace_recorders == [mock_trace_recorder]
+
+    # No trace recorders
+    with (patch("logging.getLogger") as mock_logger,):
+        mock_logger.return_value.hasHandlers.return_value = True
+        monitor_no_traces = EnergyMonitor(
+            name="context_no_traces", trace_recorders=None
+        )
+        mock_logger().warning.assert_called_with(
+            "No trace emitters provided. Energy traces will not be saved."
+        )
+        assert monitor_no_traces._trace_recorders == []
+
+    # Invalid trace recorder
+    with pytest.raises(ValueError, match="Invalid trace emitters provided."):
+        EnergyMonitor(
+            trace_recorders="invalid_trace_recorder"
+        )  # Non-TraceRecorder type
+
+
 @pytest.fixture
-def mock_energy_meter_class():
-    """
-    This mocks the EnergyMeter() instace creation which is called inside EnergyMonitor()
-    """
-    with patch("emt.energy_meter.EnergyMeter", autospec=True) as MockEnergyMeter:
-        mock_instance = MockEnergyMeter.return_value
-        mock_instance.run.return_value = None
-        mock_instance.conclude.return_value = None
-        mock_instance.logger = MagicMock()
-        mock_instance._monitoring = True
-        mock_instance.total_consumed_energy = 42.0  # Example value
-        mock_instance.consumed_energy = {"PG1": 20.0, "PG2": 22.0}
-        yield MockEnergyMeter
+def mock_power_group_class():
+    """Fixture for mock PowerGroups to use in the test."""
+    return [
+        MockPGCPU().__class__,
+        MockPGGPU().__class__,
+    ]
 
 
-def test_energy_monitor_enter_exit(mock_energy_meter_class, tmp_path):
-    """Test the context management of EnergyMonitor."""
+@pytest.fixture
+def mock_trace_recorders():
+    """Fixture for mock TraceRecorders."""
+    mock_trace_recorder_1 = MagicMock(spec=TraceRecorder)
+    mock_trace_recorder_1.__class__ = TraceRecorder
+    mock_trace_recorder_2 = MagicMock(spec=TraceRecorder)
+    mock_trace_recorder_2.__class__ = TraceRecorder
+    return [mock_trace_recorder_1, mock_trace_recorder_2]
+
+
+def test_enter_method(mock_power_group_class, mock_trace_recorders):
+    """Test the __enter__ method of the EnergyMonitor."""
+    # Create an instance of EnergyMonitor
+    energy_monitor = EnergyMonitor(
+        name="TestContext", trace_recorders=mock_trace_recorders
+    )
+    # Invoke the __enter__ method (which gets triggered when used with the 'with' statement)
     with (
-        patch("threading.Thread.start", return_value=None) as mock_start,
-        patch("threading.Thread.join", return_value=None),
+        patch.object(energy_monitor, "logger", return_value=MagicMock()) as mock_logger,
+        patch("threading.Thread", return_value=MagicMock()) as mock_thread,
+        patch("logging.getLogger", return_value=MagicMock()),
+        patch("time.sleep", return_value=None),
     ):
-        monitor = EnergyMonitor(tracing_interval=20, log_trace_path=tmp_path)
-        with monitor as meter:
-            assert isinstance(meter, EnergyMeter)
-        # separte thread start must be called once
-        mock_start.assert_called
-        # conclude from energy meter must be called once
-        assert meter.conclude.called
+        energy_meter = energy_monitor.__enter__()
+
+    # 1. Verify logging to ensure proper context
+    mock_logger.info.assert_any_call("EMT context manager invoked - TestContext ...")
+    # 3. Trace recorders' trace_location should be set
+    for trace_emitter in mock_trace_recorders:
+        assert trace_emitter.trace_location is not None
+    # 4. Thread starting should be mocked
+    mock_thread.assert_called_once_with(
+        name="EnergyMonitoringThread", target=energy_meter.run
+    )
+    assert energy_meter is not None
+
+
+def test_exit_method(mock_trace_recorders):
+    """Test the __enter__ method of the EnergyMonitor."""
+    # Create an instance of EnergyMonitor
+    monitor = EnergyMonitor(name="TestContext", trace_recorders=mock_trace_recorders)
+    mock_energy_meter = MagicMock()
+    mock_energy_meter.total_consumed_energy = 1000.0
+    mock_energy_meter.consumed_energy = {"RAPLSoC": 500.0, "NvidiaGPU": 500.0}
+    monitor.energy_meter = mock_energy_meter
+    monitor.energy_meter_thread = MagicMock()
+    monitor.start_time = 0
+    # Invoke the __enter__ method (which gets triggered when used with the 'with' statement)
+    with (
+        patch.object(monitor, "logger", return_value=MagicMock()),
+        patch("threading.Thread", return_value=MagicMock()),
+        patch("logging.getLogger", return_value=MagicMock()),
+    ):
+        monitor.__exit__()
+
+    # Conclude should be called on the energy meter
+    monitor.energy_meter.conclude.assert_called_once()
+
+    # Join the thread
+    monitor.energy_meter_thread.join.assert_called_once()

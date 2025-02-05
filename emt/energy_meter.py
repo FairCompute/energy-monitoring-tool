@@ -1,29 +1,22 @@
-import os
 import time
-from datetime import datetime
-from collections import defaultdict
-import csv
+import os
 import asyncio
 import logging
 import threading
-from typing import Union
+from pathlib import Path
 from threading import RLock
 from typing import Collection, Mapping
-
-import emt
 from emt.power_groups import PowerGroup
-from emt import power_groups
-from emt.utils import GUI
+from emt.utils import setup_logger, TraceRecorder, PGUtils
 
 
 class EnergyMeter:
+
     def __init__(
         self,
         powergroups: Collection[PowerGroup],
-        logging_interval: int | None = 1000,
-        tracing_interval: int | None = 50,
-        log_trace_path: os.PathLike = "logs/energy_traces/",
-        context_name: str = "monitor",
+        context_name: str,
+        trace_recorders: Collection[TraceRecorder] = None,
     ):
         """
         EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
@@ -34,9 +27,9 @@ class EnergyMeter:
         blocked by the cpu intensive work going on in the main thread.
 
         Args:
-            power_groups (PowerGroup):  All power groups to be tracked by the energy meter.
-            logging_interval (int):     The energy reporting interval in seconds, by default
-                                        the meter writes the logs every 15 mins.
+            power_groups (PowerGroup):      All power groups to be tracked by the energy meter.
+            log_trace_path (os.PathLike):   The path to save the energy traces.
+            context_name (str):             The name of the context, used for logging.
         """
         super().__init__()
         self._lock = RLock()
@@ -44,11 +37,9 @@ class EnergyMeter:
         self._concluded = False
         self._power_groups = powergroups
         self._shutdown_event = asyncio.Event()
-        self._logging_interval = logging_interval
-        self._log_trace_interval = tracing_interval  # set this None for stop tracing
         self._context_name = context_name
-        self._log_trace_dir = os.path.join(log_trace_path, context_name)
         self.logger = logging.getLogger(__name__)
+        self.trace_recorders = trace_recorders or []
 
     @property
     def power_groups(self):
@@ -64,42 +55,6 @@ class EnergyMeter:
         with self._lock:
             return self._concluded
 
-    def write_csv(self, data: dict, filename: os.PathLike):
-        """
-        Writes the data as CSV format, used to save energy traces.
-
-        Args:
-            data (dict): energy trace data
-            filename (os.PathLike): location to save csv file
-        """
-
-        # make the directory if it does not exist
-        os.makedirs(self._log_trace_dir, exist_ok=True)
-        file_path = os.path.join(self._log_trace_dir, filename)
-        # write data in csv format
-        with open(file_path, mode="w", newline="") as file:
-            writer = csv.writer(file)
-            # Write the header
-            writer.writerow(data.keys())
-            # Write the data rows
-            rows = zip(*data.values())  # Transpose the values
-            writer.writerows(rows)
-
-    def _log_traces_once(self):
-        """
-        Log energy traces for all powergroups once
-        """
-
-        for idx, pg in enumerate(self.power_groups):
-            # Read log traces from the power group
-            pg_name = pg.__class__.__name__
-            pg_energy_trace = pg._energy_trace
-            # once the variable is fetched, flush it so that memory does not overflow
-            pg._energy_trace = defaultdict(list)
-            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{pg_name}_{current_time}.csv"
-            self.write_csv(pg_energy_trace, filename)
-
     async def _shutdown_asynchronous(self):
         """
         Waits asynchronously for the shutdown event. Once the event is set, a
@@ -109,15 +64,6 @@ class EnergyMeter:
         await self._shutdown_event.wait()
         raise asyncio.CancelledError
 
-    async def _log_traces(self):
-        """
-        Periodically read log traces from each power group and write in file system at a fixed interval.
-        """
-        while not self._shutdown_event.is_set():
-            # wait for the stipulated period of time
-            await asyncio.sleep(self._log_trace_interval)
-            self._log_traces_once()
-
     async def _run_tasks_asynchronous(self):
         """
         This creates tasks, schedule them for asynchronous execution, and the
@@ -125,15 +71,10 @@ class EnergyMeter:
         to run infinitely at a given rate.
         """
         tasks = [asyncio.create_task(pg.commence()) for pg in self.power_groups]
-        task_shutdown = asyncio.create_task(self._shutdown_asynchronous())
-        if self._log_trace_interval is not None:
-            # create separate task for writing energy traces
-            task_log_traces = asyncio.create_task(self._log_traces())
-            # run all the tasks concurrently
-            all_tasks = tasks + [task_shutdown, task_log_traces]
-        else:
-            all_tasks = tasks + [task_shutdown]
-        await asyncio.gather(*all_tasks)
+        for trace_emitter in self.trace_recorders:
+            tasks.append(asyncio.create_task(trace_emitter()))
+        tasks.append(asyncio.create_task(self._shutdown_asynchronous()))
+        await asyncio.gather(*tasks)
 
     def run(self):
         """
@@ -148,7 +89,7 @@ class EnergyMeter:
             self._shutdown_event.clear()
             self._monitoring = True
         try:
-            self.logger.info("Initiated Energy Monitoring.")
+            self.logger.info(f"Initiated Energy Monitoring -- {self._context_name}.")
             asyncio.run(self._run_tasks_asynchronous())
         except asyncio.CancelledError:
             self.logger.info(
@@ -172,14 +113,15 @@ class EnergyMeter:
             )
             raise RuntimeError("Cannot conclude monitoring before commencement!")
 
-        self.logger.info("ShutDown requested.")
+        self.logger.info(f"ShutDown requested -- _{self._context_name}.")
         with self._lock:
             self._concluded = True
             self._shutdown_event.set()
             self._monitoring = False
-            # run the logging one last time to capture last log traces before conclusion
-            # this is important if the log trace inteval is relatively higher than the main execution time
-            self._log_traces_once()
+            # after the shutdown event is set, request all trace
+            #  emitters to emit any remaining traces.
+            for trace_emitter in self.trace_recorders:
+                trace_emitter.write_traces()
 
     @property
     def total_consumed_energy(self) -> float:
@@ -198,65 +140,70 @@ class EnergyMeter:
 
 
 class EnergyMonitor:
-
     def __init__(
         self,
-        tracing_interval: int = 20,
-        log_trace_path: os.PathLike = "logs/energy_traces/",
-        enable_gui: bool = True,
-        context_name: str = "monitor",
+        *,
+        name: str = "unnamed_context",
+        trace_recorders: Collection[TraceRecorder] | TraceRecorder = None,
     ):
-        self.tracing_interval = tracing_interval
-        self.log_trace_path = log_trace_path
-        self.enable_gui = enable_gui
-        self.context_name = context_name
+        self.context_name = name
+        if not logging.getLogger(__name__).hasHandlers():
+            setup_logger()
+        self.logger = logging.getLogger(__name__)
+        self._trace_recorders = self._normalize_trace_recorders(trace_recorders)
 
-    def get_powergroup_types(self, module):
-        candidates = [
-            getattr(module, name)
-            for name in dir(module)
-            if isinstance(getattr(module, name), type)
-        ]
-        pg_types = filter(lambda x: issubclass(x, PowerGroup), candidates)
-        return list(pg_types)
+        if not self._trace_recorders:
+            self.logger.warning(
+                "No trace emitters provided. Energy traces will not be saved."
+            )
+        else:
+            self._validate_trace_recorders(self._trace_recorders)
+
+        self.pg_objs = None
+
+    def _normalize_trace_recorders(self, trace_recorders):
+        if trace_recorders is None:
+            return []
+        if isinstance(trace_recorders, TraceRecorder):
+            return [trace_recorders]
+        return trace_recorders
+
+    def _validate_trace_recorders(self, trace_recorders):
+        if not all(isinstance(tr, TraceRecorder) for tr in trace_recorders):
+            raise ValueError("Invalid trace emitters provided.")
 
     def __enter__(self):
-        if not logging.getLogger("emt").hasHandlers():
-            emt.setup_logger()
+        self.logger.info(f"EMT context manager invoked - {self.context_name} ...")
         self.start_time = time.time()
-        powergroup_types = self.get_powergroup_types(power_groups)
-        # check for available power_groups
-        available_powergroups = list(
-            filter(lambda x: x.is_available(), powergroup_types)
-        )
-        # instantiate only available powergroups
-        powergroups = [pgt() for pgt in available_powergroups]
+        pg_utils = PGUtils()
+        # get available powergroups
+        self.pg_objs = pg_utils.get_available_pgs()
+        # log powergroup info in a tabular format
+        self.logger.info("\n" + pg_utils.get_pg_table())
+        # set trace emitters
+        for trace_emitter in self._trace_recorders:
+            trace_emitter.power_groups = self.pg_objs
+            # get log file handler location
+            location = Path(logging.getLogger().handlers[0].baseFilename).parent
+            if trace_emitter.__class__.__name__ == "CSVRecorder":
+                location = os.path.join(location, "csv_traces", self.context_name)
+            elif trace_emitter.__class__.__name__ == "TensorboardRecorder":
+                location = os.path.join(location, "tfevents", self.context_name)
+
+            trace_emitter.trace_location = trace_emitter.trace_location or location
 
         energy_meter = EnergyMeter(
-            tracing_interval=self.tracing_interval,
-            log_trace_path=self.log_trace_path,
-            powergroups=powergroups,
+            powergroups=self.pg_objs,
             context_name=self.context_name,
+            trace_recorders=self._trace_recorders,
         )
+        self.energy_meter = energy_meter
         # run EnergyMonitoring as a separate thread
         self.energy_meter_thread = threading.Thread(
             name="EnergyMonitoringThread", target=energy_meter.run
         )
         self.energy_meter_thread.start()
 
-        if self.enable_gui:
-            logging.info("Starting GUI on a separate thread...")
-            # create gui object
-            self.gui = GUI(self.log_trace_path, self.tracing_interval)
-            # run UI as a separate thread
-            self.gui_thread = threading.Thread(
-                name="UIThread",
-                target=self.gui.run,
-                daemon=True,
-            )
-            self.gui_thread.start()
-
-        self.energy_meter = energy_meter
         time.sleep(1)
         return self.energy_meter
 
@@ -264,18 +211,12 @@ class EnergyMonitor:
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
         execution_time = time.time() - self.start_time
-        self.energy_meter.logger.info(f"Execution time: {execution_time:.2f} seconds")
-        self.energy_meter.logger.info(
-            f"Total energy consumption: {self.energy_meter.total_consumed_energy:.2f} J"
+        self.logger.info(
+            f"{self.context_name}: Execution time: {execution_time:.2f} seconds"
+        )
+        self.logger.info(
+            f"{self.context_name}: Total energy consumption: {self.energy_meter.total_consumed_energy:.2f} J"
         )
         self.energy_meter.logger.info(
-            f"Power group energy consumptions: {self.energy_meter.consumed_energy}"
+            f"{self.context_name}: Power group energy consumptions: {self.energy_meter.consumed_energy}"
         )
-        if self.enable_gui and self.gui_thread.is_alive():
-            logging.info("Shutting down GUI...")
-            try:
-                self.gui.stop()  # Signal the thread to stop
-            except RuntimeError as e:
-                logging.error(f"Error during GUI shutdown: {e}")
-            self.gui_thread.join()  # Wait for the thread to finish
-            logging.info("GUI server has been shut down.")

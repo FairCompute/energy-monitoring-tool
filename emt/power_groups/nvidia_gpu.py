@@ -41,7 +41,7 @@ class NvidiaGPU(PowerGroup):
         Args:
                 **kwargs:     The arguments be passed to the `PowerGroup`.
         """
-        # by default a rate 5Hz is used to collect energy_trace.
+        # by default a rate 10Hz is used to collect energy_trace.
         kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
         # get the process tree for the tracked process

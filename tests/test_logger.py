@@ -53,7 +53,7 @@ def test_setup_logger_custom_formatter(temp_log_dir):
         content = f.read()
         print(content)
         assert (
-            "INFO - emt.utils.logger - MainThread - EMT logger created ..." in content
+            "INFO - root - MainThread - EMT logger created ..." in content
         ), "Custom formatter was not applied."
 
 

@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from collections import defaultdict
 from functools import cached_property
+from copy import deepcopy
 
 
 class PowerGroup:
@@ -25,7 +26,6 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"A PowerGroup of type `{self.__class__.__name__}` created")
         self._energy_trace = defaultdict(list)
 
     @cached_property
@@ -39,7 +39,7 @@ class PowerGroup:
     @tracked_process.setter
     def tracked_process(self, value):
         """
-        This setter is motsly created for testing purpose
+        This setter is mostly created for testing purpose
         """
         self._tracked_process = value
 
@@ -75,3 +75,14 @@ class PowerGroup:
         This provides the total consumed energy, attributed to the process for the whole power-group.
         """
         return self._consumed_energy
+
+    @property
+    def energy_trace(self) -> dict:
+        """
+        This provides the energy trace of the power group. The energy trace is a dictionary
+        where the keys are the time-stamps and the values are the energy consumption at that time-stamp.
+        On reading the energy trace, the buffer is flushed.
+        """
+        energy_trace = deepcopy(self._energy_trace)
+        self._energy_trace = defaultdict(list)
+        return energy_trace

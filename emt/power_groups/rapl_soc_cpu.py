@@ -3,10 +3,9 @@ import re
 import time
 import asyncio
 import psutil
-import numpy as np
 from pathlib import Path
 from typing import Collection, Mapping
-from functools import cached_property, reduce
+from functools import cached_property
 from emt.power_groups.power_group import PowerGroup
 
 
@@ -99,7 +98,7 @@ class RAPLSoC(PowerGroup):
             **kwargs:                       Additional arguments be passed to the `PowerGroup`.
         """
 
-        # by default a rate 5Hz is used to collect energy_trace.
+        # by default a rate 10Hz is used to collect energy_trace.
         kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
         # Get intel-rapl power zones/domains
@@ -240,7 +239,7 @@ class RAPLSoC(PowerGroup):
         It is normalized to get the utilization wrt. other active processes that contribute to energy consumption.
 
         Returns:
-            dict: cpu and memeory utilizations
+            dict: cpu and memory utilizations
 
 
         """
@@ -254,7 +253,7 @@ class RAPLSoC(PowerGroup):
             # process level cpu utilization for all the process
             ps_cpu_util = sum(ps.cpu_percent() for ps in self.processes)
             ps_mem_util = sum(ps.memory_percent() for ps in self.processes)
-            # divind by cpu count normalizes the utilization to [0-100]% for each process
+            # dividing by cpu count normalizes the utilization to [0-100]% for each process
             utilizations["cpu_util"] = psutil.cpu_percent()
             utilizations["ps_util"] = ps_cpu_util / psutil.cpu_count()
             utilizations["norm_ps_util"] = (
@@ -285,7 +284,7 @@ class RAPLSoC(PowerGroup):
         while True:
             start_time = time.perf_counter()
             energy_trace = self._read_energy()
-            measuremnet_time = time.perf_counter() - start_time
+            measurement_time = time.perf_counter() - start_time
 
             utilization_trace = self._read_utilization()
 
@@ -300,12 +299,12 @@ class RAPLSoC(PowerGroup):
                     energy_trace["zones"] * utilization_trace["norm_ps_util"]
                 )
                 # fmt: on
-            # consume energy is sum of all the utilized consumed enrergies across the intervals
+            # consume energy is sum of all the utilized consumed energies across the intervals
             self._consumed_energy += consumed_utilized_energy
 
             # add trace info
             self._energy_trace["trace_num"].append(self._count_trace_calls)
-            self._energy_trace["measuremnet_time"].append(round(measuremnet_time, 4))
+            self._energy_trace["measurement_time"].append(round(measurement_time, 4))
             self._energy_trace["ps_util"].append(round(utilization_trace["ps_util"], 2))
             self._energy_trace["cpu_util"].append(
                 round(utilization_trace["cpu_util"], 4)

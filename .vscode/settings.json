@@ -2,6 +2,7 @@
     "cSpell.words": [
         "astype",
         "cuda",
+        "cumsum",
         "dtype",
         "fillna",
         "finfo",
@@ -9,6 +10,7 @@
         "igpus",
         "iterrows",
         "levelname",
+        "logdir",
         "maxval",
         "minval",
         "numpy",
@@ -30,7 +32,7 @@
         "seperate"
     ],
     "sonarlint.connectedMode.project": {
-        "connectionId": "https-sonarqube-internal-philips-",
+        "connectionId": "https-sonarqube-internal-philips",
         "projectKey": "philips-internal.energy-monitoring-tool"
     }
 }

@@ -1,15 +1,17 @@
 import os
 import logging
+from pathlib import Path
 
 # Configure logging to write to a log file with a custom format
 _DEFAULT_FORMATTER = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(name)s - %(threadName)s - %(message)s"
 )
+_DEFAULT_LOG_DIR = Path.cwd() / "emt_logs"
 
 
 def setup_logger(
-    log_dir: os.PathLike = "logs",
-    log_file_name: os.PathLike = "new_emt.log",
+    log_dir: os.PathLike = _DEFAULT_LOG_DIR,
+    log_file_name: os.PathLike = "emt.log",
     mode: str = "a",
     formatter: logging.Formatter = _DEFAULT_FORMATTER,
     logging_level: int = logging.INFO,
@@ -29,11 +31,10 @@ def setup_logger(
 
     """
     # reset any existing logger
-    reset_logger()
+    logger = reset_logger()
     os.makedirs(log_dir, exist_ok=True)
     file_path = os.path.join(log_dir, log_file_name)
-
-    logger = logging.getLogger(__name__)
+    # configure as root logger
     logger.setLevel(logging_level)  # Set logging level for the logger
 
     handler = logging.FileHandler(file_path, mode=mode)
@@ -44,9 +45,10 @@ def setup_logger(
     logger.info("EMT logger created ...")
 
 
-def reset_logger():
-    logger = logging.getLogger(__name__)
+def reset_logger() -> logging.Logger:
+    logger = logging.getLogger()
     while logger.handlers:  # Remove all handlers
         handler = logger.handlers[0]
         logger.removeHandler(handler)
     logger.propagate = False  # Prevent propagation to the root logger
+    return logger
