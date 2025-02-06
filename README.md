@@ -37,11 +37,9 @@ In the era of climate awareness, it's essential for developers to contribute to 
 
 ## 🛠️ Getting Started
 
-1. Clone the repository: `git clone git@github.com:philips-internal/energy-monitoring-tool.git`
-2. Install dependencies:
+Install latest emt package from philips `dl-innersource-pypi` repository:
    ```shell
-   cd energy-monitoring-tool
-   pip install .
+   pip install emt --extra-index-url https://artifactory-ehv.ta.philips.com/artifactory/api/pypi/dl-innersource-pypi/simple
    ```
 
 That's it! You're now ready to analyze the energy footprint of your code.
