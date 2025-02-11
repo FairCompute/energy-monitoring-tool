@@ -102,7 +102,9 @@ class TensorboardRecorder(TraceRecorder):
             except ImportError:
                 self.writer = None
                 raise ImportError(
-                    "No suitable tensorboard library found (Tensorflow or Pytorch)."
+                    """No suitable tensorboard library found (Tensorflow or Pytorch). 
+                    try EMT without TensorboardRecorder()
+                    """
                 )
 
     def _determine_writer_type(self):
