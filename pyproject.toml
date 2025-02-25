@@ -59,3 +59,8 @@ exclude = '''
 '''
 [tool.coverage.run]
 omit = ["examples/*"]
+
+
+[tool.twine]
+repository = "https://your-company.jfrog.io/artifactory/api/pypi/your-repo-name"
+
