@@ -1,7 +1,8 @@
 
 # Energy Monitoring Tool (EMT) <img src="assets/logo.png" alt="EMT Logo" width="60"/>
 
-**EMT** is a lightweight, Python-based tool that tracks the energy consumption of applications with process-level granularity. Designed with a strong focus on machine learning, it enables monitoring of the energy usage of training and inference for large deep learning models across diverse computing environments. EMT is framework-agnostic and generates process-level energy consumption log. The repository provides concrete examples of how to track energy consumption in various scenarios. By simplifying and democratizing energy monitoring for running code, EMT empowers developers to make more environmentally informed decisions. It is a step toward Sustainable AI.
+**EMT** is a lightweight, Python-based tool that tracks the energy consumption of applications with process-level granularity. Designed with a strong focus on machine learning, it enables monitoring of the energy usage of training and inference for large deep learning models across diverse computing environments. EMT is framework-agnostic and generates process-level energy consumption log. The repository provides concrete examples of how to track energy consumption in various scenarios. EMT simplifies and democratizes energy monitoring, enabling developers and operations teams to actively reduce the environmental footprint thus advancing digital sustainability initiatives. 
+
 
 ## 🚀 Features
 
