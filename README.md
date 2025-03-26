@@ -31,10 +31,7 @@ In the era of climate awareness, it's essential for developers to contribute to 
 
 ## 🛠️ Getting Started
 
-Install latest emt package from philips `dl-innersource-pypi` repository:
-   ```shell
-   pip install emt --extra-index-url https://artifactory-ehv.ta.philips.com/artifactory/api/pypi/dl-innersource-pypi/simple
-   ```
+Install latest emt package from philips `dl-innersource-pypi` repository
 
 That's it! You're now ready to analyze the energy footprint of your code.
 
