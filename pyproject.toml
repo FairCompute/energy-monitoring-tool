@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "emt"
-description = "An energy measurement tool for machine learning related tasks"
+description = "A tool for granular energy measurement, empowering digital sustainability in machine learning and AI workflows."
 readme = { file = "README.md", content-type = "text/markdown" }  # Specify the readme format
 authors = [{ name = "Rameez Ismail", email = "rameez.ismail@philips.com" }]
 license = "MIT"  # Correctly specify the license as a simple SPDX expression
@@ -54,8 +54,3 @@ exclude = '''
 '''
 [tool.coverage.run]
 omit = ["examples/*"]
-
-[tool.twine]
-# Ensure this repository URL is correct and not a placeholder
-repository = "https://your-company.jfrog.io/artifactory/api/pypi/your-repo-name"
-
