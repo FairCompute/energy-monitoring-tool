@@ -1,5 +1,5 @@
 
-# Energy Monitoring Tool (EMT) <img src="assets/logo.png" alt="EMT Logo" width="60"/>
+# Energy Monitoring Tool (EMT) <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/refs/heads/main/assets/logo.png" alt="EMT Logo" width="60"/>
 
 **EMT** is a lightweight, Python-based tool that tracks the energy consumption of applications with process-level granularity. Designed with a strong focus on machine learning, it enables monitoring of the energy usage of training and inference for large deep learning models across diverse computing environments. EMT is framework-agnostic and generates process-level energy consumption log. The repository provides concrete examples of how to track energy consumption in various scenarios. EMT simplifies and democratizes energy monitoring, enabling developers and operations teams to actively reduce the environmental footprint thus advancing digital sustainability initiatives. 
 
@@ -30,10 +30,15 @@
 In the era of climate awareness, it's essential for developers to contribute to a sustainable future. EMT Tool empowers you to make informed decisions about your code's impact on the environment and take steps towards writing more energy-efficient software.
 
 ## 🛠️ Getting Started
+<a href="https://pypi.org/project/emt/">
+  <img src="https://pypi.org/static/images/logo-large.516e776d.svg" alt="PyPI Logo" width="60"/>
+</a>
+Install the latest EMT package from Python Package Index (PyPI):  
 
-Install latest emt package from philips `dl-innersource-pypi` repository
+``` bash
+pip install emt
+```
 
-That's it! You're now ready to analyze the energy footprint of your code.
 
 ### _Usage_:
 
