@@ -40,7 +40,6 @@ include = ["emt", "emt.*"]  # Include all sub-packages under 'emt'
 [tool.setuptools_scm]
 # Ensure _version.py exists and is correctly configured
 version_file = "_version.py"
-=
 
 [tool.black]
 line-length = 88
