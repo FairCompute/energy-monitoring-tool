@@ -30,14 +30,17 @@
 In the era of climate awareness, it's essential for developers to contribute to a sustainable future. EMT Tool empowers you to make informed decisions about your code's impact on the environment and take steps towards writing more energy-efficient software.
 
 ## 🛠️ Getting Started
-<a href="https://pypi.org/project/emt/">
-  <img src="https://pypi.org/static/images/logo-large.516e776d.svg" alt="PyPI Logo" width="60"/>
-</a>
-Install the latest EMT package from Python Package Index (PyPI):  
+Install the latest [EMT package](https://pypi.org/project/emt/)  from the Python Package Index (PyPI):  
 
 ``` bash
 pip install emt
+
+# verify installation and the version
+python -m emt --version
 ```
+
+
+
 
 
 ### _Usage_:
