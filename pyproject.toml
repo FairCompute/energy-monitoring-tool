@@ -5,15 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "emt"
 description = "An energy measurement tool for machine learning related tasks"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }  # Specify the readme format
 authors = [{ name = "Rameez Ismail", email = "rameez.ismail@philips.com" }]
-license = { file = "LICENSE" }
-classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Intended Audience :: Developers",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Programming Language :: Python :: 3.10+",
-]
+license = "MIT"  # Correctly specify the license as a simple SPDX expression
+license-files = ["LICENSE"]
 
 keywords = [
     "deep-learning",
@@ -22,7 +17,6 @@ keywords = [
     "carbon",
     "sustainability",
     "emt",
-    "philips",
 ]
 requires-python = ">=3.10"
 dependencies = ["psutil", "numpy", "pandas", "pynvml", "tabulate"]
@@ -34,17 +28,19 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 #Documentation = ""
 
 [project.optional-dependencies]
+# Optional dependencies for development, GUI, and testing
 dev = ["black"]
 gui = ["dash", "dash_bootstrap_components"]
 test = ["pytest", "pytest-asyncio", "torch", "tensorboard"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["emt"]
+include = ["emt", "emt.*"]  # Include all sub-packages under 'emt'
 
 [tool.setuptools_scm]
+# Ensure _version.py exists and is correctly configured
 version_file = "_version.py"
-
+=
 
 [tool.black]
 line-length = 88
@@ -60,7 +56,7 @@ exclude = '''
 [tool.coverage.run]
 omit = ["examples/*"]
 
-
 [tool.twine]
+# Ensure this repository URL is correct and not a placeholder
 repository = "https://your-company.jfrog.io/artifactory/api/pypi/your-repo-name"
 
