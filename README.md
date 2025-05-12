@@ -76,11 +76,8 @@ def add_tensors_gpu():
 
 # Create a context manager
 with EnergyMonitor as monitor:
-    # EMT will track energy for any code under this context
-    # Repeat the addition 10000 times
-    execution_time = timeit.timeit(add_tensors_gpu, number=1000000)
+  add_tensors_gpu()
 
-print(f"execution time: {execution_time:.2f} Seconds.")
 print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
 print(f"energy consumption: {monitor.consumed_energy}")
 ```
