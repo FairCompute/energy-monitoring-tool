@@ -76,7 +76,7 @@ def add_tensors_gpu():
 
 # Create a context manager
 with EnergyMonitor as monitor:
-  add_tensors_gpu()
+    add_tensors_gpu()
 
 print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
 print(f"energy consumption: {monitor.consumed_energy}")
