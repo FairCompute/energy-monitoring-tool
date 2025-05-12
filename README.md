@@ -54,12 +54,10 @@ python -m emt --version
 #### Using Python Context Managers
 
 ```python
-import timeit
 import logging
 import torch
 import emt
 from emt import EnergyMonitor
-from emt.utils import CSVRecorder, TensorboardRecorder
 
 emt.setup_logger(
     log_dir="./logs/example/",
