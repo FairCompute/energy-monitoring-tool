@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "astype",
+        "asyncio",
         "cuda",
         "cumsum",
         "dtype",
@@ -29,7 +30,9 @@
         "Qube",
         "Rameez",
         "RAPL",
-        "seperate"
+        "seperate",
+        "setuptools",
+        "tensorboard"
     ],
     "sonarlint.connectedMode.project": {
         "connectionId": "https-sonarqube-internal-philips",

@@ -28,10 +28,8 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 #Documentation = ""
 
 [project.optional-dependencies]
-# Optional dependencies for development, GUI, and testing
-dev = ["black"]
-gui = ["dash", "dash_bootstrap_components"]
-test = ["pytest", "pytest-asyncio", "torch", "tensorboard"]
+# Optional dependencies for development and testing
+dev = ["black", "pytest", "pytest-asyncio", "torch", "tensorboard"]
 
 [tool.setuptools.packages.find]
 where = ["."]

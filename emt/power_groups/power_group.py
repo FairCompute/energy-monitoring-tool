@@ -65,7 +65,9 @@ class PowerGroup:
 
     def shutdown(self) -> None:
         """
-        This performs the any cleanup required at the shutdown of the PowerGroup.
+        This performs the any cleanup required at the shutdown of the PowerGroup monitoring.
+        This includes stopping the periodic execution and flushing the energy trace.
+        The shutdown is called when the context manager exits.
         """
         set.logger.info(f"shutting down {type(self).__name__} ")
 

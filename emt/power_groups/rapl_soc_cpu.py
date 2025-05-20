@@ -45,7 +45,6 @@ class DeltaReader:
                    The delta energy is obtained by RAPL from the MSR registers of the CPU
                    (in micro-joules) and is scaled to joules for the return value.
         """
-        # NOTE: check the logic!!
         value = None
         for _ in range(self._num_trails):
             delta = 0.0
@@ -101,31 +100,35 @@ class RAPLSoC(PowerGroup):
         # by default a rate 10Hz is used to collect energy_trace.
         kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
+
         # Get intel-rapl power zones/domains
         zones = [
             Path(self.RAPL_DIR, zone)
             for zone in filter(lambda x: ":" in x, os.listdir(self.RAPL_DIR))
         ]
+
         # filter out zones that do not match zone_pattern
         zones = list(
             filter(lambda zone: not re.fullmatch(zone_pattern, str(zone)), zones)
         )
+
         # Get components for each zone (if available);
         #  Not all processors expose components.
         components = [
             list(filter(lambda x: len(x.stem.split(":")) > 2, Path(zone).rglob("*")))
             for zone in zones
         ]
+
         self.zones_count = len(zones)
         self._zones = []
-        self._devices = []
+        self._components = []
 
-        for zone, devices in zip(zones, components):
+        for zone, zone_comps in zip(zones, components):
             with open(Path(zone, "name"), "r") as f:
                 name = f.read().strip()
             if name not in excluded_zones:
                 self._zones.append(zone)
-                self._devices.append(devices)
+                self._components.append(zone_comps)
 
         self.processes = [self.tracked_process] + self.tracked_process.children(
             recursive=True
@@ -134,21 +137,21 @@ class RAPLSoC(PowerGroup):
         self.zone_readers = [DeltaReader(_zone) for _zone in self._zones]
         self.core_readers = [
             DeltaReader(_comp)
-            for device in self._devices
+            for device in self._components
             for _comp in device
-            if any(keyword in _comp for keyword in ["cores", "cpu"])
+            if any(keyword in str(_comp) for keyword in ["cores", "cpu"])
         ]
         self.dram_readers = [
             DeltaReader(_comp)
-            for device in self._devices
+            for device in self._components
             for _comp in device
-            if any(keyword in _comp for keyword in ["ram", "dram"])
+            if any(keyword in str(_comp) for keyword in ["ram", "dram"])
         ]
         self.igpu_readers = [
             DeltaReader(_comp)
-            for device in self._devices
+            for device in self._components
             for _comp in device
-            if "gpu" in _comp
+            if "gpu" in str(_comp)
         ]
 
     @cached_property
@@ -186,7 +189,7 @@ class RAPLSoC(PowerGroup):
                 device_name = f"{zone_name}/{device_name}"
             return device_name
 
-        return list(map(get_device_name, self._zones, self._devices))
+        return list(map(get_device_name, self._zones, self._components))
 
     @classmethod
     def is_available(cls):
@@ -196,7 +199,7 @@ class RAPLSoC(PowerGroup):
         except OSError:
             return False
 
-    def _read_energy(self) -> Mapping[str, float]:
+    def _read_energy_rapl(self) -> Mapping[str, float]:
         """
         Reports the accumulated energy consumption of the tracked devices types. The readers are
         created in the constructor and are called to obtain the energy delta. Reader of each type
@@ -229,6 +232,19 @@ class RAPLSoC(PowerGroup):
             "dram": energy_dram,
             "igpu": energy_igpu,
         }
+
+    def _read_energy_node_exporter(self) -> Mapping[str, float]:
+        """
+        This method reads the energy consumption from the node exporter. The node exporter
+        is a prometheus exporter that exposes the energy consumption of the CPU and its
+        sub-components. The energy consumption is obtained from the RAPL (Running Average Power Limit)
+        interface of the CPU. The RAPL interface is available on Intel CPUs since the Sandy Bridge
+        micro-architecture.
+
+        Returns:
+            dict: A map of accumulated energy consumption (in joules) for each device type since
+                  the last call to this method.
+        """
 
     def _read_utilization(self) -> Mapping[str, float]:
         """
@@ -283,7 +299,7 @@ class RAPLSoC(PowerGroup):
 
         while True:
             start_time = time.perf_counter()
-            energy_trace = self._read_energy()
+            energy_trace = self._read_energy_rapl()
             measurement_time = time.perf_counter() - start_time
 
             utilization_trace = self._read_utilization()
