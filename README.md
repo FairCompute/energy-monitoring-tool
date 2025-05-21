@@ -18,9 +18,7 @@
   - Linux
   
 
-> Road Map & Future Releases:
->
-> - Inline prediction of energy consumption.
+> Road Map
 > - Environmentally conscious coding tips.
 > - Virtual CPU(s) covered by Teads dataset.
 > - Add support for Windows through PCM/OpenHardwareMonitor
