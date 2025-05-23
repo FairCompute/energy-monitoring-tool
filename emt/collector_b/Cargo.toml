@@ -1,0 +1,16 @@
+[package]
+name = "emt_collector"
+version = "0.1.0"
+edition = "2021"
+
+description = "A collector for the EMT (Emergency Medical Technician) system."
+license = "MIT"
+authors = ["Rameez Isamil <rameez.isamil@protonmail.com>"]
+
+
+
+[dependencies]
+tokio = { version = "1.39", features = ["full"] }
+async-trait = "0.1.80"
+log = "0.4.21"
+psutil = "3.3.0"

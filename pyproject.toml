@@ -5,21 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "emt"
 description = "A tool for granular energy measurement, empowering digital sustainability in machine learning and AI workflows."
-readme = { file = "README.md", content-type = "text/markdown" }  # Specify the readme format
+readme = { file = "README.md", content-type = "text/markdown" }                                                                 # Specify the readme format
 authors = [{ name = "Rameez Ismail", email = "rameez.ismail@philips.com" }]
-license = "MIT"  # Correctly specify the license as a simple SPDX expression
+license = "MIT"                                                                                                                 # Correctly specify the license as a simple SPDX expression
 license-files = ["LICENSE"]
 
 keywords = [
-    "deep-learning",
-    "power",
-    "energy",
-    "carbon",
-    "sustainability",
-    "emt",
+  "deep-learning",
+  "power",
+  "energy",
+  "carbon",
+  "sustainability",
+  "emt",
 ]
 requires-python = ">=3.10"
-dependencies = ["psutil", "numpy", "pandas", "pynvml", "tabulate"]
+dependencies = ["psutil", "numpy", "pandas", "pynvml", "tabulate", "click"]
+
 dynamic = ["version"]
 
 [project.urls]
@@ -28,16 +29,20 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 #Documentation = ""
 
 [project.optional-dependencies]
-# Optional dependencies for development and testing
-dev = ["black", "pytest", "pytest-asyncio", "torch", "tensorboard"]
+dev = ["black", "pytest", "pytest-asyncio", "torch"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["emt", "emt.*"]  # Include all sub-packages under 'emt'
+include = ["emt", "emt.*"] # Include all sub-packages under 'emt'
 
 [tool.setuptools_scm]
 # Ensure _version.py exists and is correctly configured
 version_file = "_version.py"
+
+
+[project.scripts]
+emt = "emt.cli:main"
+
 
 [tool.black]
 line-length = 88

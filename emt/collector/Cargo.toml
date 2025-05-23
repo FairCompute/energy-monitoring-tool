@@ -1,0 +1,9 @@
+[package]
+name = "collector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1.88"
+log = "0.4.27"
+sysinfo = "0.35.1"
