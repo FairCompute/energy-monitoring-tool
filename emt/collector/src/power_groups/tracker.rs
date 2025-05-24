@@ -6,7 +6,8 @@ use sysinfo::{Pid, Process, System};
 pub struct PowerGroupTracker {
     rate: f64,
     count_trace_calls: usize,
-    tracked_processes: Vec<usize>,
+    // Grouped by application name, each with a vector of PIDs
+    tracked_processes: HashMap<String, Vec<usize>>,
     consumed_energy: Vec<f64>,
     energy_trace: HashMap<u64, Vec<f64>>,
 }
@@ -14,21 +15,29 @@ pub struct PowerGroupTracker {
 impl PowerGroupTracker {
     pub fn new(rate: f64, provided_pids: Option<Vec<usize>>) -> Result<Self, TrackerError> {
         let system = System::new_all();
-
-        let tracked_processes: Vec<usize> = match provided_pids {
-            Some(pids) if !pids.is_empty() => pids
-                .into_iter()
-                .filter(|pid| system.process(Pid::from(*pid)).is_some())
-                .collect(),
-            _ => system
-                .processes()
-                .keys()
-                .map(|pid| pid.as_u32() as usize)
-                .collect(),
-        };
-
-        let consumed_energy = vec![0.0; tracked_processes.len()];
-
+        let mut tracked_processes: HashMap<String, Vec<usize>> = HashMap::new();
+        match provided_pids {
+            Some(pids) if !pids.is_empty() => {
+                for pid in pids {
+                    if let Some(process) = system.process(Pid::from(pid)) {
+                        let name = process.name().to_string_lossy().to_string();
+                        let key = if name.is_empty() { "unknown".to_string() } else { name };
+                        tracked_processes.entry(key).or_default().push(pid);
+                    } else {
+                        tracked_processes.entry("unknown".to_string()).or_default().push(pid);
+                    }
+                }
+            }
+            _ => {
+                for (pid, process) in system.processes() {
+                    let name = process.name().to_string_lossy().to_string();
+                    let key = if name.is_empty() { "unknown".to_string() } else { name };
+                    tracked_processes.entry(key).or_default().push(pid.as_u32() as usize);
+                }
+            }
+        }
+        let total_pids = tracked_processes.values().map(|v| v.len()).sum();
+        let consumed_energy = vec![0.0; total_pids];
         Ok(Self {
             rate,
             count_trace_calls: 0,
@@ -41,7 +50,7 @@ impl PowerGroupTracker {
     pub fn sleep_interval(&self) -> f64 {
         1.0 / self.rate
     }
-    pub fn processes(&self) -> &Vec<usize> {
+    pub fn processes(&self) -> &HashMap<String, Vec<usize>> {
         &self.tracked_processes
     }
     pub fn consumed_energy(&self) -> &Vec<f64> {
