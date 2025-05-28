@@ -29,8 +29,7 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 #Documentation = ""
 
 [project.optional-dependencies]
-dev = ["black", "pytest", "pytest-asyncio", "torch"]
-with_torch = ["torch"]
+dev = ["black", "pytest", "pytest-asyncio"]
 
 
 [tool.setuptools.packages.find]
