@@ -1,17 +1,16 @@
-import os
+import sys
 import time
-import timeit
-import random
 import logging
 import numpy as np
-from pathlib import Path
-from itertools import product
-from tqdm import tqdm
-from typing import Union
 
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.datasets import mnist
+
+try:
+    import tensorflow as tf
+    from tensorflow.keras import layers, models
+    from tensorflow.keras.datasets import mnist
+except ImportError:
+    print("This example requires TensorFlow. Please install it to run this script.")
+    sys.exit(0)
 
 import emt
 from emt import EnergyMonitor
