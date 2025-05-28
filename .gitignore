@@ -22,3 +22,7 @@ emt/collector/core.*
 emt/collector/*.dSYM/
 emt/collector/*.pdb
 emt/collector/debug
+
+# Ignore all Rust target directories
+target/
+**/target/
