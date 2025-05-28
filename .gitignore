@@ -8,3 +8,17 @@ _version.py
 *.coverage
 build/
 data/
+
+# Rust artifacts
+emt/collector/target/
+emt/collector/Cargo.lock
+emt/collector/.cargo/
+emt/collector/.rustup/
+emt/collector/.DS_Store
+emt/collector/*.rs.bk
+
+# Ignore core dumps and debug files
+emt/collector/core.*
+emt/collector/*.dSYM/
+emt/collector/*.pdb
+emt/collector/debug

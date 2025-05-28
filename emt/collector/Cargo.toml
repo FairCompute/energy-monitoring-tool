@@ -1,5 +1,5 @@
 [package]
-name = "collector"
+name = "emt_collector"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,3 +7,4 @@ edition = "2024"
 async-trait = "0.1.88"
 log = "0.4.27"
 sysinfo = "0.35.1"
+tokio = { version = "1.45.1", features = ["full"] }

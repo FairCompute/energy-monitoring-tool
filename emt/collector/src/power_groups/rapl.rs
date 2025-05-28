@@ -14,6 +14,9 @@ impl AsyncEnergyCollector for RaplSocCpuGroup {
     }
     async fn commence(&mut self) -> Result<(), String> {
         log::info!("RAPL group commence called");
+        let interval = self.tracker.sleep_interval();
+        println!("Sleeping for {} seconds (yielding)...", interval);
+        tokio::time::sleep(tokio::time::Duration::from_secs_f64(interval)).await;
         Ok(())
     }
     async fn shutdown(&mut self) -> Result<(), String> {

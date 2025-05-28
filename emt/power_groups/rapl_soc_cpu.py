@@ -199,7 +199,7 @@ class RAPLSoC(PowerGroup):
         except OSError:
             return False
 
-    def _read_energy_rapl(self) -> Mapping[str, float]:
+    def _read_energy(self) -> Mapping[str, float]:
         """
         Reports the accumulated energy consumption of the tracked devices types. The readers are
         created in the constructor and are called to obtain the energy delta. Reader of each type
@@ -232,19 +232,6 @@ class RAPLSoC(PowerGroup):
             "dram": energy_dram,
             "igpu": energy_igpu,
         }
-
-    def _read_energy_node_exporter(self) -> Mapping[str, float]:
-        """
-        This method reads the energy consumption from the node exporter. The node exporter
-        is a prometheus exporter that exposes the energy consumption of the CPU and its
-        sub-components. The energy consumption is obtained from the RAPL (Running Average Power Limit)
-        interface of the CPU. The RAPL interface is available on Intel CPUs since the Sandy Bridge
-        micro-architecture.
-
-        Returns:
-            dict: A map of accumulated energy consumption (in joules) for each device type since
-                  the last call to this method.
-        """
 
     def _read_utilization(self) -> Mapping[str, float]:
         """
@@ -299,7 +286,7 @@ class RAPLSoC(PowerGroup):
 
         while True:
             start_time = time.perf_counter()
-            energy_trace = self._read_energy_rapl()
+            energy_trace = self._read_energy()
             measurement_time = time.perf_counter() - start_time
 
             utilization_trace = self._read_utilization()

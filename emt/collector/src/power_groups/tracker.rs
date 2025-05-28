@@ -1,13 +1,19 @@
 use crate::power_groups::errors::TrackerError;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use sysinfo::{Pid, Process, System};
+use sysinfo::{Pid, System};
+
+#[derive(Debug)]
+pub struct ProcessGroup {
+    pub category: String,
+    pub application: String,
+    pub pids: Vec<usize>,
+}
 
 pub struct PowerGroupTracker {
     rate: f64,
     count_trace_calls: usize,
-    // Grouped by application name, each with a vector of PIDs
-    tracked_processes: HashMap<String, Vec<usize>>,
+    tracked_processes: Vec<ProcessGroup>,
     consumed_energy: Vec<f64>,
     energy_trace: HashMap<u64, Vec<f64>>,
 }
@@ -15,28 +21,45 @@ pub struct PowerGroupTracker {
 impl PowerGroupTracker {
     pub fn new(rate: f64, provided_pids: Option<Vec<usize>>) -> Result<Self, TrackerError> {
         let system = System::new_all();
-        let mut tracked_processes: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
         match provided_pids {
-            Some(pids) if !pids.is_empty() => {
+            Some(ref pids) if pids.is_empty() => {
+                // Explicitly requested no processes: return empty groups
+            }
+            Some(pids) => {
                 for pid in pids {
                     if let Some(process) = system.process(Pid::from(pid)) {
-                        let name = process.name().to_string_lossy().to_string();
-                        let key = if name.is_empty() { "unknown".to_string() } else { name };
-                        tracked_processes.entry(key).or_default().push(pid);
+                        let user_id = process.user_id().map(|u| u.to_string()).unwrap_or_else(|| "unknown".to_string());
+                        let category = if user_id == "0" || user_id == "root" {
+                            "system".to_string()
+                        } else {
+                            format!("user@{}", user_id)
+                        };
+                        let app = process.name().to_string_lossy().split('/').next().unwrap_or("unknown").to_string();
+                        groups.entry((category, app)).or_default().push(pid);
                     } else {
-                        tracked_processes.entry("unknown".to_string()).or_default().push(pid);
+                        groups.entry(("system".to_string(), "unknown".to_string())).or_default().push(pid);
                     }
                 }
             }
-            _ => {
+            None => {
                 for (pid, process) in system.processes() {
-                    let name = process.name().to_string_lossy().to_string();
-                    let key = if name.is_empty() { "unknown".to_string() } else { name };
-                    tracked_processes.entry(key).or_default().push(pid.as_u32() as usize);
+                    let user_id = process.user_id().map(|u| u.to_string()).unwrap_or_else(|| "unknown".to_string());
+                    let category = if user_id == "0" || user_id == "root" {
+                        "system".to_string()
+                    } else {
+                        format!("user@{}", user_id)
+                    };
+                    let app = process.name().to_string_lossy().split('/').next().unwrap_or("unknown").to_string();
+                    groups.entry((category, app)).or_default().push(pid.as_u32() as usize);
                 }
             }
         }
-        let total_pids = tracked_processes.values().map(|v| v.len()).sum();
+        let tracked_processes: Vec<ProcessGroup> = groups
+            .into_iter()
+            .map(|((category, application), pids)| ProcessGroup { category, application, pids })
+            .collect();
+        let total_pids = tracked_processes.iter().map(|g| g.pids.len()).sum();
         let consumed_energy = vec![0.0; total_pids];
         Ok(Self {
             rate,
@@ -50,7 +73,7 @@ impl PowerGroupTracker {
     pub fn sleep_interval(&self) -> f64 {
         1.0 / self.rate
     }
-    pub fn processes(&self) -> &HashMap<String, Vec<usize>> {
+    pub fn processes(&self) -> &Vec<ProcessGroup> {
         &self.tracked_processes
     }
     pub fn consumed_energy(&self) -> &Vec<f64> {
@@ -69,4 +92,66 @@ pub trait AsyncEnergyCollector {
     }
     async fn commence(&mut self) -> Result<(), String>;
     async fn shutdown(&mut self) -> Result<(), String>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // Test tracker with empty PID list returns no groups
+    fn test_tracker_empty() {
+        let tracker = PowerGroupTracker::new(1.0, Some(vec![])).unwrap();
+        assert_eq!(tracker.processes().len(), 0);
+    }
+
+    #[test]
+    // Test tracker with a nonexistent PID returns a system/unknown group
+    fn test_tracker_with_nonexistent_pid() {
+        let tracker = PowerGroupTracker::new(1.0, Some(vec![999999])).unwrap();
+        let groups = tracker.processes();
+        assert!(groups.iter().any(|g| g.category == "system" && g.application == "unknown"));
+    }
+
+    #[test]
+    // Test tracker with PID 1 returns a system group containing PID 1
+    fn test_tracker_with_pid_1() {
+        let tracker = PowerGroupTracker::new(1.0, Some(vec![1])).unwrap();
+        let groups = tracker.processes();
+        assert!(groups.iter().any(|g| g.category == "system"));
+        assert!(groups.iter().any(|g| g.pids.contains(&1)));
+    }
+
+    #[test]
+    // Test tracker with all processes returns at least one group
+    fn test_tracker_all_processes_not_empty() {
+        let tracker = PowerGroupTracker::new(1.0, None).unwrap();
+        let groups = tracker.processes();
+        assert!(!groups.is_empty());
+    }
+
+    #[test]
+    // Test all PIDs are unique across all groups
+    fn test_tracker_pid_grouping() {
+        let tracker = PowerGroupTracker::new(1.0, None).unwrap();
+        let groups = tracker.processes();
+        let mut all_pids: Vec<usize> = Vec::new();
+        for group in groups {
+            all_pids.extend(&group.pids);
+        }
+        all_pids.sort();
+        all_pids.dedup();
+        assert_eq!(all_pids.len(), tracker.consumed_energy().len());
+    }
+
+    #[test]
+    // Test all groups have non-empty category and application
+    fn test_tracker_category_and_application() {
+        let tracker = PowerGroupTracker::new(1.0, None).unwrap();
+        let groups = tracker.processes();
+        for group in groups {
+            assert!(!group.category.is_empty());
+            assert!(!group.application.is_empty());
+        }
+    }
 }
