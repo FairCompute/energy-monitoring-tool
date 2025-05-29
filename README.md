@@ -10,7 +10,12 @@
 
 # Energy Monitoring Tool (EMT) <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/refs/heads/main/assets/logo.png" alt="EMT Logo" width="60"/>
 
-**EMT** is a lightweight, Python-based tool that tracks the energy consumption of applications with process-level granularity. Designed with a strong focus on machine learning, it enables monitoring of the energy usage of training and inference for large deep learning models across diverse computing environments. EMT is framework-agnostic and generates process-level energy consumption log. The repository provides concrete examples of how to track energy consumption in various scenarios. EMT simplifies and democratizes energy monitoring, enabling developers and operations teams to actively reduce the environmental footprint thus advancing digital sustainability initiatives. 
+*Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
+
+**EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
+While especially useful for monitoring Machine Learning (ML) workloads, such as training and inference of large models, EMT is designed to work across a range of applications and use cases and therfore is not just limited to ML.   
+
+Our mission is to simplify and standardize monitoring and reporting of the energy usage of the software applications. By making energy usage visible and accessible, EMT helps teams reduce the environmental impact of digital realm and advances digital sustainability.
 
 
 ## 🚀 Features
@@ -46,17 +51,15 @@ pip install emt
 python -m emt --version
 ```
 
-
-
-
-
 ### _Usage_:
 
-> We currently plan to support three modes of usage: Python Context Managers, Keras Callbacks and CLI.
-> The _callbacks_ focus on working with popular ML library Keras, the python _context manager_ mode can
-> be easily integrated into any python code, while the _CLI_ mode allows usage of the tool for
-> command-line application that are not writtern in python.  
-> **Only Python Context Manager Mode is implemented so far!**
+> The tool supports two usage modes:
+> - **Python Context Manager**  
+>   Fully implemented and ideal for instrumenting Python code directly. This mode allows developers to wrap specific code blocks to measure energy consumption with precision.
+> - **Command-Line Interface (CLI)**  
+>   Designed to tag and monitorrunning application without modifying the code.  
+>   _This mode is currently under active development and will be available soon._
+
 
 #### Using Python Context Managers
 
