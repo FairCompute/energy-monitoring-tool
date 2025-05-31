@@ -1,7 +1,21 @@
 
+[![Coverage](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=coverage&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Lines of Code](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=ncloc&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Security Hotspots](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=security_hotspots&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Technical Debt](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_maintainability_remediation_effort&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)  
+[![Quality Gate Status](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=alert_status&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Reliability Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_reliability_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Security Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_security_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+[![Maintainability Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_maintainability_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
+
 # Energy Monitoring Tool (EMT) <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/refs/heads/main/assets/logo.png" alt="EMT Logo" width="60"/>
 
-**EMT** is a lightweight, Python-based tool that tracks the energy consumption of applications with process-level granularity. Designed with a strong focus on machine learning, it enables monitoring of the energy usage of training and inference for large deep learning models across diverse computing environments. EMT is framework-agnostic and generates process-level energy consumption log. The repository provides concrete examples of how to track energy consumption in various scenarios. EMT simplifies and democratizes energy monitoring, enabling developers and operations teams to actively reduce the environmental footprint thus advancing digital sustainability initiatives. 
+*Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
+
+**EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
+While especially useful for monitoring Machine Learning (ML) workloads, such as training and inference of large models, EMT is designed to work across a range of applications and use cases and therfore is not just limited to ML.   
+
+Our mission is to simplify and standardize monitoring and reporting of the energy usage of the digital solutions. By making it visible and accessible, EMT helps teams reduce the environmental impact of the digital realm and advances digital sustainability.
 
 
 ## 🚀 Features
@@ -37,17 +51,15 @@ pip install emt
 python -m emt --version
 ```
 
-
-
-
-
 ### _Usage_:
 
-> We currently plan to support three modes of usage: Python Context Managers, Keras Callbacks and CLI.
-> The _callbacks_ focus on working with popular ML library Keras, the python _context manager_ mode can
-> be easily integrated into any python code, while the _CLI_ mode allows usage of the tool for
-> command-line application that are not writtern in python.  
-> **Only Python Context Manager Mode is implemented so far!**
+> The tool supports two usage modes:
+> - **Python Context Manager**  
+>   Fully implemented and ideal for instrumenting Python code directly. This mode allows developers to wrap specific code blocks to measure energy consumption with precision.
+> - **Command-Line Interface (CLI)**  
+>   Designed to tag and monitorrunning application without modifying the code.  
+>   _This mode is currently under active development and will be available soon._
+
 
 #### Using Python Context Managers
 

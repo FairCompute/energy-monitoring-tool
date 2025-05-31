@@ -24,7 +24,7 @@ dependencies = ["psutil", "numpy", "pandas", "pynvml", "tabulate", "click"]
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/philips-internal/energy-monitoring-tool"
+Repository = "https://github.com/FairCompute/energy-monitoring-tool"
 #Homepage = ""
 #Documentation = ""
 
