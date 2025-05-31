@@ -1,11 +1,11 @@
 name: Pull Request
 
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, closed]
   workflow_dispatch:
 
 permissions:
