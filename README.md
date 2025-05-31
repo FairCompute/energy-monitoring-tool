@@ -8,8 +8,9 @@
 [![Security Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_security_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Maintainability Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_maintainability_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 
-# Energy Monitoring Tool (EMT) <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/refs/heads/main/assets/logo.png" alt="EMT Logo" width="60"/>
+ <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.jpg" alt="EMT Logo" width="600"/>
 
+# Energy Monitoring Tool (EMT)
 *Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
 
 **EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
