@@ -1,5 +1,7 @@
 <div align="right">
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.png" alt="EMT Logo" width="200" />
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="100" />
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.png" alt="EMT Logo" width="150" />
+
 </div>
 
 
@@ -132,3 +134,10 @@ EMT Tool is an ongoing project, and we are actively working to enhance its featu
 For any inquiries or discussions, feel free to reach out to us at [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)
 
 Let's code responsibly and make a positive impact on the environment! 🌍✨
+
+## Acknowledgment
+
+This project was originally initiated at Philips and continues to be actively maintained by the Philips Responsible AI team. We extend our sincere gratitude to all current and former contributors at Philips whose expertise, vision, and commitment to sustainability have been instrumental in shaping the Energy Monitoring Tool (EMT).
+
+Philips has a longstanding dedication to sustainability and energy efficiency, guided by its core principle of care for people and the planet. This project reflects those values by providing open-source tools that empower organizations to monitor, analyze, and optimize their energy consumption. By making EMT open source through FairCompute, Philips aims to foster a broader community effort around sustainable computing, enabling both industry and research to benefit from advanced, transparent energy monitoring solutions.
+
