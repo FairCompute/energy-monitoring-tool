@@ -8,7 +8,7 @@
 [![Maintainability Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_maintainability_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 
 <div style="display: flex; justify-content: center; align-items: center; margin: 0;">
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.png" alt="EMT Logo" width="200" style="margin:0;padding:0;display:block;" />
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.jpg" alt="EMT Logo" width="200" style="margin:0;padding:0;display:block;" />
 </div>
 
 # Energy Monitoring Tool (EMT)
@@ -16,26 +16,26 @@
 *Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
 
 **EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
-While especially useful for monitoring Machine Learning (ML) workloads, such as training and inference of large models, EMT is designed to work across a range of applications and use cases and therfore is not just limited to ML.   
+While especially useful for monitoring Machine Learning (ML) workloads, such as training and inference of large models, EMT is designed to work across a range of applications and use cases and therefore is not just limited to ML.
 
 Our mission is to simplify and standardize monitoring and reporting of the energy usage of the digital solutions. By making it visible and accessible, EMT helps teams reduce the environmental impact of the digital realm and advances digital sustainability.
-
 
 ## 🚀 Features
 
 - Real-time energy utilization tracking.lo
 - Device-level breakdown of energy consumption.
-- Enegy/Power attribution to a process of interest in a multi-process shared resource setting.
+- Energy/Power attribution to a process of interest in a multi-process shared resource setting.
 - Modular and extendable software architecture, currently supports following powergroups:
-  - CPU(s) with RAPL capabilites.
+  - CPU(s) with RAPL capabilities.
   - Nvidia GPUs.
 - Visualization interface for energy data using TensorBoard,  making it easy to analyze energy usage trends.
 
-  #### Supported Platforms
-  - Linux
-  
+## Supported Platforms
 
+- Linux
+  
 > Road Map
+>
 > - Environmentally conscious coding tips.
 > - Virtual CPU(s) covered by Teads dataset.
 > - Add support for Windows through PCM/OpenHardwareMonitor
@@ -45,6 +45,7 @@ Our mission is to simplify and standardize monitoring and reporting of the energ
 In the era of climate awareness, it's essential for developers to contribute to a sustainable future. EMT Tool empowers you to make informed decisions about your code's impact on the environment and take steps towards writing more energy-efficient software.
 
 ## 🛠️ Getting Started
+
 Install the latest [EMT package](https://pypi.org/project/emt/)  from the Python Package Index (PyPI):  
 
 ``` bash
@@ -54,15 +55,15 @@ pip install emt
 python -m emt --version
 ```
 
-### _Usage_:
+### *Usage*
 
 > The tool supports two usage modes:
+>
 > - **Python Context Manager**  
 >   Fully implemented and ideal for instrumenting Python code directly. This mode allows developers to wrap specific code blocks to measure energy consumption with precision.
 > - **Command-Line Interface (CLI)**  
->   Designed to tag and monitorrunning application without modifying the code.  
->   _This mode is currently under active development and will be available soon._
-
+>   Designed to tag and monitor running application without modifying the code.  
+>   *This mode is currently under active development and will be available soon.*
 
 #### Using Python Context Managers
 
