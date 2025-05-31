@@ -1,4 +1,3 @@
-
 [![Coverage](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=coverage&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Lines of Code](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=ncloc&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Security Hotspots](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=security_hotspots&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
@@ -8,9 +7,12 @@
 [![Security Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_security_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Maintainability Rating](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=software_quality_maintainability_rating&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 
- <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.jpg" alt="EMT Logo" width="600"/>
+<div style="display: flex; justify-content: center; align-items: center; margin: 0;">
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.jpg" alt="EMT Logo" width="500" style="margin:0;padding:0;display:block;" />
+</div>
 
 # Energy Monitoring Tool (EMT)
+
 *Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
 
 **EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
@@ -21,7 +23,7 @@ Our mission is to simplify and standardize monitoring and reporting of the energ
 
 ## 🚀 Features
 
-- Real-time energy utilization tracking.
+- Real-time energy utilization tracking.lo
 - Device-level breakdown of energy consumption.
 - Enegy/Power attribution to a process of interest in a multi-process shared resource setting.
 - Modular and extendable software architecture, currently supports following powergroups:
