@@ -36,6 +36,7 @@
         "pytest",
         "Qube",
         "Rameez",
+        "randint",
         "RAPL",
         "reexec",
         "seperate",
