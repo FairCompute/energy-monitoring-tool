@@ -1,7 +1,5 @@
 site_name: "EMT Documentation"
 nav:
-  - Home: index.md
-  - Executive Summary: executive_summary.md
   - Introduction: introduction.md
   - Usage Modes: usage_modes.md
   - Virtualization Challenges: virtualization_challenges.md

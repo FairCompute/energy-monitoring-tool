@@ -1,16 +1,18 @@
-# Introduction to the Energy Monitoring Tool (EMT)
+![EMT Logo](assets/logo.png)
 
-## Purpose and Vision
+The Energy Monitoring Tool (EMT) is an open-source solution for granular, real-time energy consumption data. It enhances energy observability, enabling users to identify hotspots and optimize resource utilization for sustainability and cost efficiency. EMT supports detailed per-process energy estimation and Prometheus-based telemetry, with a focus on virtualization challenges in containers and VMs.
 
-EMT addresses the growing need for energy observability in modern computing, aligning with Green IT principles for sustainable practices. It provides accurate energy insights to help organizations make environmentally responsible decisions.
+Unlike many tools such as Kepler or PowerAPI, EMT is designed from the ground up to address the unique challenges of energy attribution in virtualized environments, including both containers and VMs, and to provide seamless integration with standard observability stacks.
 
-## Core Features and Design Principles
+Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT), a product by FairCompute.
 
-- Detailed documentation and architecture
-- Per-process energy estimation
-- Prometheus-based telemetry
-- Focus on virtualization (containers, cgroups, VMs)
+## Table of Contents
 
-While tools like PowerAPI and Scaphandre offer modularity or lightweight agents, EMT distinguishes itself by combining deep kernel-level integration (eBPF), advanced attribution models, and a commitment to reliable virtualization support, making it especially suitable for modern, cloud-native, and virtualized environments.
+- [Usage Modes](usage_modes.md)
+- [Virtualization Challenges](virtualization_challenges.md)
+- [Virtualization Strategies](virtualization_strategies.md)
+- [Conclusion](conclusion.md)
 
-*See [Usage Modes](usage_modes.md) for operational details.*
+---
+
+EMT is an open-source initiative for real-time, granular energy monitoring and advanced virtualization support. Use the navigation to explore detailed documentation, architecture, usage, and how EMT stands out from other tools in the field.
