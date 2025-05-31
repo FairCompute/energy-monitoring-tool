@@ -4,8 +4,6 @@
 
 </div>
 
-
-
 [![Coverage](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=coverage&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Lines of Code](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=ncloc&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
 [![Security Hotspots](https://sonar-ci-3f7k9v82.workstation-home.com/api/project_badges/measure?project=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045&metric=security_hotspots&token=sqb_dfadb2a54f25b2b7d59a71f83d23336d43cdc3e2)](https://sonar-ci-3f7k9v82.workstation-home.com/dashboard?id=FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045)
