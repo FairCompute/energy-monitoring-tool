@@ -15,7 +15,7 @@
 **EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
 While especially useful for monitoring Machine Learning (ML) workloads, such as training and inference of large models, EMT is designed to work across a range of applications and use cases and therfore is not just limited to ML.   
 
-Our mission is to simplify and standardize monitoring and reporting of the energy usage of the software applications. By making energy usage visible and accessible, EMT helps teams reduce the environmental impact of digital realm and advances digital sustainability.
+Our mission is to simplify and standardize monitoring and reporting of the energy usage of the digital solutions+. By making it visible and accessible, EMT helps teams reduce the environmental impact of the digital realm and advances digital sustainability.
 
 
 ## 🚀 Features
