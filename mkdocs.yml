@@ -1,0 +1,42 @@
+site_name: Energy Monitoring Tool (EMT)
+nav:
+  - Home: index.md
+  - Executive Summary: executive_summary.md
+  - Introduction: introduction.md
+  - Usage Modes: usage_modes.md
+  - Virtualization Challenges: virtualization_challenges.md
+  - Virtualization Strategies: virtualization_strategies.md
+  - Conclusion: conclusion.md
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: green
+      accent: light green
+  features:
+    - navigation.tabs: false
+    - navigation.top: false
+    - navigation.sections: true
+    - search.suggest: true
+    - search.highlight: true
+  logo: assets/logo.png  # Place your logo at docs/assets/logo.png
+  favicon: assets/favicon.ico  # Place your favicon at docs/assets/favicon.ico
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - footnotes
+  - tables
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.emoji
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true

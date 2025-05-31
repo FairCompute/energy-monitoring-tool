@@ -29,8 +29,19 @@ Repository = "https://github.com/philips-internal/energy-monitoring-tool"
 #Documentation = ""
 
 [project.optional-dependencies]
+
 dev = ["black", "pytest", "pytest-asyncio"]
 
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-redirects",
+    "mkdocs-awesome-pages-plugin",
+    "pymdown-extensions",
+    "myst-parser",
+    "mkdocs-git-revision-date-localized-plugin",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
