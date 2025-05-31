@@ -1,4 +1,4 @@
-site_name: Energy Monitoring Tool (EMT)
+site_name: "EMT Documentation"
 nav:
   - Home: index.md
   - Executive Summary: executive_summary.md
@@ -19,7 +19,7 @@ theme:
     - navigation.sections: true
     - search.suggest: true
     - search.highlight: true
-  logo: assets/logo.png  # Place your logo at docs/assets/logo.png
+  logo: assets/logo.png  # Adjust the logo size in your CSS if needed (height: 50px, width: 50px)
   favicon: assets/favicon.ico  # Place your favicon at docs/assets/favicon.ico
 markdown_extensions:
   - toc:
@@ -40,3 +40,5 @@ plugins:
         python:
           options:
             show_source: true
+extra_css:
+  - assets/custom.css

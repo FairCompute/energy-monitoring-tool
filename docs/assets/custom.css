@@ -1,0 +1,23 @@
+/* Professional, embedded logo style for MkDocs Material */
+.md-header__button.md-logo img, .md-header__button.md-logo svg {
+    height: 56px !important;
+    max-height: 56px !important;
+    border-radius: 6px;
+    box-shadow: none;
+    background: none !important;
+    padding: 0 !important;
+    border: none !important;
+    outline: none !important;
+    vertical-align: middle;
+    filter: brightness(0.98) contrast(1.05) drop-shadow(0 1px 2px rgba(0,0,0,0.07));
+    transition: filter 0.2s;
+}
+.md-header__button.md-logo img:hover {
+    filter: brightness(1.03) contrast(1.10) drop-shadow(0 2px 6px rgba(34, 139, 34, 0.10));
+}
+/* Make the header more compact for MkDocs Material */
+.md-header {
+    min-height: 60px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}

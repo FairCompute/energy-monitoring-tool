@@ -1,6 +1,6 @@
 # Energy Monitoring Tool (EMT)
 
-Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT), a product by ![FairCompute](assets/logo.png).
+Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT), a product by [FairCompute](https://github.com/FairCompute).
 
 ## Table of Contents
 
