@@ -24,7 +24,7 @@ Our mission is to simplify and standardize monitoring and reporting of the energ
 
 ## 🚀 Features
 
-- Real-time energy utilization tracking.lo
+- Real-time energy utilization tracking.
 - Device-level breakdown of energy consumption.
 - Energy/Power attribution to a process of interest in a multi-process shared resource setting.
 - Modular and extendable software architecture, currently supports following powergroups:
