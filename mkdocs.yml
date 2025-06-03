@@ -1,10 +1,4 @@
 site_name: "EMT Documentation"
-nav:
-  - Introduction: introduction.md
-  - Usage Modes: usage_modes.md
-  - Virtualization Challenges: virtualization_challenges.md
-  - Virtualization Strategies: virtualization_strategies.md
-  - Conclusion: conclusion.md
 theme:
   name: material
   palette:
@@ -17,8 +11,11 @@ theme:
     - navigation.sections: true
     - search.suggest: true
     - search.highlight: true
-  logo: assets/logo.png  # Adjust the logo size in your CSS if needed (height: 50px, width: 50px)
-  favicon: assets/favicon.ico  # Place your favicon at docs/assets/favicon.ico
+  logo: assets/logo.png 
+  favicon: assets/favicon.ico
+  
+extra_css:
+  - assets/custom.css
 markdown_extensions:
   - toc:
       permalink: true
@@ -38,5 +35,4 @@ plugins:
         python:
           options:
             show_source: true
-extra_css:
-  - assets/custom.css
+  - awesome-pages

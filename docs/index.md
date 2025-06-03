@@ -6,7 +6,7 @@ Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT),
 
 <!-- - [Executive Summary](executive_summary.md) -->
 - [Introduction](introduction.md)
-- [Usage Modes](usage_modes.md)
+- [Getting Started](getting_started.md)
 - [Virtualization Challenges](virtualization_challenges.md)
 - [Virtualization Strategies](virtualization_strategies.md)
 - [Conclusion](conclusion.md)

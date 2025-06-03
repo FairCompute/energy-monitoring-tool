@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Measurement Imperative for AI Energy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Light blue gradient background for a tech feel */
+            background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+            display: flex;
+            /* Remove center alignment */
+            min-height: 100vh;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        .slide-container {
+            background-color: white;
+            border-radius: 20px; /* More rounded corners */
+            box-shadow: 0 24px 32px -8px rgba(30, 58, 138, 0.13), 0 8px 16px -8px rgba(30, 58, 138, 0.07);
+            padding: 3rem; /* Increased padding */
+            width: 100%;
+            max-width: 1250px; /* Was 1100px */
+            aspect-ratio: 16/9;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 3px solid transparent;
+            background-clip: padding-box;
+            position: relative;
+            margin: 0; /* Add left alignment */
+        }
+        .slide-container::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            padding: 2px;
+            background: linear-gradient(120deg, #38bdf8 0%, #6366f1 100%);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .slide-container > * {
+            position: relative;
+            z-index: 1;
+        }
+        .slide-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #0e172a; /* Even darker blue for title */
+            margin-bottom: 2rem;
+            text-align: left; /* Change from center to left */
+            letter-spacing: -1px;
+            text-shadow: 0 2px 8px #bae6fd88;
+        }
+        .content-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2.5rem; /* More space between items */
+            flex-grow: 1;
+        }
+        .grid-item {
+            background: linear-gradient(120deg, #f0f9ff 80%, #dbeafe 100%);
+            padding: 2rem;
+            border-radius: 16px;
+            border: 1.5px solid #60a5fa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: transform 0.18s, box-shadow 0.18s;
+            box-shadow: 0 4px 16px -6px #60a5fa22;
+        }
+        .grid-item:hover {
+            transform: translateY(-6px) scale(1.025);
+            box-shadow: 0 8px 32px -8px #2563eb33;
+            border-color: #6366f1;
+        }
+        .grid-item h3 {
+            font-size: 1.22rem;
+            font-weight: 700;
+            color: #2563eb;
+            margin-bottom: 1rem;
+            letter-spacing: -0.5px;
+        }
+        .grid-item p {
+            font-size: 1rem;
+            color: #334155;
+            line-height: 1.6;
+        }
+        .icon {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 1rem;
+            color: #2563eb;
+            filter: drop-shadow(0 2px 6px #60a5fa55);
+        }
+        .footer-text {
+            text-align: center;
+            font-size: 1rem;
+            color: #334155;
+            margin-top: 2.5rem;
+            font-weight: 500;
+            letter-spacing: 0.1px;
+        }
+        ul.list-disc {
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1024px) {
+            .slide-container {
+                padding: 2rem;
+                max-width: 98vw;
+            }
+            .slide-title {
+                font-size: 2rem;
+            }
+            .content-grid {
+                gap: 1.5rem;
+            }
+        }
+        @media (max-width: 768px) {
+            .slide-title {
+                font-size: 1.5rem;
+            }
+            .grid-item h3 {
+                font-size: 1rem;
+            }
+            .grid-item p {
+                font-size: 0.9rem;
+            }
+            .slide-container {
+                padding: 1.5rem;
+                max-width: 99vw;
+                aspect-ratio: auto;
+            }
+            .content-grid {
+                gap: 1rem;
+            }
+        }
+        @media (max-width: 600px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+                gap: 0.75rem;
+            }
+            .slide-container {
+                padding: 1rem;
+            }
+            .slide-title {
+                font-size: 1.1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="slide-container">
+        <div>
+            <h1 class="slide-title">AI's Energy: The Measurement Imperative</h1>
+            <div class="content-grid">
+                <!-- Item 1: The Core Principle -->
+                <div class="grid-item">
+                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 006 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                    </svg>
+                    <h3>"If You Can't Measure It, You Can't Manage It"</h3>
+                    <p>This core principle is vital for AI's energy use. Accurate tracking, analysis, and reporting are no longer niche concerns but critical for operations and sustainability.</p>
+                </div>
+
+                <!-- Item 2: Baseline for Action -->
+                <div class="grid-item">
+                     <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                    </svg>
+                    <h3>Baselines for Action</h3>
+                    <p>Regular granular measurement helps us:
+                        <ul class="list-disc list-inside text-left mt-2 text-sm">
+                            <li>Identify energy patterns</li>
+                            <li>Track optimization benefits</li>
+                            <li>Guide design decisions</li>
+                            <li>Support energy accounting</li>
+                        </ul>
+                    </p>
+                </div>
+
+                <!-- Item 3: Sustainability Metrics -->
+                <div class="grid-item">
+                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 12h9.75M10.5 18h9.75M3.75 6H7.5m3 12h9.75m-9.75 0a2.25 2.25 0 01-2.25-2.25V5.25A2.25 2.25 0 015.25 3h1.5a2.25 2.25 0 012.25 2.25v1.5A2.25 2.25 0 017.5 9h-1.5A2.25 2.25 0 003.75 11.25v1.5c0 1.242 1.008 2.25 2.25 2.25h1.5m-3-9h1.5" />
+                    </svg>
+                    <h3>Sustainability Metrics: Essential AI Performance</h3>
+                    <p>Integrate sustainability metrics to build truly responsible AI.</p>
+                    <ul class="list-disc list-inside text-left mt-2 text-sm">
+                        <li>Training & Inference Footprint</li>
+                        <li>Training & Infrence Energy Efficiency</li>
+                        <li>Compute Waste</li>
+                    </ul>
+                </div>
+
+                <!-- Item 4: Philips - Sustainability as a Differentiator -->
+                <div class="grid-item">
+                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /> <!-- Heart icon for care -->
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-2.015 4.5-4.5S14.485 12 12 12s-4.5 2.015-4.5 4.5S9.515 21 12 21z" /> <!-- Globe-like element for planet -->
+                    </svg>
+                    <h3>Philips: Innovating for a Healthier Planet</h3>
+                    <p>At Philips, sustainability is a key differentiator: innovation to improve lives is inseparable from protecting the planet that sustains us all.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
