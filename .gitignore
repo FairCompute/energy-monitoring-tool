@@ -30,3 +30,5 @@ target/
 
 # Ignore site folder
 site/
+.site/
+
