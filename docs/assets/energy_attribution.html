@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Process Scheduling & Energy Attribution</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+    </script>
     <style>
         body {
             font-family: "Inter", sans-serif;
@@ -103,7 +106,7 @@
         /* Styles for the bar chart and pie chart */
         .chart-container {
             width: 100%;
-            height: 250px; /* Fixed height for charts */
+            height: 250px;
             position: relative;
             margin: 0 auto;
             background-color: #e2e8f0;
@@ -112,9 +115,29 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            overflow: hidden; /* Ensure content stays within bounds */
+            overflow: hidden;
         }
 
+        /* Separate style for pie chart container */
+        .pie-chart-container {
+            width: 100%;
+            height: 300px; /* Increased from 250px */
+            position: relative;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: visible; /* Changed from hidden to allow labels to overflow */
+            background-color: transparent;
+        }
+
+        .pie-chart-container canvas {
+            background-color: transparent;
+            box-shadow: none;
+            width: 100%;
+            height: 100%;
+        }
+        
         .bar-chart-bars {
             display: flex;
             flex-direction: column;
@@ -136,7 +159,7 @@
             color: #4a5568;
         }
         .bar-fill {
-            height: 25px;
+            height: 26px;
             border-radius: 0.25rem;
             transition: width 0.5s ease-out;
             display: flex;
@@ -144,7 +167,7 @@
             justify-content: flex-end;
             padding-right: 0.5rem;
             color: white;
-            font-size: 0.9rem;
+            font-size: 0.7rem;
             font-weight: bold;
             white-space: nowrap;
             overflow: hidden;
@@ -244,65 +267,66 @@
             </div>
         </div>
 
-        <!-- Diagram 3: Relative Utilization for Proportional Attribution -->
+        <!-- Combined Diagram 3: Proportional Energy Attribution -->
         <div class="explanation-section diagram-container">
-            <h2>3. Relative Resource Utilization for Energy Attribution</h2>
-            <p>EMT attributes energy proportionally. It first calculates each process's "relative utilization" by comparing its resource usage (e.g., CPU, GPU, memory) to the combined usage of *all* active processes.</p>
-            <div class="chart-container">
-                <div class="bar-chart-bars">
-                    <div class="bar-item">
-                        <span class="bar-label">Process X:</span>
-                        <div id="resource-util-bar-X" class="bar-fill" style="background-color: #ef4444;"></div>
-                    </div>
-                    <div class="bar-item">
-                        <span class="bar-label">Process Y:</span>
-                        <div id="resource-util-bar-Y" class="bar-fill" style="background-color: #facc15;"></div>
-                    </div>
-                    <div class="bar-item">
-                        <span class="bar-label">Process Z:</span>
-                        <div id="resource-util-bar-Z" class="bar-fill" style="background-color: #a855f7;"></div>
-                    </div>
-                    <div class="bar-item">
-                        <span class="bar-label">Process W:</span>
-                        <div id="resource-util-bar-W" class="bar-fill" style="background-color: #14b8a6;"></div>
-                    </div>
-                </div>
-            </div>
-            <p class="mt-4 text-center font-semibold text-blue-700">
-                Formula: $ \text{Relative Utilization for Process P} = (\frac{\text{Process P's Resource Utilization}}{\text{Sum of All Processes' Resource Utilization}}) $
-            </p>
-        </div>
+            <h2>3. Proportional Energy Attribution</h2>
+            <p>EMT attributes energy consumption by first normalizing the resource utilization of active processes and then proportionally distributing the total measured energy.</p>
 
-        <!-- Diagram 4: Proportional Energy Attribution -->
-        <div class="explanation-section diagram-container">
-            <h2>4. Proportional Energy Attribution</h2>
-            <p>Once the relative utilization is known, EMT uses it to assign a proportional share of the *total measured energy consumption* to each process. This allows for granular energy breakdown per application.</p>
-            <div class="chart-container">
-                <canvas id="energyAttributionPieChart"></canvas>
-            </div>
-            <div class="flex flex-wrap justify-center gap-4 mt-4">
-                <div class="legend-item">
-                    <div class="color-box bg-red-500"></div>
-                    <span>Process X Energy Share</span>
+            <div class="flex flex-col md:flex-row gap-6 mt-6">
+                <!-- Sub-section 1: Relative CPU Utilization Among Active Processes -->
+                <div class="explanation-section flex-1">
+                    <h3>3a. Relative CPU Utilization Among Active Processes</h3>
+                    <p>The CPU time of active processes (A, B, C) is normalized relative to their combined total. This effectively distributes any non-attributable CPU time (like idle periods or general system overhead not directly tied to a specific process) among the active processes.</p>
+                    <div class="pie-chart-container">
+                        <canvas id="relativeUtilizationPieChart"></canvas>
+                    </div>
+                    <div class="flex flex-wrap justify-center gap-4 mt-2">
+                        <!-- Change mt-4 to mt-2 ^^^ -->
+                        <div class="legend-item">
+                            <div class="color-box bg-blue-500"></div>
+                            <span>Process A</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="color-box bg-green-500"></div>
+                            <span>Process B</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="color-box bg-purple-500"></div>
+                            <span>Process C</span>
+                        </div>
+                    </div>
+                    <p class="mt-4 text-center font-semibold text-blue-700">
+                    $$ \text{Norm. Util. (P)} = \left(\frac{\text{P's CPU Time}}{\text{CPU Time of All Active Processes}}\right) \times 100\% $$
+                    </p>
                 </div>
-                <div class="legend-item">
-                    <div class="color-box bg-yellow-500"></div>
-                    <span>Process Y Energy Share</span>
-                </div>
-                <div class="legend-item">
-                    <div class="color-box bg-purple-500"></div>
-                    <span>Process Z Energy Share</span>
-                </div>
-                <div class="legend-item">
-                    <div class="color-box bg-teal-500"></div>
-                    <span>Process W Energy Share</span>
-                </div>
-            </div>
-            <p class="mt-4 text-center font-semibold text-blue-700">
-                Formula: $ \text{Process P Energy Consumption} = \text{Relative Utilization for Process P} \times \text{Total System Energy} $
-            </p>
-        </div>
 
+                <!-- Sub-section 2: Proportional Energy Attribution to Active Processes -->
+                <div class="explanation-section flex-1">
+                    <h3>3b. Proportional Energy Attribution to Active Processes</h3>
+                    <p class="mb-6">Using the normalized utilization percentages from above, the total energy consumed by the core (e.g., 500 Joules) is proportionally attributed to each active process.</p>
+                    <br><br><br>
+                    <div class="chart-container">
+                        <div class="bar-chart-bars">
+                            <div class="bar-item">
+                                <span class="bar-label">Process A:</span>
+                                <div id="energy-attr-bar-A" class="bar-fill" style="background-color: #3b82f6;"></div>
+                            </div>
+                            <div class="bar-item">
+                                <span class="bar-label">Process B:</span>
+                                <div id="energy-attr-bar-B" class="bar-fill" style="background-color: #22c55e;"></div>
+                            </div>
+                            <div class="bar-item">
+                                <span class="bar-label">Process C:</span>
+                                <div id="energy-attr-bar-C" class="bar-fill" style="background-color: #a855f7;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="mt-4 text-center font-semibold text-blue-700">
+                        $$ \text{Energy}^\text{P} =\text{Norm. Util. (P)} \times \text{Total Measured Energy (Joules)} $$
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -483,27 +507,26 @@
         }
 
 
-        // --- Diagram 3 & 4: Relative Utilization & Proportional Energy Attribution (Pie Charts) ---
-        const proportionalProcesses = [
-            { id: 'X', resourceUtilization: 30, color: '#ef4444' }, // Red
-            { id: 'Y', resourceUtilization: 25, color: '#facc15' }, // Yellow
-            { id: 'Z', resourceUtilization: 20, color: '#a855f7' },  // Purple
-            { id: 'W', resourceUtilization: 25, color: '#14b8a6' }   // Teal
+        // --- Section 3: Proportional Energy Attribution ---
+        const activeProcesses = [
+            { id: 'A', accumulatedTime: 300, color: '#3b82f6' },
+            { id: 'B', accumulatedTime: 280, color: '#22c55e' },
+            { id: 'C', accumulatedTime: 220, color: '#a855f7' }
         ];
-        const totalSystemEnergy = 100; // Total energy units
 
-        function drawPieChart(canvasId, data, totalValue, labelFormatter) {
+        const totalEnergyJoules = 500; // Total energy in Joules
+
+        function drawPieChart(canvasId, data) {
             const canvas = document.getElementById(canvasId);
-            if (!canvas) return; // Exit if canvas not found
+            if (!canvas) return;
             const ctx = canvas.getContext('2d');
 
-            // Set canvas dimensions based on its display size for responsiveness
             canvas.width = canvas.offsetWidth;
             canvas.height = canvas.offsetHeight;
 
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
-            const radius = Math.min(centerX, centerY) * 0.7; // Make radius 70% of the smaller dimension
+            const radius = Math.min(centerX, centerY) * 0.7;
 
             let currentAngle = 0;
             const total = data.reduce((sum, item) => sum + item.value, 0);
@@ -517,71 +540,68 @@
                 ctx.closePath();
                 ctx.fillStyle = item.color;
                 ctx.fill();
-                ctx.strokeStyle = '#ffffff'; // White border between slices
+                ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
-                // Draw text label
+                // Add labels
                 const midAngle = currentAngle + sliceAngle / 2;
                 const textX = centerX + radius * 0.65 * Math.cos(midAngle);
                 const textY = centerY + radius * 0.65 * Math.sin(midAngle);
 
-                ctx.fillStyle = 'white'; // Text color
+                ctx.fillStyle = 'white';
                 ctx.font = 'bold 14px Inter';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.shadowColor = 'rgba(0,0,0,0.3)';
                 ctx.shadowBlur = 3;
-                ctx.fillText(labelFormatter(item), textX, textY);
-                ctx.shadowBlur = 0; // Reset shadow
+                ctx.fillText(`${(item.percentage).toFixed(1)}%`, textX, textY);
+                ctx.shadowBlur = 0;
 
                 currentAngle += sliceAngle;
             });
         }
 
-        function renderRelativeUtilization() {
-            const totalResourceUtilization = proportionalProcesses.reduce((sum, p) => sum + p.resourceUtilization, 0);
+        function renderEnergyAttribution() {
+            const totalActiveTime = activeProcesses.reduce((sum, p) => sum + p.accumulatedTime, 0);
 
-            proportionalProcesses.forEach(process => {
-                const utilBar = document.getElementById(`resource-util-bar-${process.id}`);
-                const percentage = (process.resourceUtilization / totalResourceUtilization) * 100;
-                
-                utilBar.style.width = `${percentage}%`;
-                utilBar.textContent = `Process ${process.id}: ${percentage.toFixed(1)}%`;
-            });
-        }
-
-        function renderProportionalCharts() {
-            renderRelativeUtilization();
-            
-            // Only render the energy attribution pie chart
-            const energyAttributionData = proportionalProcesses.map(p => {
-                const relativeShare = (p.resourceUtilization / proportionalProcesses.reduce((sum, p) => sum + p.resourceUtilization, 0));
+            // Calculate normalized utilization and energy attribution
+            const processData = activeProcesses.map(process => {
+                const normalizedUtil = (process.accumulatedTime / totalActiveTime) * 100;
+                const energyShare = (normalizedUtil / 100) * totalEnergyJoules;
                 return {
-                    id: p.id,
-                    value: relativeShare * totalSystemEnergy,
-                    color: p.color,
-                    percentage: relativeShare * 100
+                    ...process,
+                    normalizedUtil,
+                    energyShare
                 };
             });
 
-            drawPieChart(
-                'energyAttributionPieChart',
-                energyAttributionData,
-                totalSystemEnergy,
-                (item) => `P${item.id}: ${item.value.toFixed(1)} EU`
-            );
+            // Update relative utilization pie chart
+            drawPieChart('relativeUtilizationPieChart', processData.map(p => ({
+                value: p.normalizedUtil,
+                color: p.color,
+                percentage: p.normalizedUtil
+            })));
+
+            // Update energy attribution bars
+            processData.forEach(process => {
+                const bar = document.getElementById(`energy-attr-bar-${process.id}`);
+                if (bar) {
+                    bar.style.width = `${process.normalizedUtil}%`;
+                    bar.textContent = `${process.energyShare.toFixed(1)} Joules (${process.normalizedUtil.toFixed(1)}%)`;
+                }
+            });
         }
 
-        // Initialize all visualizations when the window loads and on resize
+        // --- Initialize all visualizations ---
         window.onload = function() {
-            resizeTimelineCanvas(); // Initial size and draw for timeline
-            renderAccumulatedCPU(); // Render accumulated CPU bar chart
-            renderProportionalCharts(); // Render pie charts
+            resizeTimelineCanvas();
+            renderAccumulatedCPU();
+            renderEnergyAttribution();
 
             window.addEventListener('resize', () => {
-                resizeTimelineCanvas(); // Redraw timeline on resize
-                renderProportionalCharts(); // Redraw pie charts on resize
+                resizeTimelineCanvas();
+                renderEnergyAttribution();
             });
         };
     </script>
