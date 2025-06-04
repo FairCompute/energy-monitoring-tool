@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Scheduling & Energy Attribution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2f7 100%); /* Light, calming background */
+            padding: 1.5rem;
+            color: #374151; /* Default text color */
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 1.5rem; /* Rounded corners */
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.15); /* Soft shadow */
+            padding: 2.5rem;
+            max-width: 1000px; /* Wider for better visualization */
+            width: 100%;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            border: 1px solid rgba(0, 0, 0, 0.03); /* Very subtle border */
+        }
+        h1 {
+            color: #1a202c; /* Darker heading */
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+        }
+        h2 {
+            color: #2d3748; /* Sub-heading color */
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+        p {
+            font-size: 1.125rem;
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+        canvas {
+            background-color: #e2e8f0; /* Light gray for canvas background */
+            border-radius: 0.75rem;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            width: 100%; /* Make canvas responsive */
+            height: 150px; /* Fixed height for the timeline, made a bit shorter */
+            display: block;
+            margin: 0 auto;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        .color-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 0.25rem;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .explanation-section {
+            background-color: #f7fafc;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            text-align: left;
+            box-shadow: 0 5px 10px rgba(0,0,0,0.05);
+            border: 1px solid #edf2f7;
+        }
+        .explanation-section h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c5282;
+            margin-bottom: 0.75rem;
+        }
+        .explanation-section p {
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 0.5rem;
+        }
+        .key-term {
+            font-weight: 700;
+            color: #2b6cb0; /* Stronger blue for key terms */
+        }
+        .diagram-container {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px dashed #cbd5e0;
+        }
+        .diagram-container:first-of-type {
+            border-top: none; /* No border for the very first diagram */
+        }
+
+        /* Styles for the bar chart and pie chart */
+        .chart-container {
+            width: 100%;
+            height: 250px; /* Fixed height for charts */
+            position: relative;
+            margin: 0 auto;
+            background-color: #e2e8f0;
+            border-radius: 0.75rem;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden; /* Ensure content stays within bounds */
+        }
+
+        .bar-chart-bars {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            width: 80%;
+            height: 80%;
+            padding: 1rem;
+        }
+        .bar-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .bar-label {
+            width: 120px; /* Adjusted width for longer label */
+            text-align: right;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        .bar-fill {
+            height: 25px;
+            border-radius: 0.25rem;
+            transition: width 0.5s ease-out;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 0.5rem;
+            color: white;
+            font-size: 0.9rem;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1.5rem;
+                gap: 1.5rem;
+            }
+            h1 {
+                font-size: 2rem;
+            }
+            h2 {
+                font-size: 1.5rem;
+            }
+            p {
+                font-size: 1rem;
+            }
+            .explanation-section h3 {
+                font-size: 1.25rem;
+            }
+            .explanation-section p {
+                font-size: 0.9rem;
+            }
+            .bar-chart-bars {
+                width: 95%; /* Adjust width for smaller screens */
+            }
+            .bar-label {
+                width: 90px; /* Adjusted width for smaller screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Process Scheduling & Energy Attribution</h1>
+
+        <!-- Diagram 1: Simplified CPU Activity Timeline -->
+        <div class="explanation-section diagram-container">
+            <h2>1. CPU Activity Timeline: Time Slicing & Context Switching</h2>
+            <p>A CPU rapidly switches between processes, giving each a small "time slice" to execute. The brief pauses between slices are "context switches," where the CPU saves one process's state and loads another's. Note that time slices can vary in duration based on operating system scheduling decisions and process needs.</p>
+            <canvas id="cpuTimelineCanvas"></canvas>
+            <div class="flex flex-wrap justify-center gap-4 mt-4">
+                <div class="legend-item">
+                    <div class="color-box bg-blue-500"></div>
+                    <span>Process A</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-green-500"></div>
+                    <span>Process B</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-purple-500"></div>
+                    <span>Process C</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-orange-500"></div>
+                    <span>Idle Process</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-gray-400"></div>
+                    <span>Context Switch</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diagram 2: Accumulated CPU Time & % Utilization -->
+        <div class="explanation-section diagram-container">
+            <h2>2. Accumulated CPU Time & CPU Utilization (%)</h2>
+            <p>Over a period, each process accumulates "CPU time" – the total time it spent actively running. This accumulated time, relative to the total available time, determines its CPU utilization percentage. The remaining time is categorized as "System Overhead," which includes both true idle periods and the time spent on context switching.</p>
+            <div class="chart-container">
+                <div class="bar-chart-bars">
+                    <div class="bar-item">
+                        <span class="bar-label">Process A:</span>
+                        <div id="cpu-util-bar-A" class="bar-fill" style="background-color: #3b82f6;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Process B:</span>
+                        <div id="cpu-util-bar-B" class="bar-fill" style="background-color: #22c55e;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Process C:</span>
+                        <div id="cpu-util-bar-C" class="bar-fill" style="background-color: #a855f7;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Idle Process:</span>
+                        <div id="cpu-util-bar-D" class="bar-fill" style="background-color: #f97316;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">System Overhead:</span>
+                        <div id="cpu-util-bar-Idle" class="bar-fill" style="background-color: #9ca3af;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diagram 3: Relative Utilization for Proportional Attribution -->
+        <div class="explanation-section diagram-container">
+            <h2>3. Relative Resource Utilization for Energy Attribution</h2>
+            <p>EMT attributes energy proportionally. It first calculates each process's "relative utilization" by comparing its resource usage (e.g., CPU, GPU, memory) to the combined usage of *all* active processes.</p>
+            <div class="chart-container">
+                <div class="bar-chart-bars">
+                    <div class="bar-item">
+                        <span class="bar-label">Process X:</span>
+                        <div id="resource-util-bar-X" class="bar-fill" style="background-color: #ef4444;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Process Y:</span>
+                        <div id="resource-util-bar-Y" class="bar-fill" style="background-color: #facc15;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Process Z:</span>
+                        <div id="resource-util-bar-Z" class="bar-fill" style="background-color: #a855f7;"></div>
+                    </div>
+                    <div class="bar-item">
+                        <span class="bar-label">Process W:</span>
+                        <div id="resource-util-bar-W" class="bar-fill" style="background-color: #14b8a6;"></div>
+                    </div>
+                </div>
+            </div>
+            <p class="mt-4 text-center font-semibold text-blue-700">
+                Formula: $ \text{Relative Utilization for Process P} = (\frac{\text{Process P's Resource Utilization}}{\text{Sum of All Processes' Resource Utilization}}) $
+            </p>
+        </div>
+
+        <!-- Diagram 4: Proportional Energy Attribution -->
+        <div class="explanation-section diagram-container">
+            <h2>4. Proportional Energy Attribution</h2>
+            <p>Once the relative utilization is known, EMT uses it to assign a proportional share of the *total measured energy consumption* to each process. This allows for granular energy breakdown per application.</p>
+            <div class="chart-container">
+                <canvas id="energyAttributionPieChart"></canvas>
+            </div>
+            <div class="flex flex-wrap justify-center gap-4 mt-4">
+                <div class="legend-item">
+                    <div class="color-box bg-red-500"></div>
+                    <span>Process X Energy Share</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-yellow-500"></div>
+                    <span>Process Y Energy Share</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-purple-500"></div>
+                    <span>Process Z Energy Share</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box bg-teal-500"></div>
+                    <span>Process W Energy Share</span>
+                </div>
+            </div>
+            <p class="mt-4 text-center font-semibold text-blue-700">
+                Formula: $ \text{Process P Energy Consumption} = \text{Relative Utilization for Process P} \times \text{Total System Energy} $
+            </p>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Diagram 1: CPU Activity Timeline ---
+        const timelineCanvas = document.getElementById('cpuTimelineCanvas');
+        const timelineCtx = timelineCanvas.getContext('2d');
+
+        const timelineProcesses = [
+            { id: 'A', color: '#3b82f6' },   // Blue
+            { id: 'B', color: '#22c55e' },   // Green
+            { id: 'C', color: '#a855f7' },   // Purple
+            { id: 'D', color: '#f97316' }    // Orange - Idle Process
+        ];
+
+        const contextSwitchMatrix = {
+            'A': { 'B': 8, 'C': 7, 'D': 8 },    // Reduced from ~15 to ~8
+            'B': { 'A': 8, 'C': 7, 'D': 8 },
+            'C': { 'A': 7, 'B': 7, 'D': 7 },
+            'D': { 'A': 8, 'B': 8, 'C': 7 }
+        };
+
+        const minTimeSliceDuration = 20;         // Increased from 5 to 20
+        const maxTimeSliceDuration = 80;         // Increased from 60 to 80
+        const totalSimulationTime = 1000; // Total time to simulate for the bar
+        const segmentHeight = 40; // Height of each segment in the timeline
+        const padding = 10; // Padding around the timeline
+
+        let currentX = padding; // Current drawing position on the canvas for timeline
+
+        // Function to draw a segment on the timeline canvas
+        function drawTimelineSegment(processColor, duration, isContextSwitch = false) {
+            const canvasWidth = timelineCanvas.width;
+            const segmentWidth = (duration / totalSimulationTime) * (canvasWidth - 2 * padding);
+
+            timelineCtx.fillStyle = processColor;
+            timelineCtx.fillRect(currentX, padding, segmentWidth, segmentHeight);
+
+            // Add text for process ID if it's not a context switch and segment is wide enough
+            if (!isContextSwitch && segmentWidth > 20) {
+                timelineCtx.fillStyle = 'white';
+                timelineCtx.font = 'bold 12px Inter';
+                timelineCtx.textAlign = 'center';
+                timelineCtx.textBaseline = 'middle';
+                const process = timelineProcesses.find(p => p.color === processColor);
+                if (process) {
+                    timelineCtx.fillText(
+                        process.id === 'D' ? 'Idle' : `P${process.id}`,
+                        currentX + segmentWidth / 2,
+                        padding + segmentHeight / 2
+                    );
+                }
+            }
+
+            currentX += segmentWidth; // Move drawing position
+        }
+
+        // Add before simulateTimeline function
+        let processExecutionTimes = {
+            'A': 0,
+            'B': 0,
+            'C': 0,
+            'D': 0
+        };
+
+        function getContextSwitchTime(fromProcess, toProcess) {
+            return contextSwitchMatrix[fromProcess][toProcess];
+        }
+
+        // Function to simulate and draw the CPU timeline
+        function simulateTimeline() {
+            // Reset execution times for new simulation
+            processExecutionTimes = {
+                'A': 0,
+                'B': 0,
+                'C': 0,
+                'D': 0
+            };
+
+            timelineCtx.clearRect(0, 0, timelineCanvas.width, timelineCanvas.height);
+            currentX = padding;
+
+            let simulatedTime = 0;
+            let processIndex = 0;
+
+            // Loop until the total simulation time is reached
+            while (simulatedTime < totalSimulationTime) {
+                const currentProcess = timelineProcesses[processIndex];
+                const nextProcessIndex = (processIndex + 1) % timelineProcesses.length;
+                const nextProcess = timelineProcesses[nextProcessIndex];
+
+                // Generate a random time slice duration within the defined range
+                const randomTimeSlice = Math.floor(Math.random() * (maxTimeSliceDuration - minTimeSliceDuration + 1)) + minTimeSliceDuration;
+                const executionTime = Math.min(randomTimeSlice, totalSimulationTime - simulatedTime);
+
+                if (executionTime > 0) {
+                    drawTimelineSegment(currentProcess.color, executionTime);
+                    // Track execution time for this process
+                    processExecutionTimes[currentProcess.id] += executionTime;
+                    simulatedTime += executionTime;
+                }
+
+                // Update context switch logic
+                if (simulatedTime < totalSimulationTime) {
+                    const switchTime = getContextSwitchTime(currentProcess.id, nextProcess.id);
+                    const overheadTime = Math.min(switchTime, totalSimulationTime - simulatedTime);
+                    if (overheadTime > 0) {
+                        drawTimelineSegment('#9ca3af', overheadTime, true);
+                        simulatedTime += overheadTime;
+                    }
+                }
+
+                processIndex = nextProcessIndex;
+
+                // Stop if we've drawn past the total simulation time
+                if (currentX >= timelineCanvas.width - padding) break;
+            }
+
+            // Update accumulated times based on simulation
+            accumulatedProcesses.forEach(process => {
+                process.accumulatedTime = processExecutionTimes[process.id];
+            });
+            
+            // Render the updated CPU utilization
+            renderAccumulatedCPU();
+
+            // Draw a border around the entire timeline for clarity
+            timelineCtx.strokeStyle = '#64748b';
+            timelineCtx.lineWidth = 2;
+            timelineCtx.strokeRect(padding, padding, timelineCanvas.width - 2 * padding, segmentHeight);
+        }
+
+        // Set timeline canvas dimensions based on its display size for responsiveness
+        function resizeTimelineCanvas() {
+            timelineCanvas.width = timelineCanvas.offsetWidth;
+            timelineCanvas.height = timelineCanvas.offsetHeight;
+            simulateTimeline(); // Redraw on resize
+        }
+
+
+        // --- Diagram 2: Accumulated CPU Time & % Utilization ---
+        const accumulatedProcesses = [
+            { id: 'A', accumulatedTime: 300, color: '#3b82f6' }, // Increased accumulated time
+            { id: 'B', accumulatedTime: 280, color: '#22c55e' }, // Adjusted for more realistic overhead
+            { id: 'C', accumulatedTime: 220, color: '#a855f7' },
+            { id: 'D', accumulatedTime: 100, color: '#f97316' }
+        ];
+        const totalPeriodTime = 1000; // Example total time period
+
+        function renderAccumulatedCPU() {
+            const totalCpuTimeUsed = accumulatedProcesses.reduce((sum, p) => sum + p.accumulatedTime, 0);
+            const systemOverheadTime = totalPeriodTime - totalCpuTimeUsed;
+
+            // Get references to the bar elements
+            const cpuUtilBarA = document.getElementById('cpu-util-bar-A');
+            const cpuUtilBarB = document.getElementById('cpu-util-bar-B');
+            const cpuUtilBarC = document.getElementById('cpu-util-bar-C');
+            const cpuUtilBarD = document.getElementById('cpu-util-bar-D');
+            const cpuUtilBarOverhead = document.getElementById('cpu-util-bar-Idle'); // Renamed ID for clarity
+
+            // Calculate utilization percentages
+            const utilA = (accumulatedProcesses[0].accumulatedTime / totalPeriodTime) * 100;
+            const utilB = (accumulatedProcesses[1].accumulatedTime / totalPeriodTime) * 100;
+            const utilC = (accumulatedProcesses[2].accumulatedTime / totalPeriodTime) * 100;
+            const utilD = (accumulatedProcesses[3].accumulatedTime / totalPeriodTime) * 100;
+            const utilOverhead = (systemOverheadTime / totalPeriodTime) * 100;
+
+            // Update bar widths and text content
+            cpuUtilBarA.style.width = `${utilA}%`;
+            cpuUtilBarA.textContent = `Process A: ${utilA.toFixed(1)}%`;
+            cpuUtilBarB.style.width = `${utilB}%`;
+            cpuUtilBarB.textContent = `Process B: ${utilB.toFixed(1)}%`;
+            cpuUtilBarC.style.width = `${utilC}%`;
+            cpuUtilBarC.textContent = `Process C: ${utilC.toFixed(1)}%`;
+            cpuUtilBarD.style.width = `${utilD}%`;
+            cpuUtilBarD.textContent = `Idle Process: ${utilD.toFixed(1)}%`;
+            cpuUtilBarOverhead.style.width = `${utilOverhead}%`;
+            cpuUtilBarOverhead.textContent = `System Overhead: ${utilOverhead.toFixed(1)}%`;
+        }
+
+
+        // --- Diagram 3 & 4: Relative Utilization & Proportional Energy Attribution (Pie Charts) ---
+        const proportionalProcesses = [
+            { id: 'X', resourceUtilization: 30, color: '#ef4444' }, // Red
+            { id: 'Y', resourceUtilization: 25, color: '#facc15' }, // Yellow
+            { id: 'Z', resourceUtilization: 20, color: '#a855f7' },  // Purple
+            { id: 'W', resourceUtilization: 25, color: '#14b8a6' }   // Teal
+        ];
+        const totalSystemEnergy = 100; // Total energy units
+
+        function drawPieChart(canvasId, data, totalValue, labelFormatter) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return; // Exit if canvas not found
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas dimensions based on its display size for responsiveness
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) * 0.7; // Make radius 70% of the smaller dimension
+
+            let currentAngle = 0;
+            const total = data.reduce((sum, item) => sum + item.value, 0);
+
+            data.forEach(item => {
+                const sliceAngle = (item.value / total) * 2 * Math.PI;
+
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+                ctx.closePath();
+                ctx.fillStyle = item.color;
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff'; // White border between slices
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw text label
+                const midAngle = currentAngle + sliceAngle / 2;
+                const textX = centerX + radius * 0.65 * Math.cos(midAngle);
+                const textY = centerY + radius * 0.65 * Math.sin(midAngle);
+
+                ctx.fillStyle = 'white'; // Text color
+                ctx.font = 'bold 14px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0,0,0,0.3)';
+                ctx.shadowBlur = 3;
+                ctx.fillText(labelFormatter(item), textX, textY);
+                ctx.shadowBlur = 0; // Reset shadow
+
+                currentAngle += sliceAngle;
+            });
+        }
+
+        function renderRelativeUtilization() {
+            const totalResourceUtilization = proportionalProcesses.reduce((sum, p) => sum + p.resourceUtilization, 0);
+
+            proportionalProcesses.forEach(process => {
+                const utilBar = document.getElementById(`resource-util-bar-${process.id}`);
+                const percentage = (process.resourceUtilization / totalResourceUtilization) * 100;
+                
+                utilBar.style.width = `${percentage}%`;
+                utilBar.textContent = `Process ${process.id}: ${percentage.toFixed(1)}%`;
+            });
+        }
+
+        function renderProportionalCharts() {
+            renderRelativeUtilization();
+            
+            // Only render the energy attribution pie chart
+            const energyAttributionData = proportionalProcesses.map(p => {
+                const relativeShare = (p.resourceUtilization / proportionalProcesses.reduce((sum, p) => sum + p.resourceUtilization, 0));
+                return {
+                    id: p.id,
+                    value: relativeShare * totalSystemEnergy,
+                    color: p.color,
+                    percentage: relativeShare * 100
+                };
+            });
+
+            drawPieChart(
+                'energyAttributionPieChart',
+                energyAttributionData,
+                totalSystemEnergy,
+                (item) => `P${item.id}: ${item.value.toFixed(1)} EU`
+            );
+        }
+
+        // Initialize all visualizations when the window loads and on resize
+        window.onload = function() {
+            resizeTimelineCanvas(); // Initial size and draw for timeline
+            renderAccumulatedCPU(); // Render accumulated CPU bar chart
+            renderProportionalCharts(); // Render pie charts
+
+            window.addEventListener('resize', () => {
+                resizeTimelineCanvas(); // Redraw timeline on resize
+                renderProportionalCharts(); // Redraw pie charts on resize
+            });
+        };
+    </script>
+</body>
+</html>
