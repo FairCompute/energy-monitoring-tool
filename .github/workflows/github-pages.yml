@@ -1,6 +1,10 @@
 name: Deploy Documentation to GitHub Pages
 on:
   workflow_dispatch: 
+
+permissions:
+  contents: write
+  
 jobs:
   generate-documentation:
     runs-on: [ubuntu-latest]
