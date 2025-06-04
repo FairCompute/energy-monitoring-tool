@@ -26,3 +26,7 @@ emt/collector/debug
 # Ignore all Rust target directories
 target/
 **/target/
+
+
+# Ignore site folder
+site/
