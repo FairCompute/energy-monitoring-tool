@@ -8,9 +8,8 @@ Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT),
 - [Introduction](introduction.md)
 - [Getting Started](getting_started.md)
 - [Virtualization Challenges](virtualization_challenges.md)
-- [Virtualization Strategies](virtualization_strategies.md)
 - [Conclusion](conclusion.md)
 
 ---
 
-EMT is an open-source initiative for real-time, granular energy monitoring and advanced virtualization support. Use the navigation to explore detailed documentation, architecture, usage, and how EMT stands out from other tools in the field.
+ETM offers a transparent, open-source solution for high-fidelity, real-time energy monitoring and robust support for advanced virtulized environments. This project aims to equip users and developers with the tools needed for precise energy tracking and management. This documentation provides a deep dive into ETM's system architecture, practical usage instructions, and a clear explanation of its operational mechanics. Please use the side navigation to explore these topics.

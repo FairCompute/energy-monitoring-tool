@@ -1,4 +1,4 @@
-# EMT Usage Modes
+# Getting Started
 
 ## Mode 1: Per-Process Energy Estimation
 

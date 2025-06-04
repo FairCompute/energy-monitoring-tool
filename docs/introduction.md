@@ -1,18 +1,6 @@
+# Introduction to EMT
 ![EMT Logo](assets/logo.png)
 
-The Energy Monitoring Tool (EMT) is an open-source solution for granular, real-time energy consumption data. It enhances energy observability, enabling users to identify hotspots and optimize resource utilization for sustainability and cost efficiency. EMT supports detailed per-process energy estimation and Prometheus-based telemetry, with a focus on virtualization challenges in containers and VMs.
+Our rapidly evolving digital landscape is characterized by the ceaseless creation, deployment, testing, and operation of software applications and digital workloads. This constant activity comes at an environmental cost: every step consumes substantial energy, leading to a growing carbon footprint and the accelerated depletion of resources. Sustainable computing practices are crucial for reducing the environmental impact of this cycle, especially as climate concerns rise and resources become increasingly limited. Energy monitoring tools are critical for understanding and optimizing energy usage within this digital world.
 
-Unlike many tools such as Kepler or PowerAPI, EMT is designed from the ground up to address the unique challenges of energy attribution in virtualized environments, including both containers and VMs, and to provide seamless integration with standard observability stacks.
-
-Welcome to the comprehensive documentation for the Energy Monitoring Tool (EMT), a product by FairCompute.
-
-## Table of Contents
-
-- [Usage Modes](usage_modes.md)
-- [Virtualization Challenges](virtualization_challenges.md)
-- [Virtualization Strategies](virtualization_strategies.md)
-- [Conclusion](conclusion.md)
-
----
-
-EMT is an open-source initiative for real-time, granular energy monitoring and advanced virtualization support. Use the navigation to explore detailed documentation, architecture, usage, and how EMT stands out from other tools in the field.
+The Energy Monitoring Tool (EMT) is an open-source solution for granular, real-time energy consumption data. It enhances energy observability, enabling users to identify hotspots and optimize resource utilization for sustainability and cost efficiency. EMT supports per-process energy estimation and Prometheus-based telemetry and c with advanced virtualization support.

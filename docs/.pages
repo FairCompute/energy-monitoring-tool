@@ -1,0 +1,7 @@
+nav:
+    - index.md
+    - introduction.md
+    - how_EMT_works.md
+    - getting_started.md
+    - virtualization_challenges.md
+    - conclusion.md
