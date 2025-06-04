@@ -22,10 +22,8 @@ jobs:
           mkdocs build -d ./site
         shell: micromamba-shell {0}
       
-      - name: Deploy Docs
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          publish_branch: gh-pages
-          # cname: good-machine-learning-practices.internal.philips
+          publish_dir: ./public
