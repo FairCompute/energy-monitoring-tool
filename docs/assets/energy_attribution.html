@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Process Scheduling & Energy Attribution</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="text/javascript" id="MathJax-script" async
         src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
@@ -33,16 +34,41 @@
             border: 1px solid rgba(0, 0, 0, 0.03); /* Very subtle border */
         }
         h1 {
-            color: #1a202c; /* Darker heading */
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin-bottom: 1rem;
+           font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c5282;
+            margin-bottom: 0.75rem;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 900;
+            letter-spacing: -0.01em;
+            text-shadow: 0 2px 6px rgba(44,82,130,0.08);
+            text-transform: uppercase;
+            text-align: center;
+            background: linear-gradient(90deg, #e0e7ff 0%, #f0f9ff 50%, #c7d2fe 100%);
+            box-shadow: 0 2px 24px rgba(44,82,130,0.10), 0 1.5px 0 #a5b4fc inset;
+            border-bottom: 1px solid #60a5fa;
+            letter-spacing: 0.04em;
+            padding: 1.2rem 0.5rem 1.4rem 0.5rem;
+  
         }
         h2 {
-            color: #2d3748; /* Sub-heading color */
-            font-size: 1.75rem;
+            font-size: 1.5rem;
             font-weight: 700;
+            color: #2c5282;
+            margin-bottom: 0.75rem;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 900;
+            letter-spacing: -0.01em;
+            text-shadow: 0 2px 6px rgba(44,82,130,0.08);
+            text-transform: uppercase;
+        }
+        h3 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a365d;
+            font-weight: 1000;
             margin-bottom: 1rem;
+            font-family: 'Montserrat', sans-serif;
         }
         p {
             font-size: 1.125rem;
@@ -78,12 +104,6 @@
             text-align: left;
             box-shadow: 0 5px 10px rgba(0,0,0,0.05);
             border: 1px solid #edf2f7;
-        }
-        .explanation-section h3 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #2c5282;
-            margin-bottom: 0.75rem;
         }
         .explanation-section p {
             font-size: 1rem;
@@ -179,8 +199,6 @@
                 padding: 1.5rem;
                 gap: 1.5rem;
             }
-            h1 { font-size: 2rem; }
-            h2 { font-size: 1.5rem; }
             p { font-size: 1rem; }
             .explanation-section h3 { font-size: 1.25rem; }
             .explanation-section p { font-size: 0.9rem; }
@@ -193,7 +211,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Process Scheduling & Energy Attribution</h1>
+        <h1>Process Scheduling & Energy Attribution </h1>
 
         <!-- Diagram 1: Simplified CPU Activity Timeline -->
         <div class="explanation-section diagram-container">
@@ -258,7 +276,7 @@
         <!-- Diagram 3: Proportional Energy Attribution -->
         <div class="explanation-section diagram-container">
             <h2>3. Proportional Energy Attribution</h2>
-            <p>EMT attributes energy consumption by normalizing the CPU utilization of <span class="key-term">active processes (A, B, C)</span> and then proportionally distributing the total measured energy (e.g., <span id="totalEnergyDisplay">500</span> Joules).</p>
+            <p>EMT attributes energy consumption by normalizing the CPU utilization of <span class="key-term">active processes </span> and then proportionally distributing the total measured energy (e.g., <span id="totalEnergyDisplay">500</span> Joules).</p>
 
             <div class="flex flex-col md:flex-row gap-6 mt-6">
                 <div class="explanation-section flex-1">
@@ -280,6 +298,7 @@
                 <div class="explanation-section flex-1">
                     <h3>3b. Proportional Energy Attribution to Active Processes</h3>
                     <p class="mb-1">Using normalized utilization, total energy (e.g., <span id="totalEnergyDisplay2">500</span> Joules) is attributed to active processes A, B, and C.</p>
+                    <div style="height: 2.5rem;"></div>
                     <div class="chart-container" style="height: 220px;"> <!-- Adjusted height -->
                         <div class="bar-chart-bars">
                             <div class="bar-item">
