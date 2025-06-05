@@ -72,12 +72,7 @@ python -m emt --version
 ```python
 import logging
 import torch
-import emt
 from emt import EnergyMonitor
-
-emt.setup_logger(
-    log_dir="./logs/example/",
-)
 
 # Dummy function
 def add_tensors_gpu():
