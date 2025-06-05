@@ -6,7 +6,7 @@ from pathlib import Path
 _DEFAULT_FORMATTER = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(name)s - %(threadName)s - %(message)s"
 )
-_DEFAULT_LOG_DIR = Path.cwd() / "emt_logs"
+_DEFAULT_LOG_DIR = Path.cwd() / ".emt_logs"
 
 
 def setup_logger(

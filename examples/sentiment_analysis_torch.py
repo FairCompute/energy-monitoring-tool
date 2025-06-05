@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score
 
 import emt
 from emt import EnergyMonitor
-from emt.utils import CSVRecorder, TensorboardRecorder
+from emt.utils import TensorboardRecorder
 
 LOG_DIR = "./logs/sentiment_analysis/"
 CONTEXT_NAME = "sentiment_analysis"

@@ -1,12 +1,17 @@
 import time
 import logging
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torchvision import datasets, transforms
-from torch.optim.lr_scheduler import StepLR
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import torch.optim as optim
+    from torchvision import datasets, transforms
+    from torch.optim.lr_scheduler import StepLR
+
+except ImportError:
+    print("This example requires PyTorch. Please install it to run this script.")
+    exit(0)
 
 
 import emt
@@ -148,9 +153,8 @@ class MNISTPipeline:
         )
 
 
-if __name__ == "__main__":
-    # Run MNIST flow
-    with EnergyMonitor(
+def run_mnist_flow(epochs=5):
+     with EnergyMonitor(
         name="mnist_example",
         trace_recorders=[
             CSVRecorder(write_interval=50),
@@ -158,8 +162,12 @@ if __name__ == "__main__":
         ],
     ) as monitor:
         start_time = time.time()
-        MNISTPipeline(epochs=10)
+        MNISTPipeline(epochs=epochs)
         execution_time = time.time() - start_time
         print(f"Execution time: {execution_time:.2f} Seconds.")
         print(f"Energy consumption: {monitor.total_consumed_energy:.2f} J")
         print(f"Energy consumption: {monitor.consumed_energy}")
+
+
+if __name__ == "__main__":
+    run_mnist_flow(epochs=10)

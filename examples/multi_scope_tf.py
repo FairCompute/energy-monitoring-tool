@@ -1,14 +1,17 @@
-import math
 import time
 import timeit
 import numpy as np
-import random
 import logging
-from pathlib import Path
-from itertools import product
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.datasets import mnist
+
+
+try:
+    import tensorflow as tf
+    from tensorflow.keras import layers, models
+    from tensorflow.keras.datasets import mnist
+    
+except ImportError:
+    print("This example requires TensorFlow. Please install it to run this script.")
+    exit(0)
 
 import emt
 from emt import EnergyMonitor
@@ -103,8 +106,8 @@ class MNIST:
         print(f"Test accuracy: {test_accuracy:.2f}, Test Loss: {test_loss:.2f}")
 
 
-if __name__ == "__main__":
-
+def run_training(epochs=20):
+    """Run the MNIST training and evaluation."""
     with EnergyMonitor(
         name="tf_and_mnist",
         trace_recorders=[
@@ -125,7 +128,7 @@ if __name__ == "__main__":
         ) as monitor_mnist:
 
             start_time = time.time()
-            MNIST(epochs=20)
+            MNIST(epochs=epochs)
             execution_time = time.time() - start_time
             print(f"\n\nMNIST execution time: {execution_time:.2f} Seconds.")
             print(
@@ -140,3 +143,9 @@ if __name__ == "__main__":
         f"TF + MNIST energy consumption: {monitor_tf_add.total_consumed_energy:.2f} J"
     )
     print(f"TF + MNIST energy consumption: {monitor_tf_add.consumed_energy}")
+
+
+if __name__ == "__main__":
+    run_training(epochs=10)
+    print("Done!")
+   
