@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Software Carbon Intensity (SCI)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 flex items-center justify-center p-4 antialiased">
+    <div class="bg-white rounded-lg shadow-xl p-8 max-w-4xl w-full">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-8">Software Carbon Intensity (SCI)</h1>
+
+        <p class="text-xl font-semibold text-gray-800 mb-8 text-center border-b border-gray-200 pb-6">
+            The <strong class="text-green-600">Software Carbon Intensity (SCI)</strong>, developed by the <strong class="text-green-600">Green Software Foundation (GSF)</strong>, is a crucial standard for measuring the environmental footprint of software.
+        </p>
+
+        <div class="text-left text-gray-600 mt-6 mb-10 space-y-3">
+            <p class="text-lg leading-relaxed">
+                <strong class="text-green-600 text-xl">E (Energy):</strong> Energy consumed by the software system, measured in kilowatt-hours (kWh). This includes all energy consumed by hardware reserved or provisioned for the software system, regardless of actual utilization.
+            </p>
+            <p class="text-lg leading-relaxed">
+                <strong class="text-green-600 text-xl">I (Carbon Intensity):</strong> The carbon intensity of electricity used, typically measured in grams of CO2 equivalent per kilowatt-hour (gCO2eq/kWh). This varies by region and energy source.
+            </p>
+            <p class="text-lg leading-relaxed">
+                <strong class="text-green-600 text-xl">M (Embodied Carbon):</strong> Carbon from manufacturing/disposal of hardware, amortized.
+            </p>
+            <p class="text-lg leading-relaxed">
+                <strong class="text-green-600 text-xl">P (Additional Factors):</strong> Other emissions (e.g., network data transfer).
+            </p>
+            <p class="text-lg leading-relaxed">
+                <strong class="text-green-600 text-xl">R (Functional Unit):</strong> Rate/unit of software operation (e.g., per user, per transaction).
+            </p>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-8 mb-10">
+            <div class="flex flex-col items-center justify-center bg-green-50 rounded-lg p-6 shadow-inner">
+                <h2 class="text-2xl font-semibold text-green-700 mb-4">The SCI Formula</h2>
+                <div class="flex items-center justify-center space-x-2">
+                    <span class="text-4xl font-bold text-green-600">SCI = </span>
+                    <div class="flex flex-col items-center">
+                        <div class="text-3xl font-bold text-gray-800">
+                            <span class="font-bold text-gray-800">(E×I)</span> + <span class="font-bold text-gray-800">M</span> + <span class="font-bold text-gray-800">P</span>
+                        </div>
+                        <div class="w-full h-0.5 bg-gray-600 my-1"></div> <!-- Horizontal line -->
+                        <div class="text-3xl font-bold text-gray-800">
+                            <span class="font-bold text-gray-800">R</span>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-600 mt-4 text-center">
+                    The formula is: <code class="bg-gray-200 p-1 rounded">((E × I) + M + P) per R</code>
+                </p>
+            </div>
+
+            <div class="flex flex-col space-y-4">
+                <!-- BulletPoint 1 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold mr-3">
+                        &#10003; <!-- Checkmark character -->
+                    </div>
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800">Standardized Measurement</h3>
+                        <p class="text-sm text-gray-600">Provides a consistent, open-source methodology to quantify the greenhouse gas emissions attributable to a software system.</p>
+                    </div>
+                </div>
+                <!-- BulletPoint 2 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold mr-3">
+                        &#10003;
+                    </div>
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800">Identifies Hotspots</h3>
+                        <p class="text-sm text-gray-600">Enables organizations to pinpoint which parts of their software or infrastructure are the most carbon-intensive.</p>
+                    </div>
+                </div>
+                <!-- BulletPoint 3 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold mr-3">
+                        &#10003;
+                    </div>
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800">Informs Optimization</h3>
+                        <p class="text-sm text-gray-600">Provides actionable data to guide efforts in designing, developing, and operating more energy-efficient and sustainable software.</p>
+                    </div>
+                </div>
+                <!-- BulletPoint 4 -->
+                <div class="flex items-start">
+                    <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold mr-3">
+                        &#10003;
+                    </div>
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800">Drives Accountability</h3>
+                        <p class="text-sm text-gray-600">Allows for tracking progress, setting reduction targets, and demonstrating commitment to environmental sustainability in the digital realm.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
