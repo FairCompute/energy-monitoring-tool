@@ -98,7 +98,7 @@ class MNISTPipeline:
         print(f"Test accuracy: {test_accuracy:.2f}, Test Loss: {test_loss:.2f}")
 
 
-def  run_mnist_flow(epochs=10, batch_size=32):
+def run_mnist_flow(epochs=10, batch_size=32):
     """Run the MNIST pipeline."""
     with EnergyMonitor(
         name="mnist_example",
@@ -113,6 +113,7 @@ def  run_mnist_flow(epochs=10, batch_size=32):
         print(f"execution time: {execution_time:.2f} Seconds.")
         print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
         print(f"energy consumption: {monitor.consumed_energy}")
+
 
 if __name__ == "__main__":
     run_mnist_flow(epochs=10, batch_size=32)

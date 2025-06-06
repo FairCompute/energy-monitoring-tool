@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from emt.utils.logger import setup_logger
+
 setup_logger()
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def _ensure_group(group_name=_GROUP_NAME):
         logger.info(f"Group '{group_name}' already exists.")
     except KeyError:
         logger.info(f"Creating group '{group_name}'...")
-    
+
         subprocess.run(["sudo", "groupadd", group_name], check=True)
 
 
@@ -25,7 +26,9 @@ def _advertise_group_membership(group_name=_GROUP_NAME):
     logger.info(
         f"To access energy monitoring as a non-root user, add yourself to the '{group_name}' group:\n"
         f"  sudo usermod -aG {group_name} $USER\n"
-        "Then log out and log back in, or run 'newgrp {0}' for the change to take effect.".format(group_name)
+        "Then log out and log back in, or run 'newgrp {0}' for the change to take effect.".format(
+            group_name
+        )
     )
 
 
@@ -35,7 +38,9 @@ def _install_systemd_unit(destination="/etc/systemd/system/energy_access.service
     logger.info(f"Installing systemd unit to {service_dst}...")
     subprocess.run(["sudo", "cp", str(service_src), str(service_dst)], check=True)
     subprocess.run(["sudo", "systemctl", "daemon-reexec"], check=True)
-    subprocess.run(["sudo", "systemctl", "enable", "--now", "energy_access.service"], check=True)
+    subprocess.run(
+        ["sudo", "systemctl", "enable", "--now", "energy_access.service"], check=True
+    )
 
 
 def _is_service_enabled(service="energy_access.service"):
@@ -43,7 +48,7 @@ def _is_service_enabled(service="energy_access.service"):
         ["systemctl", "is-enabled", service],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True
+        text=True,
     )
     return result.stdout.strip() == "enabled"
 
@@ -64,10 +69,13 @@ def setup() -> bool:
         logger.info("Service is already enabled. No action needed!.")
     return True
 
+
 @click.command()
 @click.option(
-    "--interval", default=1, type=int,
-    help="Interval in seconds for the collector to run. Default is 1 second."
+    "--interval",
+    default=1,
+    type=int,
+    help="Interval in seconds for the collector to run. Default is 1 second.",
 )
 def main():
     pass

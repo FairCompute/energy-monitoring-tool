@@ -154,7 +154,7 @@ class MNISTPipeline:
 
 
 def run_mnist_flow(epochs=5):
-     with EnergyMonitor(
+    with EnergyMonitor(
         name="mnist_example",
         trace_recorders=[
             CSVRecorder(write_interval=50),

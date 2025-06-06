@@ -8,7 +8,7 @@ try:
     import tensorflow as tf
     from tensorflow.keras import layers, models
     from tensorflow.keras.datasets import mnist
-    
+
 except ImportError:
     print("This example requires TensorFlow. Please install it to run this script.")
     exit(0)
@@ -148,4 +148,3 @@ def run_training(epochs=20):
 if __name__ == "__main__":
     run_training(epochs=10)
     print("Done!")
-   
