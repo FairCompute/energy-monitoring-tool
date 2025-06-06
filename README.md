@@ -97,9 +97,11 @@ Refer to the following folder for example codes:
 
 ## ⚙️ Methodology
 
-The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.
+The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.  
+
 
 ![EMT Energy Attribution](https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/energy_attribution.png)
+
 
 ## 🤝 Contributions
 
