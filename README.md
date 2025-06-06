@@ -97,12 +97,10 @@ Refer to the following folder for example codes:
 
 ## ⚙️ Methodology
 
-The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.
+The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.  
 
-<div align="center">
-  <img src="assets/emt_method.png" alt="EMT Methods Illustration" width="40%">
-  <p><em>Figure: Overview of Utilized Energy/Power Calculation </em></p>
-</div>
+![EMT Energy Attribution Model](assets/energy_attribution.png)
+
 
 ## 🤝 Contributions
 
