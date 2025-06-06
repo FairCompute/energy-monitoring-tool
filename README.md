@@ -72,12 +72,7 @@ python -m emt --version
 ```python
 import logging
 import torch
-import emt
 from emt import EnergyMonitor
-
-emt.setup_logger(
-    log_dir="./logs/example/",
-)
 
 # Dummy function
 def add_tensors_gpu():
@@ -89,10 +84,9 @@ def add_tensors_gpu():
     return a + b
 
 # Create a context manager
-with EnergyMonitor as monitor:
+with EnergyMonitor() as monitor:
     add_tensors_gpu()
 
-print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
 print(f"energy consumption: {monitor.consumed_energy}")
 ```
 
