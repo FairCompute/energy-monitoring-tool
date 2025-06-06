@@ -45,7 +45,16 @@
         "usermod"
     ],
     "sonarlint.connectedMode.project": {
-        "connectionId": "https-sonarqube-internal-philips",
-        "projectKey": "philips-internal.energy-monitoring-tool"
-    }
+        "connectionId": "https-sonarqube-workstation-home-com",
+        "projectKey": "FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045"
+    },
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingModuleSource": "none",
+        "reportGeneralTypeIssues": "none",
+        "reportUndefinedVariable": "none",
+        "reportOptionalMemberAccess": "none"
+    },
+    "python.linting.enabled": false,
+    "python.linting.pylintEnabled": false
 }

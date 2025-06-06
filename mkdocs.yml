@@ -1,4 +1,12 @@
 site_name: "EMT Documentation"
+nav:
+  - Home: index.md
+  - Executive Summary: executive_summary.md
+  - Introduction: introduction.md
+  - Getting Started: getting_started.md
+  - Virtualization Challenges: virtualization_challenges.md
+  - Virtualization Strategies: virtualization_strategies.md
+  - Conclusion: conclusion.md
 theme:
   name: material
   palette:
@@ -35,4 +43,5 @@ plugins:
         python:
           options:
             show_source: true
-  - awesome-pages
+extra_css:
+  - assets/custom.css
