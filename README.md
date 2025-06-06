@@ -99,22 +99,23 @@ Refer to the following folder for example codes:
 
 The EMT context manager spawns a separate thread to monitor energy usage for CPUs and GPUs at regular intervals. It also tracks the utilization of these resources by the monitored process. EMT then estimates the process's share of the total energy consumption by proportionally assigning energy usage based on the resource utilization of the process.
 
-<div align="center">
-  <img src="assets/emt_method.png" alt="EMT Methods Illustration" width="40%">
-  <p><em>Figure: Overview of Utilized Energy/Power Calculation </em></p>
-</div>
+![EMT Energy Attribution](https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/energy_attribution.png)
 
 ## 🤝 Contributions
 
-We welcome contributions from the community to make EMT Tool even more robust and feature-rich. To contribute, follow these steps:
+Want to help make EMT Tool even better? We welcome your contributions! Here's how you can get involved:
+1.  **Fork** our repository.
+2.  Create a new branch for your work: `git checkout -b feature/your-feature-name`
+3.  Make your changes and **commit** them with a clear message: `git commit -m 'Add your feature'`
+4.  **Push** your changes to your new branch: `git push origin feature/your-feature-name`
+5.  Open a **pull request** to share your contribution with us.
 
-1. Fork the repository
-2. Create a new branch: `git checkout -b feature/your-feature-name`
-3. Make your changes and commit them: `git commit -m 'Add your feature'`
-4. Push to the branch: `git push origin feature/your-feature-name`
-5. Open a pull request
-
-Please ensure that your pull request includes a clear description of the changes you've made and why they are valuable. Additionally, ensure that your code adheres to the project's coding standards.
+Please ensure that your pull request includes a clear description of the changes you've made and why they are valuable.
+To keep the EMT Tool's codebase strong, please ensure your pull requests meet these standards:
+>Clear Descriptions: Briefly explain your changes and their value.  
+>Code Quality: Pass Sonar linter checks to help us keep the code healthy.  
+>Consistent Style: Follow PEP 8 guidelines for clear, consistent Python code.  
+>Unit Tests (If Applicable): Include unit tests for new features or major changes.  
 
 ## 🚧 Work in Progress
 
