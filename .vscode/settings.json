@@ -44,10 +44,6 @@
         "tensorboard",
         "usermod"
     ],
-    "sonarlint.connectedMode.project": {
-        "connectionId": "https-sonarqube-workstation-home-com",
-        "projectKey": "FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045"
-    },
     "python.analysis.diagnosticSeverityOverrides": {
         "reportMissingImports": "none",
         "reportMissingModuleSource": "none",
@@ -58,5 +54,9 @@
     "sonarlint.disableTelemetry": true,
     "sonarlint.output.showAnalyzerLogs": true,
     "sonarlint.output.showVerboseLogs": false,
-    "editor.formatOnSave": false
+    "editor.formatOnSave": false,
+    "sonarlint.connectedMode.project": {
+        "connectionId": "https-sonarqube-workstation-home-com",
+        "projectKey": "FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045"
+    }
 }

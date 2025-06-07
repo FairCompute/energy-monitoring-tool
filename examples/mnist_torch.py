@@ -77,7 +77,7 @@ class MNISTPipeline:
 
         print("Building Model ...")
         self.model = Net().to(self.device)
-        self.optimizer = optim.Adadelta(self.model.parameters(), lr=self.lr)
+        self.optimizer = optim.Adadelta(self.model.parameters(), lr=self.lr, weight_decay=0.0)
         scheduler = StepLR(self.optimizer, step_size=1, gamma=self.gamma)
 
         print("Starting Training ...")

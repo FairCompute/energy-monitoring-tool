@@ -78,5 +78,4 @@ def setup() -> bool:
     help="Interval in seconds for the collector to run. Default is 1 second.",
 )
 def main():
-    # TODO: Implementation in progress 
     pass
