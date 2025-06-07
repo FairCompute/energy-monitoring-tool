@@ -3,7 +3,6 @@ import time
 import logging
 import numpy as np
 
-
 try:
     import tensorflow as tf
     from tensorflow.keras import layers, models
@@ -12,16 +11,20 @@ except ImportError:
     print("This example requires TensorFlow. Please install it to run this script.")
     sys.exit(0)
 
+
 import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
-LOG_DIR = "./logs/mnist_pipeline_tf/"
-CONTEXT_NAME = "mnist_example"
-LOG_FILE_NAME = f"{CONTEXT_NAME}.log"
+_NAME = "mnist_tf"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
+    logger,
+    log_file_name=LOG_FILE_NAME,
+    logging_level=logging.DEBUG,
+    mode="w",
 )
 
 
@@ -101,7 +104,7 @@ class MNISTPipeline:
 def run_mnist_flow(epochs=10, batch_size=32):
     """Run the MNIST pipeline."""
     with EnergyMonitor(
-        name="mnist_example",
+        name=_NAME,
         trace_recorders=[
             CSVRecorder(write_interval=60),
             TensorboardRecorder(write_interval=30),

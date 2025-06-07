@@ -18,12 +18,15 @@ import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
-LOG_DIR = "./logs/mnist_pipeline_torch/"
-CONTEXT_NAME = "mnist_example"
-LOG_FILE_NAME = f"{CONTEXT_NAME}.log"
+_NAME = "mnist_example"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
+    logger,
+    log_file_name=LOG_FILE_NAME,
+    logging_level=logging.DEBUG,
+    mode="w",
 )
 
 
@@ -77,7 +80,9 @@ class MNISTPipeline:
 
         print("Building Model ...")
         self.model = Net().to(self.device)
-        self.optimizer = optim.Adadelta(self.model.parameters(), lr=self.lr, weight_decay=0.0)
+        self.optimizer = optim.Adadelta(
+            self.model.parameters(), lr=self.lr, weight_decay=0.0
+        )
         scheduler = StepLR(self.optimizer, step_size=1, gamma=self.gamma)
 
         print("Starting Training ...")
@@ -155,7 +160,7 @@ class MNISTPipeline:
 
 def run_mnist_flow(epochs=5):
     with EnergyMonitor(
-        name="mnist_example",
+        name=_NAME,
         trace_recorders=[
             CSVRecorder(write_interval=50),
             TensorboardRecorder(write_interval=10),

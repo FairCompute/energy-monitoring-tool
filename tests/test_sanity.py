@@ -6,13 +6,6 @@ from emt.utils import CSVRecorder
 
 
 def test_energy_monitor_sanity_check():
-    # Setup logging
-    emt.setup_logger(
-        log_dir="./logs/sanity_check/",
-        logging_level=logging.INFO,
-        mode="w",
-    )
-
     # Simple CPU operation to generate activity
     def dummy_cpu_operation():
         return sum(range(1000))

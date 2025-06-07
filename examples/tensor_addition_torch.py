@@ -3,9 +3,13 @@ import torch
 import emt
 from emt import EnergyMonitor
 
+_NAME = "tensor_addition_torch"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir="./logs/tensor_addition_torch/",
+    logger,
+    log_file_name=LOG_FILE_NAME,
     logging_level=logging.DEBUG,
     mode="w",
 )
@@ -20,7 +24,7 @@ def add_tensors_gpu():
 
 if __name__ == "__main__":
     with EnergyMonitor(
-        name="tensor_addition",
+        name=_NAME,
     ) as monitor:
         add_tensors_gpu()
 

@@ -2,12 +2,25 @@ import click
 import grp
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
 from emt.utils.logger import setup_logger
 
-setup_logger()
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("emt.cli")
+setup_logger(logger)
+
+# Optionally add stdout handler
+def add_stdout_handler():
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    stdout_handler.setFormatter(formatter)
+    logger.addHandler(stdout_handler)
+
+# Call this function if stdout logging is needed
+add_stdout_handler()
 
 _GROUP_NAME = "powercap"
 
@@ -56,7 +69,6 @@ def _is_service_enabled(service="energy_access.service"):
 @click.command()
 def setup() -> bool:
     if not _is_service_enabled():
-        logger.info("Service is not enabled. Proceeding with installation...")
         _ensure_group()
         _advertise_group_membership()
         try:
@@ -77,5 +89,9 @@ def setup() -> bool:
     type=int,
     help="Interval in seconds for the collector to run. Default is 1 second.",
 )
-def main():
-    pass
+def main(interval: int):
+    logger.info(f"Starting energy monitoring collector with interval {interval} seconds...")
+    setup()
+
+if __name__ == "__main__":
+    main()

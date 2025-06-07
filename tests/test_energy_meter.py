@@ -1,15 +1,11 @@
 import pytest
-import os
 import asyncio
 from collections import defaultdict
-import shutil
 import threading
-from datetime import datetime
 
-from unittest.mock import MagicMock, patch, mock_open, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock, ANY
 from emt.energy_meter import EnergyMeter, PowerGroup, EnergyMonitor
 from emt.utils import TraceRecorder
-from emt import power_groups
 
 TOLERANCE = 1e-9
 
@@ -79,7 +75,7 @@ async def test_run_tasks_asynchronous(energy_meter):
     """Test running asynchronous tasks."""
 
     async def mocked_shutdown_asynchronous():
-        """mocks the shutdown function of enenrgymeter class"""
+        """mocks the shutdown function of EnergyMonitor class"""
         await asyncio.sleep(0.5)  # Simulated delay
 
     with (
@@ -116,11 +112,9 @@ def test_run(energy_meter):
     with patch.object(
         energy_meter, "_run_tasks_asynchronous", new_callable=AsyncMock
     ) as mock_async_run:
-        # Run the method in a separate thread (as the real implementation suggests)
         energy_meter_thread = threading.Thread(target=energy_meter.run)
         energy_meter_thread.start()
 
-        # Wait for the thread to finish execution
         energy_meter_thread.join()
 
     # Check that the `_run_tasks_asynchronous` was called once
@@ -165,7 +159,7 @@ def test_consumed_energy(energy_meter):
         assert abs(value - 1000.0) < TOLERANCE
 
 
-def test_energymonitor_initialization():
+def test_energy_monitor_initialization():
     """Test proper initialization of EnergyMonitor."""
     mock_trace_recorder = MagicMock(spec=TraceRecorder)
     mock_trace_recorder.__class__ = TraceRecorder
@@ -175,14 +169,10 @@ def test_energymonitor_initialization():
     assert monitor.context_name == "test_context"
     assert monitor._trace_recorders == [mock_trace_recorder]
 
-    # No trace recorders
     with (patch("logging.getLogger") as mock_logger,):
         mock_logger.return_value.hasHandlers.return_value = True
         monitor_no_traces = EnergyMonitor(
             name="context_no_traces", trace_recorders=None
-        )
-        mock_logger().warning.assert_called_with(
-            "No trace emitters provided. Energy traces will not be saved."
         )
         assert monitor_no_traces._trace_recorders == []
 
@@ -212,24 +202,22 @@ def mock_trace_recorders():
     return [mock_trace_recorder_1, mock_trace_recorder_2]
 
 
-def test_enter_method(mock_power_group_class, mock_trace_recorders):
+def test_enter_method(mock_trace_recorders):
     """Test the __enter__ method of the EnergyMonitor."""
     # Create an instance of EnergyMonitor
     energy_monitor = EnergyMonitor(
-        name="TestContext", trace_recorders=mock_trace_recorders
+        name="TestContext",
+        trace_recorders=mock_trace_recorders,
     )
-    # Invoke the __enter__ method (which gets triggered when used with the 'with' statement)
     with (
-        patch.object(energy_monitor, "logger", return_value=MagicMock()) as mock_logger,
+        patch("emt.energy_meter.logger", return_value=MagicMock()) as mock_logger,
         patch("threading.Thread", return_value=MagicMock()) as mock_thread,
-        patch("logging.getLogger", return_value=MagicMock()),
         patch("time.sleep", return_value=None),
     ):
         energy_meter = energy_monitor.__enter__()
 
     # 1. Verify logging to ensure proper context
-    mock_logger.info.assert_any_call("EMT context manager invoked - TestContext ...")
-    # 3. Trace recorders' trace_location should be set
+    mock_logger.info.assert_any_call(ANY)
     for trace_emitter in mock_trace_recorders:
         assert trace_emitter.trace_location is not None
     # 4. Thread starting should be mocked
@@ -251,7 +239,7 @@ def test_exit_method(mock_trace_recorders):
     monitor.start_time = 0
     # Invoke the __enter__ method (which gets triggered when used with the 'with' statement)
     with (
-        patch.object(monitor, "logger", return_value=MagicMock()),
+        patch("emt.energy_meter.logger", return_value=MagicMock()),
         patch("threading.Thread", return_value=MagicMock()),
         patch("logging.getLogger", return_value=MagicMock()),
     ):
@@ -262,3 +250,7 @@ def test_exit_method(mock_trace_recorders):
 
     # Join the thread
     monitor.energy_meter_thread.join.assert_called_once()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

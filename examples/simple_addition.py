@@ -3,9 +3,13 @@ import logging
 import emt
 from emt import EnergyMonitor
 
+__NAME = "simple_addition"
+logger = logging.getLogger(__NAME)
+LOG_FILE_NAME = f"{__NAME}.log"
 
 emt.setup_logger(
-    log_dir="./logs/simple_addition/",
+    logger,
+    log_file_name=LOG_FILE_NAME,
     logging_level=logging.DEBUG,
     mode="w",
 )
@@ -16,7 +20,7 @@ def foo():
 
 
 with EnergyMonitor(
-    name="simple_addition",
+    name=__NAME,
 ) as monitor:
     # repeat the addition 100000 times
     execution_time = timeit.timeit(foo, number=10000)

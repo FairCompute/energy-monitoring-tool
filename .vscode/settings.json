@@ -2,6 +2,7 @@
     "cSpell.words": [
         "astype",
         "asyncio",
+        "crossentropy",
         "cuda",
         "cumsum",
         "dtype",
@@ -11,6 +12,7 @@
         "igpu",
         "igpus",
         "iterrows",
+        "keepdim",
         "levelname",
         "logdir",
         "maxval",
@@ -22,6 +24,8 @@
         "numpy",
         "nvml",
         "oneshot",
+        "PGCPU",
+        "PGGPU",
         "pids",
         "pmon",
         "powercap",
@@ -42,6 +46,7 @@
         "seperate",
         "setuptools",
         "tensorboard",
+        "tfevents",
         "usermod"
     ],
     "python.analysis.diagnosticSeverityOverrides": {

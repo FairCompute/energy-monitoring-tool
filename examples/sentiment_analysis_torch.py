@@ -1,4 +1,3 @@
-import numpy as np
 import time
 from tqdm import tqdm
 import logging
@@ -14,21 +13,21 @@ import emt
 from emt import EnergyMonitor
 from emt.utils import TensorboardRecorder
 
-LOG_DIR = "./logs/sentiment_analysis/"
-CONTEXT_NAME = "sentiment_analysis"
-LOG_TFEVENTS_PATH = LOG_DIR + "tfevents/" + CONTEXT_NAME
-LOG_FILE_NAME = f"{CONTEXT_NAME}.log"
-
-# Suppress debug logs
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("filelock").setLevel(logging.WARNING)
+_NAME = "sentiment_analysis"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
+    logger,
+    log_file_name=LOG_FILE_NAME,
+    logging_level=logging.DEBUG,
+    mode="w",
 )
-# initialize the general sumarywriter
+
+# initialize the general summary writer
+LOG_TF_EVENTS_PATH = f"./tf_logs/{_NAME}/"
 summary_writer = SummaryWriter(
-    LOG_TFEVENTS_PATH,
+    LOG_TF_EVENTS_PATH,
 )
 
 # Set device (GPU if available, else CPU)
@@ -87,15 +86,24 @@ class SentimentPipeline:
         )
 
         train_loader = DataLoader(
-            tokenized_datasets["train"], batch_size=BATCH_SIZE, shuffle=True
+            tokenized_datasets["train"],
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            num_workers=4,
         )
-        test_loader = DataLoader(tokenized_datasets["test"], batch_size=BATCH_SIZE)
+        test_loader = DataLoader(
+            tokenized_datasets["test"], batch_size=BATCH_SIZE, num_workers=4
+        )
 
         return train_loader, test_loader
 
     def train_step(self, model, train_loader):
         """Train the model."""
-        optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
+        optimizer = AdamW(
+            model.parameters(),
+            lr=LEARNING_RATE,
+            weight_decay=0.01,
+        )
         criterion = torch.nn.CrossEntropyLoss()
         model.train()
         total_loss = 0
@@ -170,7 +178,7 @@ class SentimentPipeline:
 if __name__ == "__main__":
 
     with EnergyMonitor(
-        name=CONTEXT_NAME,
+        name=_NAME,
         # pass existing general writer to TensorboardRecorder
         trace_recorders=[TensorboardRecorder(writer=summary_writer)],
     ) as monitor:

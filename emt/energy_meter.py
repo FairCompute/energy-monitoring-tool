@@ -10,6 +10,9 @@ from emt.power_groups import PowerGroup
 from emt.utils import setup_logger, TraceRecorder, PGUtils
 
 
+logger = logging.getLogger(__name__)
+
+
 class EnergyMeter:
 
     def __init__(
@@ -38,7 +41,6 @@ class EnergyMeter:
         self._power_groups = powergroups
         self._shutdown_event = asyncio.Event()
         self._context_name = context_name
-        self.logger = logging.getLogger(__name__)
         self.trace_recorders = trace_recorders or []
 
     @property
@@ -89,10 +91,10 @@ class EnergyMeter:
             self._shutdown_event.clear()
             self._monitoring = True
         try:
-            self.logger.info(f"Initiated Energy Monitoring -- {self._context_name}.")
+            logger.info(f"Initiated Energy Monitoring -- {self._context_name}.")
             asyncio.run(self._run_tasks_asynchronous())
         except asyncio.CancelledError:
-            self.logger.info(
+            logger.info(
                 " Shutting Down! \nMonitoring Concluded by the EnergyMeter.\n\n"
             )
         return 0
@@ -107,13 +109,13 @@ class EnergyMeter:
         seperate independent thread.
         """
         if not self.monitoring:
-            self.logger.error(
+            logger.error(
                 "Attempting to conclude monitoring before commencement.\n"
                 "It is illegal to conclude before commencement. Shutting Down!"
             )
             raise RuntimeError("Cannot conclude monitoring before commencement!")
 
-        self.logger.info(f"ShutDown requested -- _{self._context_name}.")
+        logger.info(f"ShutDown requested -- _{self._context_name}.")
         with self._lock:
             self._concluded = True
             self._shutdown_event.set()
@@ -147,13 +149,12 @@ class EnergyMonitor:
         trace_recorders: Collection[TraceRecorder] | TraceRecorder = None,
     ):
         self.context_name = name
-        if not logging.getLogger(__name__).hasHandlers():
-            setup_logger()
-        self.logger = logging.getLogger(__name__)
+        setup_logger(logger)
+
         self._trace_recorders = self._normalize_trace_recorders(trace_recorders)
 
         if not self._trace_recorders:
-            self.logger.warning(
+            logger.warning(
                 "No trace emitters provided. Energy traces will not be saved."
             )
         else:
@@ -173,18 +174,18 @@ class EnergyMonitor:
             raise ValueError("Invalid trace emitters provided.")
 
     def __enter__(self):
-        self.logger.info(f"EMT context manager invoked - {self.context_name} ...")
+        logger.info(f"EMT context manager invoked - {self.context_name} ...")
         self.start_time = time.time()
         pg_utils = PGUtils()
         # get available powergroups
         self.pg_objs = pg_utils.get_available_pgs()
         # log powergroup info in a tabular format
-        self.logger.info("\n" + pg_utils.get_pg_table())
+        logger.info("\n" + pg_utils.get_pg_table())
         # set trace emitters
         for trace_emitter in self._trace_recorders:
             trace_emitter.power_groups = self.pg_objs
             # get log file handler location
-            location = Path(logging.getLogger().handlers[0].baseFilename).parent
+            location = Path(logger.handlers[0].baseFilename).parent
             if trace_emitter.__class__.__name__ == "CSVRecorder":
                 location = os.path.join(location, "csv_traces", self.context_name)
             elif trace_emitter.__class__.__name__ == "TensorboardRecorder":
@@ -211,12 +212,12 @@ class EnergyMonitor:
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
         execution_time = time.time() - self.start_time
-        self.logger.info(
+        logger.info(
             f"{self.context_name}: Execution time: {execution_time:.2f} seconds"
         )
-        self.logger.info(
+        logger.info(
             f"{self.context_name}: Total energy consumption: {self.energy_meter.total_consumed_energy:.2f} J"
         )
-        self.energy_meter.logger.info(
+        logger.info(
             f"{self.context_name}: Power group energy consumptions: {self.energy_meter.consumed_energy}"
         )

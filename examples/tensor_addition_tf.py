@@ -5,10 +5,14 @@ import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
+_NAME = "tensor_addition_tf"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir="./logs/tensor_addition_tf/",
+    logger,
     logging_level=logging.DEBUG,
+    log_file_name=LOG_FILE_NAME,
     mode="w",
 )
 
@@ -22,7 +26,7 @@ def add_tensors_gpu(device="gpu"):
 
 
 with EnergyMonitor(
-    name="tensor_addition",
+    name=_NAME,
     trace_recorders=[CSVRecorder(), TensorboardRecorder()],
 ) as monitor:
     # repeat the addition 100000 times

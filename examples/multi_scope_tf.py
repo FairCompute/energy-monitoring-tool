@@ -17,11 +17,16 @@ import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
-LOG_DIR = "./logs/multi_scope_tf/"
-LOG_FILE_NAME = "multi_scope.log"
+
+_NAME = "multi_scope_tf"
+logger = logging.getLogger(_NAME)
+LOG_FILE_NAME = f"{_NAME}.log"
 
 emt.setup_logger(
-    log_dir=LOG_DIR, log_file_name=LOG_FILE_NAME, logging_level=logging.DEBUG, mode="w"
+    logger,
+    log_file_name=LOG_FILE_NAME,
+    logging_level=logging.DEBUG,
+    mode="w",
 )
 
 
@@ -109,7 +114,7 @@ class MNIST:
 def run_training(epochs=20):
     """Run the MNIST training and evaluation."""
     with EnergyMonitor(
-        name="tf_and_mnist",
+        name="tf_addition",
         trace_recorders=[
             CSVRecorder(write_interval=50),
             TensorboardRecorder(write_interval=10),
@@ -120,7 +125,7 @@ def run_training(epochs=20):
         _ = timeit.timeit(add_tensors_gpu, number=30000)
 
         with EnergyMonitor(
-            name="mnist",
+            name="tf_mnist",
             trace_recorders=[
                 CSVRecorder(write_interval=50),
                 TensorboardRecorder(write_interval=10),
