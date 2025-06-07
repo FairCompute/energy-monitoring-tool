@@ -102,6 +102,8 @@ jobs:
           path: coverage.xml
           retention-days: 1
           overwrite: true
+        continue-on-error: true
+
 
   SonarQube:
     runs-on: [ubuntu-latest]
