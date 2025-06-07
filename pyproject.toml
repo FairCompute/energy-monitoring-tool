@@ -30,7 +30,7 @@ Repository = "https://github.com/FairCompute/energy-monitoring-tool"
 
 [project.optional-dependencies]
 
-dev = ["black", "pytest", "pytest-asyncio"]
+dev = ["black", "pytest", "pytest-asyncio", "coverage"]
 
 docs = [
     "mkdocs",
