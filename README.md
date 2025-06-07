@@ -18,7 +18,7 @@
 
 *Track and analyze energy usage of your software application(s) — lightweight, reliable and effortless to integrate.*
 
-**EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
+**EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software systems with process-level granularity.
 While particularly valuable for compute-intensive workloads like machine learning, it's designed for broad applicability across various use cases.
 Our mission is to simplify and standardize monitoring and reporting of the energy usage of the the digital realm. By making it visible and accessible, EMT helps teams to reduce their environmental impact and advances digital sustainability.
 
@@ -70,7 +70,6 @@ python -m emt --version
 #### Using Python Context Managers
 
 ```python
-import logging
 import torch
 from emt import EnergyMonitor
 
