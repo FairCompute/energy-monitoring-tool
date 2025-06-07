@@ -68,4 +68,4 @@ exclude = '''
 )/
 '''
 [tool.coverage.run]
-omit = ["examples/*"]
+omit = ["examples/*", "docs/*"]
