@@ -127,6 +127,7 @@ jobs:
 
 
       - name: Delete Coverage Report Artifact
+        if: always() # Ensures this step runs even if previous steps fail
         run: |
           curl -X DELETE \
                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
