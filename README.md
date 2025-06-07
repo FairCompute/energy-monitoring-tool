@@ -16,7 +16,7 @@
 
 # Energy Monitoring Tool (EMT)
 
-*Track and analyze energy usage of your software application(s) — lightweight, accurate and scriptable.*
+*Track and analyze energy usage of your software application(s) — lightweight, reliable and effortless to integrate.*
 
 **EMT** is a lightweight tool capable of tracking and reporting the energy consumption of software applications with process-level granularity.
 While particularly valuable for compute-intensive workloads like machine learning, it's designed for broad applicability across various use cases.
