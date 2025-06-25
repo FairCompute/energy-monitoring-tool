@@ -1,6 +1,5 @@
 <div align="right">
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="120" />
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.png" alt="EMT Logo" width="180" />
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="80" />
 </div>
 
 
