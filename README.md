@@ -105,14 +105,14 @@ The EMT context manager spawns a separate thread to monitor energy usage for CPU
 
 We welcome contributions to this project! To ensure a smooth review and merge process, please ensure your pull request meets the following requirements:
 
-Code Formatting: All code must be formatted using Black. Please run `black .` on your changes before committing.
-Test Coverage: New features and bug fixes must include tests, achieving at least 80% test coverage for the added or modified code.
-Quality Gate: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.
-Branching Strategy The main branch is locked and protected. All contributions must be made via pull requests from a feature or bugfix branch.
-feature requests: Create a new branch prefixed with feature/ (e.g., feature/add-dark-mode).
-bug fixes: Create a new branch prefixed with bugfix/ (e.g., bugfix/fix-login-error).
+Code Formatting: All code must be formatted using Black. Please run `black .` on your changes before committing.  
+Test Coverage: New features and bug fixes must include tests, achieving at least 80% test coverage for the added or modified code.  
+Quality Gate: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.  
+Branching Strategy The main branch is locked and protected. All contributions must be made via pull requests from a feature or bugfix branch.  
+feature requests: Create a new branch prefixed with feature/ (e.g., feature/add-dark-mode).  
+bug fixes: Create a new branch prefixed with bugfix/ (e.g., bugfix/fix-login-error).  
 
-Thank you for helping us maintain a high-quality codebase! 
+Thank you for helping us maintain a high-quality codebase!   
 
 ## 🚧 Work in Progress
 
@@ -120,7 +120,10 @@ EMT Tool is an ongoing project, and we are actively working to enhance its featu
 
 ## 📧 Contact
 
-For any inquiries or discussions, feel free to reach out to us at [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)
+For any inquiries or discussions, feel free to reach out to us:  
+ *Rameez Ismail*: [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)  
+ *Sophie Thornander*: [sophie.thornander@philips.com](mailto:Sophie.Thornander@philips.com)  
+ *Arlette van Wissen*: [arlette.van.wissen@philips.com](mailto:arlette.van.wissen@philips.com)
 
 Let's code responsibly and make a positive impact on the environment! 🌍✨
 
