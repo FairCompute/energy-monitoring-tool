@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use crate::power_groups::tracker::{PowerGroupTracker, AsyncEnergyCollector};
+use log::{info};
 
 pub struct RaplSocCpuGroup {
     pub tracker: PowerGroupTracker,
@@ -15,7 +16,7 @@ impl AsyncEnergyCollector for RaplSocCpuGroup {
     async fn commence(&mut self) -> Result<(), String> {
         log::info!("RAPL group commence called");
         let interval = self.tracker.sleep_interval();
-        println!("Sleeping for {} seconds (yielding)...", interval);
+        info!("Sleeping for {} seconds (yielding)...", interval);
         tokio::time::sleep(tokio::time::Duration::from_secs_f64(interval)).await;
         Ok(())
     }

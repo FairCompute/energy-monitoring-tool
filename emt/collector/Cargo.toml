@@ -8,3 +8,5 @@ async-trait = "0.1.88"
 log = "0.4.27"
 sysinfo = "0.35.1"
 tokio = { version = "1.45.1", features = ["full"] }
+env_logger = "0.10"
+users = "0.11"

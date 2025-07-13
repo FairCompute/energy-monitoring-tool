@@ -63,5 +63,8 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "https-sonarqube-workstation-home-com",
         "projectKey": "FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045"
-    }
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": []
 }
