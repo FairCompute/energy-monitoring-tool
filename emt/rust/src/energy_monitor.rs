@@ -1,8 +1,6 @@
 use crate::utils::errors::TrackerError;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use sysinfo::{Pid, System};
-use users::{Users, UsersCache};
 
 #[derive(Debug, Clone)]
 pub enum PowerGroupType {
@@ -29,52 +27,13 @@ pub struct EnergyMonitor<T: AsyncEnergyCollector> {
 
 
 impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
-
-    fn resolve_username(uid: u32, users_cache: &UsersCache) -> String {
-        users_cache
-            .get_user_by_uid(uid)
-            .map(|user| user.name().to_string_lossy().to_string())
-            .unwrap_or_else(|| uid.to_string())
-    }
-    
     pub fn new(rate: f64, collector: T, provided_pids: Option<Vec<usize>>) -> Result<Self, TrackerError> {
-        let system = System::new_all();
-        let users_cache = UsersCache::new();
-        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
-
-        match provided_pids {
-            Some(ref pids) if pids.is_empty() => {
-                // Explicitly requested no processes: return empty groups
-            }
-            Some(pids) => {
-                for pid in pids {
-                    if let Some(process) = system.process(Pid::from(pid)) {
-                        let user = process.user_id()
-                            .map(|uid| Self::resolve_username(**uid, &users_cache))
-                            .unwrap_or_else(|| "unknown".to_string());
-                        let app = process.name().to_string_lossy().split('/').next().unwrap_or("unknown").to_string();
-                        groups.entry((user, app)).or_default().push(pid);
-                    } else {
-                        groups.entry(("unknown".to_string(), "unknown".to_string())).or_default().push(pid);
-                    }
-                }
-            }
-            None => {
-                for (pid, process) in system.processes() {
-                    let user = process.user_id()
-                        .map(|uid| Self::resolve_username(**uid, &users_cache))
-                        .unwrap_or_else(|| "unknown".to_string());
-                    let app = process.name().to_string_lossy().split('/').next().unwrap_or("unknown").to_string();
-                    groups.entry((user, app)).or_default().push(pid.as_u32() as usize);
-                }
-            }
-        }
-        let tracked_processes: Vec<ProcessGroup> = groups
-            .into_iter()
-            .map(|((user, application), pids)| ProcessGroup { user, application, pids })
-            .collect();
+        let tracked_processes = collector.discover_processes(provided_pids)
+            .map_err(|e| TrackerError::ProcessDiscoveryError(e))?;
+        
         let total_pids = tracked_processes.iter().map(|g| g.pids.len()).sum();
         let consumed_energy = vec![0.0; total_pids];
+        
         Ok(Self {
             rate,
             count_trace_calls: 0,
@@ -119,11 +78,21 @@ impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
 
 #[async_trait]
 pub trait AsyncEnergyCollector {
+    /// Discover and filter processes that this collector can monitor
+    fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<ProcessGroup>, String>;
+    
+    /// Get energy trace data
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String>;
+    
+    /// Check if this collector type is available on the system
     fn is_available() -> bool {
         unimplemented!()
     }
+    
+    /// Start monitoring
     async fn commence(&mut self) -> Result<(), String>;
+    
+    /// Stop monitoring
     async fn shutdown(&mut self) -> Result<(), String>;
 }
 
@@ -186,6 +155,9 @@ mod tests {
     // Test to debug what users we actually see
     fn test_debug_users() {
         use std::collections::HashMap;
+        use sysinfo::{System};
+        use users::{UsersCache};
+        use crate::utils::resolve_username;
         
         let system = System::new_all();
         let users_cache = UsersCache::new();
@@ -194,7 +166,7 @@ mod tests {
         // Count processes by user
         for (_pid, process) in system.processes().into_iter().take(100) {
             let user = process.user_id()
-                .map(|uid| EnergyMonitor::<DummyEnergyGroup>::resolve_username(**uid, &users_cache))
+                .map(|uid| resolve_username(**uid, &users_cache))
                 .unwrap_or_else(|| "unknown".to_string());
             
             *user_counts.entry(user).or_insert(0) += 1;

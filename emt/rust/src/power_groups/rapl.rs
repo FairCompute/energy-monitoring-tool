@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use async_trait::async_trait;
 use crate::energy_monitor::AsyncEnergyCollector;
+use crate::utils::gather_process_groups;
 use log::{info};
 
 pub struct Rapl{
@@ -18,6 +19,12 @@ impl Rapl{
 
 #[async_trait]
 impl AsyncEnergyCollector for Rapl {
+    fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
+        // For RAPL, we could potentially filter to CPU-intensive processes, 
+        // but for now use the default behavior
+        gather_process_groups(provided_pids)
+    }
+    
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {
         // Return empty trace for now - would implement actual RAPL trace collection here
         Ok(HashMap::new())

@@ -4,6 +4,7 @@ use std::fmt;
 pub enum TrackerError {
     InvalidPid,
     SysinfoError(String),
+    ProcessDiscoveryError(String),
     Other(String),
 }
 
@@ -12,6 +13,7 @@ impl fmt::Display for TrackerError {
         match self {
             TrackerError::InvalidPid => write!(f, "Invalid PID"),
             TrackerError::SysinfoError(e) => write!(f, "Sysinfo error: {}", e),
+            TrackerError::ProcessDiscoveryError(e) => write!(f, "Process discovery error: {}", e),
             TrackerError::Other(e) => write!(f, "Other error: {}", e),
         }
     }
