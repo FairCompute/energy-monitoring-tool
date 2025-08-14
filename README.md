@@ -99,11 +99,12 @@ This can be enabled through the environment variable `EMT_RELODA_PROCS`.
 ```python
 import json, os
 
-# Enforce child process reloading
+# Enforce reloading (child) processes
 os.environ["EMT_RELOAD_PROCS"] = "1"
 from emt import EnergyMonitor
 
 with EnergyMonitor() as monitor:
+   # Example: Run non-Python GPU binary
    cmd = "lmp -in input.in -sf gpu"
    os.system(cmd)
 
