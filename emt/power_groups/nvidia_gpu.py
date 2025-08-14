@@ -44,10 +44,6 @@ class NvidiaGPU(PowerGroup):
         # by default a rate 10Hz is used to collect energy_trace.
         kwargs.update({"rate": kwargs.get("rate", 10)})
         super().__init__(**kwargs)
-        # get the process tree for the tracked process
-        self.processes = [self.tracked_process] + self.tracked_process.children(
-            recursive=True
-        )
         pynvml.nvmlInit()
         zones = []
         delta_calculators = []

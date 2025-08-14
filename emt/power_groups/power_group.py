@@ -1,6 +1,6 @@
 import logging
+import os
 import psutil
-import logging
 from typing import Optional
 from collections import defaultdict
 from functools import cached_property
@@ -42,6 +42,18 @@ class PowerGroup:
         This setter is mostly created for testing purpose
         """
         self._tracked_process = value
+
+    def get_processes(self):
+        """
+        Get all processes under the current one
+        """
+        return [self.tracked_process] + self.tracked_process.children(recursive=True)
+
+    if os.getenv("EMT_RELOAD_PROCS"):
+        # Also account for new child processes
+        processes = property(get_processes)
+    else:
+        processes = cached_property(get_processes)
 
     @classmethod
     def is_available(cls) -> bool:
