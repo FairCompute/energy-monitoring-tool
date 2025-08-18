@@ -9,6 +9,7 @@ _DEFAULT_FORMATTER = logging.Formatter(
 )
 _DEFAULT_LOG_DIR = Path.cwd() / ".emt_logs"
 
+
 def setup_logger(
     logger: logging.Logger,
     log_dir: os.PathLike = _DEFAULT_LOG_DIR,
