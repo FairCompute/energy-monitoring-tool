@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use log::info;
 use crate::energy_monitor::AsyncEnergyCollector;
-use crate::utils::gather_process_groups;
 
 pub struct NvidiaGpu{
     pub device_ids: Vec<u32>,
@@ -25,7 +24,7 @@ impl AsyncEnergyCollector for NvidiaGpu {
         match provided_pids {
             Some(pids) => {
                 // If specific PIDs are provided, use them but could filter for GPU usage
-                gather_process_groups(Some(pids))
+                crate::utils::psutils::collect_process_groups(Some(pids))
             }
             None => {
                 // When no PIDs specified, we could query nvidia-smi to find GPU-using processes
@@ -34,9 +33,9 @@ impl AsyncEnergyCollector for NvidiaGpu {
                 
                 // Example of how you might filter for GPU processes:
                 // let gpu_processes = self.discover_gpu_processes()?;
-                // gather_process_groups(Some(gpu_processes))
+                // crate::utils::process::discover_all_processes(Some(gpu_processes))
                 
-                gather_process_groups(None)
+                crate::utils::psutils::collect_process_groups(None)
             }
         }
     }

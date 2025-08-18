@@ -1,19 +1,18 @@
-mod energy_monitor;
-mod demo;
-
-
 mod utils {
     pub mod errors;
     pub mod logger;
     pub mod psutils;
-    pub use psutils::{gather_process_groups};
 }
+
+mod energy_monitor;
+mod demo;
 
 // Power group modules
 pub mod power_groups {
     pub mod rapl;
     pub mod dummy;
     pub mod nvidia_gpu;
+    
     pub use crate::energy_monitor::{AsyncEnergyCollector, PowerGroupType, ProcessGroup};
     pub use rapl::Rapl;
     pub use dummy::DummyEnergyGroup;

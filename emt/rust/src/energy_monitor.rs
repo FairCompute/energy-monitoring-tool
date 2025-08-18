@@ -157,7 +157,7 @@ mod tests {
         use std::collections::HashMap;
         use sysinfo::{System};
         use users::{UsersCache};
-        use crate::utils::resolve_username;
+        use crate::utils::psutils::resolve_username;
         
         let system = System::new_all();
         let users_cache = UsersCache::new();

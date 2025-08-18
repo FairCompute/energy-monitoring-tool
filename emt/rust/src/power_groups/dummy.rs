@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use log::info;
 use crate::energy_monitor::AsyncEnergyCollector;
-use crate::utils::gather_process_groups;
+use crate::utils::psutils::collect_process_groups;
 
 pub struct DummyEnergyGroup;
 
@@ -18,7 +18,7 @@ impl DummyEnergyGroup {
 impl AsyncEnergyCollector for DummyEnergyGroup {
     fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
         // For dummy, use the default process discovery behavior
-        gather_process_groups(provided_pids)
+        collect_process_groups(provided_pids)
     }
     
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {
