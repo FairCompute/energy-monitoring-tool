@@ -11,13 +11,17 @@ from emt.utils.logger import setup_logger
 logger = logging.getLogger("emt.cli")
 setup_logger(logger)
 
+
 # Optionally add stdout handler
 def add_stdout_handler():
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     stdout_handler.setFormatter(formatter)
     logger.addHandler(stdout_handler)
+
 
 # Call this function if stdout logging is needed
 add_stdout_handler()
@@ -90,8 +94,11 @@ def setup() -> bool:
     help="Interval in seconds for the collector to run. Default is 1 second.",
 )
 def main(interval: int):
-    logger.info(f"Starting energy monitoring collector with interval {interval} seconds...")
+    logger.info(
+        f"Starting energy monitoring collector with interval {interval} seconds..."
+    )
     setup()
+
 
 if __name__ == "__main__":
     main()

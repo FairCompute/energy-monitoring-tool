@@ -24,7 +24,7 @@ def test_setup_logger_writes_to_log_file(temp_log_dir):
     logger = logging.getLogger("test_logger")
     log_dir = temp_log_dir
     log_file_name = "test.log"
-    setup_logger(logger,log_dir=log_dir, log_file_name=log_file_name)
+    setup_logger(logger, log_dir=log_dir, log_file_name=log_file_name)
     log_file_path = log_dir / log_file_name
 
     assert log_file_path.exists(), "Log file was not created."
