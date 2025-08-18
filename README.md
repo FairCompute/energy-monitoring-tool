@@ -1,6 +1,5 @@
 <div align="right">
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="120" />
-  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/logo.png" alt="EMT Logo" width="180" />
+  <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="80" />
 </div>
 
 
@@ -104,19 +103,16 @@ The EMT context manager spawns a separate thread to monitor energy usage for CPU
 
 ## 🤝 Contributions
 
-Want to help make EMT Tool even better? We welcome your contributions! Here's how you can get involved:
-1.  **Fork** our repository.
-2.  Create a new branch for your work: `git checkout -b feature/your-feature-name`
-3.  Make your changes and **commit** them with a clear message: `git commit -m 'Add your feature'`
-4.  **Push** your changes to your new branch: `git push origin feature/your-feature-name`
-5.  Open a **pull request** to share your contribution with us.
+We welcome contributions to this project! To ensure a smooth review and merge process, please ensure your pull request meets the following requirements:
 
-Please ensure that your pull request includes a clear description of the changes you've made and why they are valuable.
-To keep the EMT Tool's codebase strong, please ensure your pull requests meet these standards:
->Clear Descriptions: Briefly explain your changes and their value.  
->Code Quality: Pass Sonar linter checks to help us keep the code healthy.  
->Consistent Style: Follow PEP 8 guidelines for clear, consistent Python code.  
->Unit Tests (If Applicable): Include unit tests for new features or major changes.  
+Code Formatting: All code must be formatted using Black. Please run `black .` on your changes before committing.  
+Test Coverage: New features and bug fixes must include tests, achieving at least 80% test coverage for the added or modified code.  
+Quality Gate: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.  
+Branching Strategy The main branch is locked and protected. All contributions must be made via pull requests from a feature or bugfix branch.  
+feature requests: Create a new branch prefixed with feature/ (e.g., feature/add-dark-mode).  
+bug fixes: Create a new branch prefixed with bugfix/ (e.g., bugfix/fix-login-error).  
+
+Thank you for helping us maintain a high-quality codebase!   
 
 ## 🚧 Work in Progress
 
@@ -124,7 +120,10 @@ EMT Tool is an ongoing project, and we are actively working to enhance its featu
 
 ## 📧 Contact
 
-For any inquiries or discussions, feel free to reach out to us at [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)
+For any inquiries or discussions, feel free to reach out to us:  
+ *Rameez Ismail*: [rameez.ismail@philips.com](mailto:rameez.ismail@philips.com)  
+ *Sophie Thornander*: [sophie.thornander@philips.com](mailto:Sophie.Thornander@philips.com)  
+ *Arlette van Wissen*: [arlette.van.wissen@philips.com](mailto:arlette.van.wissen@philips.com)
 
 Let's code responsibly and make a positive impact on the environment! 🌍✨
 
