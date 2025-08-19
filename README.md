@@ -94,7 +94,7 @@ Refer to the following folder for example codes:
 #### Dynamic Child Processes
 
 In some cases, such as when using non-Python applications within a script (s. example below) or when workers are spawned dynamically, the child processes are not be created before the `EnergyMonitor`, which must therefore reload the child processes.  
-This can be enabled through the environment variable `EMT_RELODA_PROCS`.
+This can be enabled through the environment variable `EMT_RELOAD_PROCS`.
 
 ```python
 import json, os
