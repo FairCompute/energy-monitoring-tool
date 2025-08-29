@@ -26,10 +26,8 @@ fn main() {
     utils::logger::setup_logger();
     info!("Application started");
     // Create a dummy energy group collector
-    let dummy_collector: DummyEnergyGroup = DummyEnergyGroup::new(1.0, None).unwrap();
-    
-    // Create an energy monitor with the dummy collector
-    let energy_monitor: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, dummy_collector, None).unwrap();
+    // Create an energy monitor with the dummy collector (optional argument)
+    let energy_monitor: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, None).unwrap();
 
     // Print the tracked processes
     info!("Tracked processes: {:?}", energy_monitor.processes());

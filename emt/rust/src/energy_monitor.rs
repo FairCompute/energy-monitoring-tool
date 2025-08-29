@@ -37,7 +37,8 @@ pub struct EnergyMonitor<T: AsyncEnergyCollector> {
 
 
 impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
-    pub fn new(rate: f64, collector: T, pids: Option<Vec<usize>>) -> Result<Self, MonitoringError> {
+    /// Create a new EnergyMonitor with explicit collector
+    pub fn new_with_collector(collector: T, rate: f64,  pids: Option<Vec<usize>>) -> Result<Self, MonitoringError> {
         let process_groups: Vec<ProcessGroup> = collect_process_groups(pids)?;
         if process_groups.is_empty() {
             return Err(MonitoringError::ProcessDiscoveryError("No processes found".to_string()));
@@ -73,12 +74,21 @@ impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
 
                     
         Ok(Self {
-            rate,       
+            rate,
             count_trace_calls: 0,
             tracked_processes,
             energy_trace,
-            collector,
+            collector: collector,
         })
+    }
+
+    /// Convenience constructor: only rate and pids, collector defaults to None (uses Default)
+    pub fn new(rate: f64, pids: Option<Vec<usize>>) -> Result<Self, MonitoringError>
+    where
+        T: Default,
+    {
+    Self::new_with_collector(T::default(), rate, pids)
+    
     }
 
     pub fn sleep_interval(&self) -> f64 {
@@ -138,15 +148,13 @@ mod tests {
 
     #[test]
     fn test_tracker_empty() {
-        let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![])).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![])).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, Some(vec![])).unwrap();
         assert_eq!(tracker.processes().height(), 0);
     }
 
     #[test]
     fn test_tracker_with_nonexistent_pid() {
-        let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![999999])).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![999999])).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, Some(vec![999999])).unwrap();
         let df = tracker.processes();
         let user = df.column("user").unwrap().str().unwrap();
         let task = df.column("task").unwrap().str().unwrap();
@@ -155,8 +163,7 @@ mod tests {
 
     #[test]
     fn test_tracker_with_pid_1() {
-        let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![1])).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![1])).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, Some(vec![1])).unwrap();
         let df = tracker.processes();
         let pids = df.column("pid").unwrap().u32().unwrap();
         assert!(pids.into_iter().any(|pid| pid == Some(1)));
@@ -164,15 +171,13 @@ mod tests {
 
     #[test]
     fn test_tracker_all_processes_not_empty() {
-        let dummy_group = DummyEnergyGroup::new(1.0, None).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, None).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, None).unwrap();
         assert!(tracker.processes().height() > 0);
     }
 
     #[test]
     fn test_tracker_pid_grouping() {
-        let dummy_group = DummyEnergyGroup::new(1.0, None).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, None).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, None).unwrap();
         let df = tracker.processes();
         let pids = df.column("pid").unwrap().u32().unwrap();
         let mut all_pids: Vec<u32> = pids.into_iter().flatten().collect();
@@ -218,8 +223,7 @@ mod tests {
     #[test]
     // Test different power group types
     fn test_power_group_types() {
-        let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![])).unwrap();
-        let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![])).unwrap();
+    let tracker: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, Some(vec![])).unwrap();
         
         // Test that we can access the collector
         assert!(tracker.collector().get_trace().is_ok());

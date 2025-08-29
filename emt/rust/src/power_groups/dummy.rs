@@ -1,35 +1,38 @@
-use std::collections::HashMap;
+use crate::energy_monitor::AsyncEnergyCollector;
 use async_trait::async_trait;
 use log::info;
-use crate::energy_monitor::AsyncEnergyCollector;
+use std::collections::HashMap;
 
 pub struct DummyEnergyGroup;
 
 impl DummyEnergyGroup {
-    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>) -> Result<Self, crate::utils::errors::MonitoringError> {
-        // For dummy, we don't need to store the rate or pids since it's just for testing
-        let _ = (rate, provided_pids);
-        Ok(Self)
+    pub fn new() -> Result<Self, crate::utils::errors::MonitoringError> {
+        Ok(Self {})
+    }
+}
+
+impl Default for DummyEnergyGroup {
+    fn default() -> Self {
+        DummyEnergyGroup {}
     }
 }
 
 #[async_trait]
 impl AsyncEnergyCollector for DummyEnergyGroup {
-    
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {
         // Return empty trace for dummy
         Ok(HashMap::new())
     }
-    
+
     fn is_available() -> bool {
         true // Dummy is always available
     }
-    
+
     async fn commence(&mut self) -> Result<(), String> {
         info!("Dummy group commence called");
         Ok(())
     }
-    
+
     async fn shutdown(&mut self) -> Result<(), String> {
         info!("Dummy group shutdown called");
         Ok(())
