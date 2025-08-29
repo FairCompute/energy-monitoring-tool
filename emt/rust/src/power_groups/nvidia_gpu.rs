@@ -18,28 +18,7 @@ impl NvidiaGpu{
 
 #[async_trait]
 impl AsyncEnergyCollector for NvidiaGpu {
-    fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
-        // For NVIDIA GPU, we could filter to only processes using GPU resources
-        // This is a great example of how different collectors can have different discovery logic
-        match provided_pids {
-            Some(pids) => {
-                // If specific PIDs are provided, use them but could filter for GPU usage
-                crate::utils::psutils::collect_process_groups(Some(pids)).map_err(|e| e.to_string())
-            }
-            None => {
-                // When no PIDs specified, we could query nvidia-smi to find GPU-using processes
-                // For now, fall back to default behavior but in a real implementation, 
-                // this would query nvidia-smi --query-compute-apps=pid,process_name
-                
-                // Example of how you might filter for GPU processes:
-                // let gpu_processes = self.discover_gpu_processes()?;
-                // crate::utils::process::discover_all_processes(Some(gpu_processes))
-                
-                crate::utils::psutils::collect_process_groups(None).map_err(|e| e.to_string())
-            }
-        }
-    }
-    
+
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {
         // Return empty trace for now - would implement actual NVIDIA trace collection here
         Ok(HashMap::new())

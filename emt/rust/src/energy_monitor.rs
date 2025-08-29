@@ -68,7 +68,7 @@ impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
         // Cast the timestamp column to Datetime with milliseconds
         energy_trace.with_column(
                 energy_trace.column("timestamp").map_err(|e| MonitoringError::Other(e.to_string()))?
-                .cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).map_err(|e| MonitoringError::Other(e.to_string()))?
+                    .cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).map_err(|e| MonitoringError::Other(e.to_string()))?
             ).map_err(|e| MonitoringError::Other(e.to_string()))?;  
 
                     
@@ -115,8 +115,6 @@ impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
 
 #[async_trait]
 pub trait AsyncEnergyCollector {
-    /// Discover and filter processes that this collector can monitor
-    fn discover_processes(&self, pids: Option<Vec<usize>>) -> Result<Vec<ProcessGroup>, String>;
     
     /// Get energy trace data
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String>;

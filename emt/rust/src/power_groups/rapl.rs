@@ -18,11 +18,6 @@ impl Rapl{
 
 #[async_trait]
 impl AsyncEnergyCollector for Rapl {
-    fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
-        // For RAPL, we could potentially filter to CPU-intensive processes, 
-        // but for now use the default behavior
-        crate::utils::psutils::collect_process_groups(provided_pids).map_err(|e| e.to_string())
-    }
     
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {
         // Return empty trace for now - would implement actual RAPL trace collection here
