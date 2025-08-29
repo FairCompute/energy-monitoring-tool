@@ -8,7 +8,7 @@ pub struct NvidiaGpu{
 }
 
 impl NvidiaGpu{
-    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>, device_ids: Option<Vec<u32>>) -> Result<Self, crate::utils::errors::TrackerError> {
+    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>, device_ids: Option<Vec<u32>>) -> Result<Self, crate::utils::errors::MonitoringError> {
         let device_ids = device_ids.unwrap_or_else(|| vec![0]); // Default to GPU 0
         // For NVIDIA, we don't need to store the rate or pids in the collector itself
         let _ = (rate, provided_pids);
@@ -24,7 +24,7 @@ impl AsyncEnergyCollector for NvidiaGpu {
         match provided_pids {
             Some(pids) => {
                 // If specific PIDs are provided, use them but could filter for GPU usage
-                crate::utils::psutils::collect_process_groups(Some(pids))
+                crate::utils::psutils::collect_process_groups(Some(pids)).map_err(|e| e.to_string())
             }
             None => {
                 // When no PIDs specified, we could query nvidia-smi to find GPU-using processes
@@ -35,7 +35,7 @@ impl AsyncEnergyCollector for NvidiaGpu {
                 // let gpu_processes = self.discover_gpu_processes()?;
                 // crate::utils::process::discover_all_processes(Some(gpu_processes))
                 
-                crate::utils::psutils::collect_process_groups(None)
+                crate::utils::psutils::collect_process_groups(None).map_err(|e| e.to_string())
             }
         }
     }

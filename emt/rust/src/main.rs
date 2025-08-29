@@ -5,7 +5,6 @@ mod utils {
 }
 
 mod energy_monitor;
-mod demo;
 
 // Power group modules
 pub mod power_groups {
@@ -30,7 +29,7 @@ fn main() {
     let dummy_collector: DummyEnergyGroup = DummyEnergyGroup::new(1.0, None).unwrap();
     
     // Create an energy monitor with the dummy collector
-    let energy_monitor = EnergyMonitor::new(1.0, dummy_collector, None).unwrap();
+    let energy_monitor: EnergyMonitor<DummyEnergyGroup> = EnergyMonitor::new(1.0, dummy_collector, None).unwrap();
 
     // Print the tracked processes
     info!("Tracked processes: {:?}", energy_monitor.processes());

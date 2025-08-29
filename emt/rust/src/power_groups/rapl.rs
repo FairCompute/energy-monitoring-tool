@@ -8,7 +8,7 @@ pub struct Rapl{
 }
 
 impl Rapl{
-    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>, rapl_path: Option<String>) -> Result<Self, crate::utils::errors::TrackerError> {
+    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>, rapl_path: Option<String>) -> Result<Self, crate::utils::errors::MonitoringError> {
         let rapl_path = rapl_path.unwrap_or_else(|| "/sys/class/powercap/intel-rapl".to_string());
         // For RAPL, we don't need to store the rate or pids in the collector itself
         let _ = (rate, provided_pids);
@@ -21,7 +21,7 @@ impl AsyncEnergyCollector for Rapl {
     fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
         // For RAPL, we could potentially filter to CPU-intensive processes, 
         // but for now use the default behavior
-        crate::utils::psutils::collect_process_groups(provided_pids)
+        crate::utils::psutils::collect_process_groups(provided_pids).map_err(|e| e.to_string())
     }
     
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {

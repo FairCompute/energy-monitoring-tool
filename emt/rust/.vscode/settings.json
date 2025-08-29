@@ -1,9 +1,12 @@
 {
     "cSpell.words": [
+        "itertools",
+        "multiunzip",
         "pids",
         "powercap",
         "psutil",
         "rapl",
-        "sysinfo"
+        "sysinfo",
+        "thiserror"
     ]
 }

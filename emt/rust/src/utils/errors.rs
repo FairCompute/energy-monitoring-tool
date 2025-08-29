@@ -1,22 +1,11 @@
-use std::fmt;
+use thiserror::Error;
 
-#[derive(Debug)]
-pub enum TrackerError {
-    InvalidPid,
+#[derive(Error, Debug)]
+pub enum MonitoringError {
+    #[error("Sysinfo error: {0}")]
     SysinfoError(String),
+    #[error("Process discovery error: {0}")]
     ProcessDiscoveryError(String),
+    #[error("Other error: {0}")]
     Other(String),
 }
-
-impl fmt::Display for TrackerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TrackerError::InvalidPid => write!(f, "Invalid PID"),
-            TrackerError::SysinfoError(e) => write!(f, "Sysinfo error: {}", e),
-            TrackerError::ProcessDiscoveryError(e) => write!(f, "Process discovery error: {}", e),
-            TrackerError::Other(e) => write!(f, "Other error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for TrackerError {}

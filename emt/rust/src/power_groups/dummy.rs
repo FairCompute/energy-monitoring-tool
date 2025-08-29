@@ -7,7 +7,7 @@ use crate::utils::psutils::collect_process_groups;
 pub struct DummyEnergyGroup;
 
 impl DummyEnergyGroup {
-    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>) -> Result<Self, crate::utils::errors::TrackerError> {
+    pub fn new(rate: f64, provided_pids: Option<Vec<usize>>) -> Result<Self, crate::utils::errors::MonitoringError> {
         // For dummy, we don't need to store the rate or pids since it's just for testing
         let _ = (rate, provided_pids);
         Ok(Self)
@@ -18,7 +18,7 @@ impl DummyEnergyGroup {
 impl AsyncEnergyCollector for DummyEnergyGroup {
     fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<crate::energy_monitor::ProcessGroup>, String> {
         // For dummy, use the default process discovery behavior
-        collect_process_groups(provided_pids)
+        collect_process_groups(provided_pids).map_err(|e| e.to_string())
     }
     
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String> {

@@ -45,8 +45,10 @@
         "reexec",
         "seperate",
         "setuptools",
+        "sysinfo",
         "tensorboard",
         "tfevents",
+        "thiserror",
         "usermod"
     ],
     "python.analysis.diagnosticSeverityOverrides": {

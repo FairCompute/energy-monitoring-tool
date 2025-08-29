@@ -1,8 +1,12 @@
-use crate::utils::errors::TrackerError;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use itertools::multiunzip;
+use polars::prelude::*;
+use crate::utils::psutils::collect_process_groups;
+use crate::utils::errors::MonitoringError;
 
-#[derive(Debug, Clone)]
+
+#[derive(Debug)]
 pub enum PowerGroupType {
     Rapl,
     NvidiaGpu,
@@ -12,34 +16,67 @@ pub enum PowerGroupType {
 #[derive(Debug)]
 pub struct ProcessGroup {
     pub user: String,
-    pub application: String,
+    pub task: String,
     pub pids: Vec<usize>,
 }
 
+/// Generic energy monitor that works with any energy collector implementation
+/// 
+/// # Type Parameters
+/// * `T` - An energy collector type that implements `AsyncEnergyCollector`
 pub struct EnergyMonitor<T: AsyncEnergyCollector> {
     rate: f64,
     count_trace_calls: usize,
-    tracked_processes: Vec<ProcessGroup>,
-    consumed_energy: Vec<f64>,
-    energy_trace: HashMap<u64, Vec<f64>>,
+    /// DataFrame: user | task | pid
+    tracked_processes: DataFrame,
+    /// DataFrame: pid | timestamp | device | energy
+    energy_trace: DataFrame,
+    /// Energy collector implementation that handles energy measurement
     collector: T,
 }
 
 
 impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
-    pub fn new(rate: f64, collector: T, provided_pids: Option<Vec<usize>>) -> Result<Self, TrackerError> {
-        let tracked_processes = collector.discover_processes(provided_pids)
-            .map_err(|e| TrackerError::ProcessDiscoveryError(e))?;
-        
-        let total_pids = tracked_processes.iter().map(|g| g.pids.len()).sum();
-        let consumed_energy = vec![0.0; total_pids];
-        
+    pub fn new(rate: f64, collector: T, pids: Option<Vec<usize>>) -> Result<Self, MonitoringError> {
+        let process_groups: Vec<ProcessGroup> = collect_process_groups(pids)?;
+        if process_groups.is_empty() {
+            return Err(MonitoringError::ProcessDiscoveryError("No processes found".to_string()));
+        }
+
+        // Concise conversion to Polars DataFrame: user | task | pid
+
+        let (users, tasks, pids_col): (Vec<String>, Vec<String>, Vec<u32>) = multiunzip(
+            process_groups.iter().flat_map(|group|
+                group.pids.iter().map(move |&pid| (group.user.clone(), group.task.clone(), pid as u32))
+            )
+        );
+
+        let tracked_processes = df![
+            "user" => users,
+            "task" => tasks,
+            "pid" => pids_col,
+        ].map_err(|e| MonitoringError::Other(format!("Failed to create DataFrame: {}", e)))?;
+
+        // Create empty energy_traces DataFrame: pid | timestamp | device | energy
+        let mut energy_trace = df![
+            "pid" => Vec::<u32>::new(),
+            "device" => Vec::<String>::new(),
+            "energy" => Vec::<f64>::new(),
+            "timestamp" => Vec::<i64>::new(),
+        ].map_err(|e| MonitoringError::Other(format!("Failed to create energy_traces DataFrame: {}", e)))?;
+
+        // Cast the timestamp column to Datetime with milliseconds
+        energy_trace.with_column(
+                energy_trace.column("timestamp").map_err(|e| MonitoringError::Other(e.to_string()))?
+                .cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).map_err(|e| MonitoringError::Other(e.to_string()))?
+            ).map_err(|e| MonitoringError::Other(e.to_string()))?;  
+
+                    
         Ok(Self {
-            rate,
+            rate,       
             count_trace_calls: 0,
             tracked_processes,
-            energy_trace: HashMap::new(),
-            consumed_energy,
+            energy_trace,
             collector,
         })
     }
@@ -48,38 +85,38 @@ impl<T: AsyncEnergyCollector> EnergyMonitor<T> {
         1.0 / self.rate
     }
     
-    pub fn processes(&self) -> &Vec<ProcessGroup> {
+    
+    /// Get a reference to the tracked process DataFrame
+    pub fn processes(&self) -> &DataFrame {
         &self.tracked_processes
     }
-    
-    pub fn consumed_energy(&self) -> &Vec<f64> {
-        &self.consumed_energy
+
+    /// Get a reference to the energy trace DataFrame
+    pub fn energy_trace(&self) -> &DataFrame {
+        &self.energy_trace
     }
-    
-    pub fn energy_trace(&self) -> HashMap<u64, Vec<f64>> {
-        self.energy_trace.clone()
+
+    /// Get a mutable reference to the energy trace DataFrame
+    pub fn energy_trace_mut(&mut self) -> &mut DataFrame {
+        &mut self.energy_trace
     }
-    
-    /// Get the collector reference
+
+    /// Get a reference to the energy collector implementation
     pub fn collector(&self) -> &T {
         &self.collector
     }
-    
-    /// Get mutable collector reference
-    pub fn collector_mut(&mut self) -> &mut T {
-        &mut self.collector
-    }
-    
-    /// Check if the collector type is available on this system
+
+    /// Check if the energy collector type is available on this system
     pub fn is_available() -> bool where T: AsyncEnergyCollector {
         T::is_available()
     }
+
 }
 
 #[async_trait]
 pub trait AsyncEnergyCollector {
     /// Discover and filter processes that this collector can monitor
-    fn discover_processes(&self, provided_pids: Option<Vec<usize>>) -> Result<Vec<ProcessGroup>, String>;
+    fn discover_processes(&self, pids: Option<Vec<usize>>) -> Result<Vec<ProcessGroup>, String>;
     
     /// Get energy trace data
     fn get_trace(&self) -> Result<HashMap<u64, Vec<f64>>, String>;
@@ -102,53 +139,48 @@ mod tests {
     use crate::power_groups::DummyEnergyGroup;
 
     #[test]
-    // Test tracker with empty PID list returns no groups
     fn test_tracker_empty() {
         let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![])).unwrap();
         let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![])).unwrap();
-        assert_eq!(tracker.processes().len(), 0);
+        assert_eq!(tracker.processes().height(), 0);
     }
 
     #[test]
-    // Test tracker with a nonexistent PID returns a unknown/unknown group
     fn test_tracker_with_nonexistent_pid() {
         let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![999999])).unwrap();
         let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![999999])).unwrap();
-        let groups = tracker.processes();
-        assert!(groups.iter().any(|g| g.user == "unknown" && g.application == "unknown"));
+        let df = tracker.processes();
+        let user = df.column("user").unwrap().str().unwrap();
+        let task = df.column("task").unwrap().str().unwrap();
+        assert!(user.into_iter().zip(task.into_iter()).any(|(u, t)| u == Some("unknown") && t == Some("unknown")));
     }
 
     #[test]
-    // Test tracker with PID 1 returns a group containing PID 1
     fn test_tracker_with_pid_1() {
         let dummy_group = DummyEnergyGroup::new(1.0, Some(vec![1])).unwrap();
         let tracker = EnergyMonitor::new(1.0, dummy_group, Some(vec![1])).unwrap();
-        let groups = tracker.processes();
-        assert!(groups.iter().any(|g| g.pids.contains(&1)));
+        let df = tracker.processes();
+        let pids = df.column("pid").unwrap().u32().unwrap();
+        assert!(pids.into_iter().any(|pid| pid == Some(1)));
     }
 
     #[test]
-    // Test tracker with all processes returns at least one group
     fn test_tracker_all_processes_not_empty() {
         let dummy_group = DummyEnergyGroup::new(1.0, None).unwrap();
         let tracker = EnergyMonitor::new(1.0, dummy_group, None).unwrap();
-        let groups = tracker.processes();
-        assert!(!groups.is_empty());
+        assert!(tracker.processes().height() > 0);
     }
 
     #[test]
-    // Test all PIDs are unique across all groups
     fn test_tracker_pid_grouping() {
         let dummy_group = DummyEnergyGroup::new(1.0, None).unwrap();
         let tracker = EnergyMonitor::new(1.0, dummy_group, None).unwrap();
-        let groups = tracker.processes();
-        let mut all_pids: Vec<usize> = Vec::new();
-        for group in groups {
-            all_pids.extend(&group.pids);
-        }
+        let df = tracker.processes();
+        let pids = df.column("pid").unwrap().u32().unwrap();
+        let mut all_pids: Vec<u32> = pids.into_iter().flatten().collect();
         all_pids.sort();
         all_pids.dedup();
-        assert_eq!(all_pids.len(), tracker.consumed_energy().len());
+        assert_eq!(all_pids.len(), tracker.processes().height());
     }
 
     #[test]
