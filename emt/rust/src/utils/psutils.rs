@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use sysinfo::System;
 use users::{Users, UsersCache};
-use crate::energy_monitor::ProcessGroup;
+use crate::power_groups::energy_group::ProcessGroup;
 use crate::utils::errors::MonitoringError;
 
 

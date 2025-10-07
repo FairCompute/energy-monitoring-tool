@@ -1,4 +1,4 @@
-use crate::energy_monitor::AsyncEnergyCollector;
+use crate::power_groups::energy_group::AsyncEnergyCollector;
 use async_trait::async_trait;
 use log::info;
 use std::collections::HashMap;
@@ -38,10 +38,10 @@ impl AsyncEnergyCollector for NvidiaGpu {
             .unwrap_or(false)
     }
 
-    async fn commence(&mut self) -> Result<(), String> {
+    async fn commence(&self, rate: f64) -> Result<(), String> {
         info!(
-            "NVIDIA GPU group commence called for devices: {:?}",
-            self.device_ids
+            "NVIDIA GPU group commence called for devices: {:?} at rate: {}",
+            self.device_ids, rate
         );
 
         // Check if NVIDIA GPUs are available

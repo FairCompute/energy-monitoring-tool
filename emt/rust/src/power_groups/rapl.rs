@@ -1,4 +1,4 @@
-use crate::energy_monitor::AsyncEnergyCollector;
+use crate::power_groups::energy_group::AsyncEnergyCollector;
 use async_trait::async_trait;
 use log::info;
 use std::collections::HashMap;
@@ -33,8 +33,8 @@ impl AsyncEnergyCollector for Rapl {
         std::path::Path::new("/sys/class/powercap/intel-rapl").exists()
     }
 
-    async fn commence(&mut self) -> Result<(), String> {
-        log::info!("RAPL group commence called");
+    async fn commence(&self, rate: f64) -> Result<(), String> {
+        log::info!("RAPL group commence called at rate: {}", rate);
 
         // Check if RAPL is available
         if !Self::is_available() {
