@@ -29,5 +29,7 @@ if __name__ == "__main__":
         add_tensors_gpu()
 
     logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
-    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(
+        f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}"
+    )
     logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

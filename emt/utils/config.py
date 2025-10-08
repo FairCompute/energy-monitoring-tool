@@ -71,41 +71,40 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any
         raise
 
 
-
 def validate_config(config_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Validate and normalize configuration data.
-    
+
     This function:
     1. Validates measurement units are supported
     2. Converts sampling_interval to rate in power groups
     3. Validates rate values are positive integers
-    
+
     Args:
         config_data: Configuration data to validate. If None, uses current cached config.
-        
+
     Returns:
         Validated and normalized configuration dictionary
-        
+
     Raises:
         ValueError: If configuration contains invalid values
     """
     if config_data is None:
         config_data = load_config()
-    
+
     # Create a copy to avoid modifying the original
     validated_config = config_data.copy()
-    
+
     try:
         # Validate measurement units
         UnitConverter.validate_measurement_units(validated_config)
-        
+
         # Validate and normalize power group configuration
         validated_config = UnitConverter.validate_power_group_config(validated_config)
-        
+
         logger.debug("Configuration validation completed successfully")
         return validated_config
-        
+
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
         raise
@@ -116,7 +115,7 @@ if __name__ == "__main__":
     config = load_config()
     print("EMT Configuration:")
     print(json.dumps(config, indent=2))
-    
+
     # Test validation
     try:
         validated_config = validate_config(config)

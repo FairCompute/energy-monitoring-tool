@@ -171,7 +171,9 @@ if __name__ == "__main__":
     with EnergyMonitor(
         name=_NAME,
         # pass existing general writer to TensorboardRecorder
-        trace_recorders=[TensorboardRecorder("./tensorboard_logs", writer=summary_writer)],
+        trace_recorders=[
+            TensorboardRecorder("./tensorboard_logs", writer=summary_writer)
+        ],
     ) as monitor:
         start_time = time.time()
         pipeline = SentimentPipeline()
@@ -181,5 +183,7 @@ if __name__ == "__main__":
 
     logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
     logger.info(f"execution time: {execution_time:.2f} Seconds.")
-    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(
+        f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}"
+    )
     logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

@@ -28,11 +28,13 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self._energy_trace = defaultdict(list)
-        
+
         # Load configuration to get target energy unit (lazy import to avoid circular dependency)
         self._config = None
         self._target_energy_unit: Optional[str] = None
-        self._internal_energy_unit = "Joules"  # Internal energy is stored in Joules (base unit)
+        self._internal_energy_unit = (
+            "Joules"  # Internal energy is stored in Joules (base unit)
+        )
 
     def _get_target_energy_unit(self) -> str:
         """
@@ -42,13 +44,16 @@ class PowerGroup:
             try:
                 # Import here to avoid circular dependency
                 from emt.utils.config import load_config
+
                 self._config = load_config()
                 unit = self._config.get("measurement_units", {}).get("energy", "Joules")
                 self._target_energy_unit = unit if isinstance(unit, str) else "Joules"
             except Exception as e:
-                logger.warning(f"Could not load configuration for unit conversion: {e}. Using default unit 'Joules'.")
+                logger.warning(
+                    f"Could not load configuration for unit conversion: {e}. Using default unit 'Joules'."
+                )
                 self._target_energy_unit = "Joules"
-        
+
         # Return with fallback to ensure we always return a string
         return self._target_energy_unit or "Joules"
 
@@ -60,11 +65,15 @@ class PowerGroup:
         try:
             # Import here to avoid circular dependency
             from emt.utils.units import UnitConverter
-            return UnitConverter.convert_energy(energy_joules, self._internal_energy_unit, target_unit)
+
+            return UnitConverter.convert_energy(
+                energy_joules, self._internal_energy_unit, target_unit
+            )
         except Exception as e:
-            logger.warning(f"Could not convert energy from {self._internal_energy_unit} to {target_unit}: {e}. Returning raw value.")
+            logger.warning(
+                f"Could not convert energy from {self._internal_energy_unit} to {target_unit}: {e}. Returning raw value."
+            )
             return energy_joules
-       
 
     @cached_property
     def sleep_interval(self) -> float:

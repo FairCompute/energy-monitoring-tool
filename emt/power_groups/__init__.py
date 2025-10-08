@@ -5,10 +5,10 @@ from .utils import get_pg_types, get_available_pg_types, get_available_pgs, get_
 
 __all__ = [
     "PowerGroup",
-    "RAPLSoC", 
+    "RAPLSoC",
     "NvidiaGPU",
     "get_pg_types",
     "get_available_pg_types",
-    "get_available_pgs", 
+    "get_available_pgs",
     "get_pg_table",
 ]

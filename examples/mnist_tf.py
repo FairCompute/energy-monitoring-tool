@@ -107,7 +107,9 @@ def run_mnist_flow(epochs=10, batch_size=32):
 
     logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
     logger.info(f"execution time: {execution_time:.2f} Seconds.")
-    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(
+        f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}"
+    )
     logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")
 
 

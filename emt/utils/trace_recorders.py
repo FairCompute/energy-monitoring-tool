@@ -19,9 +19,7 @@ class TensorBoardWriterType(Enum):
 
 
 class TraceRecorder:
-    def __init__(
-        self, location, write_interval: int = 50
-    ):
+    def __init__(self, location, write_interval: int = 50):
         """
         This class is responsible for recording the energy traces of the power groups. The traces are
         saved in the specified location at regular intervals, defined by `write_interval`.

@@ -27,8 +27,8 @@ def add_tensors_gpu(device="gpu"):
 with EnergyMonitor(
     name=_NAME,
     trace_recorders=[
-        CSVRecorder("./csv_traces"), 
-        TensorboardRecorder("./tensorboard_logs")
+        CSVRecorder("./csv_traces"),
+        TensorboardRecorder("./tensorboard_logs"),
     ],
 ) as monitor:
     # repeat the addition 100000 times
@@ -36,5 +36,7 @@ with EnergyMonitor(
 
 logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
 logger.info(f"execution time: {execution_time:.2f} Seconds.")
-logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+logger.info(
+    f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}"
+)
 logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

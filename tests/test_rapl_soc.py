@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, mock_open, MagicMock
 from pathlib import Path
-from emt.power_groups import  RAPLSoC
+from emt.power_groups import RAPLSoC
 from emt.power_groups.rapl import DeltaReader
 
 TOLERANCE = 1e-9
@@ -57,7 +57,10 @@ def rapl_soc():
     with (
         patch("os.listdir", return_value=["intel-rapl:0", "intel-rapl:1"]),
         patch("builtins.open", mock_open(read_data="fake_zone_name")),
-        patch("emt.utils.config.load_config", return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}}),
+        patch(
+            "emt.utils.config.load_config",
+            return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}},
+        ),
     ):
         with patch("psutil.Process") as mocked_process:
 

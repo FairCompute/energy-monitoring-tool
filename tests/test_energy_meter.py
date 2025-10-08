@@ -154,7 +154,10 @@ def test_conclude(energy_meter):
 
 def test_total_consumed_energy(energy_meter):
     """Test total consumed energy calculation."""
-    with patch("emt.utils.config.load_config", return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}}):
+    with patch(
+        "emt.utils.config.load_config",
+        return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}},
+    ):
         total_energy = energy_meter.total_consumed_energy
         assert (
             abs(total_energy - 2000.0) < TOLERANCE
@@ -163,7 +166,10 @@ def test_total_consumed_energy(energy_meter):
 
 def test_consumed_energy(energy_meter):
     """Test consumed energy per power group."""
-    with patch("emt.utils.config.load_config", return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}}):
+    with patch(
+        "emt.utils.config.load_config",
+        return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}},
+    ):
         consumed_energy = energy_meter.consumed_energy
         assert len(consumed_energy.keys()) == 2
         for key, value in consumed_energy.items():

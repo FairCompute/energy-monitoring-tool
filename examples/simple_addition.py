@@ -22,5 +22,7 @@ with EnergyMonitor(
 
 logger.info(f"\n\n{'*' * 20} Context name: {__NAME} {'*' * 20}")
 logger.info(f"execution time: {execution_time:.2f} Seconds.")
-logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+logger.info(
+    f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}"
+)
 logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

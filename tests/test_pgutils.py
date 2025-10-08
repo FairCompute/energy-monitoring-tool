@@ -1,7 +1,13 @@
 import pytest
 import unittest
 from unittest.mock import MagicMock, patch
-from emt.power_groups import PowerGroup, get_pg_types, get_available_pg_types, get_available_pgs, get_pg_table
+from emt.power_groups import (
+    PowerGroup,
+    get_pg_types,
+    get_available_pg_types,
+    get_available_pgs,
+    get_pg_table,
+)
 
 
 class MockPowerGroup1(PowerGroup):
@@ -32,20 +38,22 @@ def test_get_pg_types():
 def test_get_available_pg_types():
     with patch("emt.power_groups.utils.get_pg_types") as mock_get_pg_types:
         mock_get_pg_types.return_value = [MockPowerGroup1, MockPowerGroup2]
-        
+
         available_types = get_available_pg_types()
-        
+
         assert len(available_types) == 1  # only one class is available
         assert MockPowerGroup1 in available_types
         assert MockPowerGroup2 not in available_types
 
 
 def test_get_available_pgs():
-    with patch("emt.power_groups.utils.get_available_pg_types") as mock_get_available_types:
+    with patch(
+        "emt.power_groups.utils.get_available_pg_types"
+    ) as mock_get_available_types:
         mock_get_available_types.return_value = [MockPowerGroup1]
-        
+
         available_pgs = get_available_pgs()
-        
+
         assert len(available_pgs) == 1
         assert isinstance(available_pgs[0], MockPowerGroup1)
 
@@ -53,9 +61,9 @@ def test_get_available_pgs():
 def test_get_pg_table():
     with patch("emt.power_groups.utils.get_pg_types") as mock_get_pg_types:
         mock_get_pg_types.return_value = [MockPowerGroup1, MockPowerGroup2]
-        
+
         table_output = get_pg_table()
-        
+
         assert "MockPowerGroup1" in table_output
         assert "MockPowerGroup2" in table_output
         assert "Yes" in table_output

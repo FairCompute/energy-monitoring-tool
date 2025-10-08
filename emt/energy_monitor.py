@@ -63,7 +63,7 @@ class EnergyMonitorCore:
     def concluded(self):
         with self._lock:
             return self._concluded
-        
+
     @property
     def energy_unit(self) -> str:
         """
