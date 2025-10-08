@@ -53,7 +53,7 @@ version_file = "_version.py"
 
 
 [project.scripts]
-emt = "emt.cli:main"
+emt_cfgup = "emt.cfgup:main"
 
 
 [tool.black]

@@ -2,7 +2,7 @@ import pytest
 from click.testing import CliRunner
 from unittest.mock import patch
 import re
-from emt.cli import main, setup
+from emt.cfgup import main, setup
 
 
 @pytest.fixture

@@ -1,28 +1,35 @@
 import time
-import os
 import asyncio
 import logging
 import threading
-from pathlib import Path
 from threading import RLock
-from typing import Collection, Mapping
+from typing import Collection, Mapping, Optional
 from emt.power_groups import PowerGroup
 from emt.utils import setup_logger, TraceRecorder, PGUtils
 
+# Public API
+__all__ = ["EnergyMonitorCore", "EnergyMonitor"]
 
 logger = logging.getLogger(__name__)
 
+setup_logger(
+    logger,
+    logging_level=logging.INFO,
+    mode="w",
+    to_std_streams=True,
+)
 
-class EnergyMeter:
+
+class EnergyMonitorCore:
 
     def __init__(
         self,
         powergroups: Collection[PowerGroup],
         context_name: str,
-        trace_recorders: Collection[TraceRecorder] = None,
+        trace_recorders: Optional[Collection[TraceRecorder]] = None,
     ):
         """
-        EnergyMeter accepts a collection of PowerGroup objects and monitor them, logs their
+        EnergyMonitor accepts a collection of PowerGroup objects and monitor them, logs their
         energy consumption at regular intervals. Each PowerGroup provides a set a task or a
         set of tasks, exposed via `commence` method of the powerGroup.  All such tasks are
         # gathered and asynchronously awaited by the energyMeter. Ideally, the run method
@@ -146,7 +153,7 @@ class EnergyMonitor:
         self,
         *,
         name: str = "unnamed_context",
-        trace_recorders: Collection[TraceRecorder] | TraceRecorder = None,
+        trace_recorders: Optional[Collection[TraceRecorder] | TraceRecorder] = None,
     ):
         self.context_name = name
         setup_logger(logger)
@@ -181,19 +188,12 @@ class EnergyMonitor:
         self.pg_objs = pg_utils.get_available_pgs()
         # log powergroup info in a tabular format
         logger.info("\n" + pg_utils.get_pg_table())
+
         # set trace emitters
         for trace_emitter in self._trace_recorders:
             trace_emitter.power_groups = self.pg_objs
-            # get log file handler location
-            location = Path(logger.handlers[0].baseFilename).parent
-            if trace_emitter.__class__.__name__ == "CSVRecorder":
-                location = os.path.join(location, "csv_traces", self.context_name)
-            elif trace_emitter.__class__.__name__ == "TensorboardRecorder":
-                location = os.path.join(location, "tfevents", self.context_name)
 
-            trace_emitter.trace_location = trace_emitter.trace_location or location
-
-        energy_meter = EnergyMeter(
+        energy_meter = EnergyMonitorCore(
             powergroups=self.pg_objs,
             context_name=self.context_name,
             trace_recorders=self._trace_recorders,

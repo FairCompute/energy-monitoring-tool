@@ -58,14 +58,14 @@ def test_setup_logger_custom_formatter(temp_log_dir):
 
 
 def test_setup_logger_calls_reset_logger():
-    """Test that setup_logger calls reset_logger."""
+    """Test that setup_logger calls _reset_logger."""
     logger = logging.getLogger("test_logger")
     with patch(
-        "emt.utils.logger.reset_logger"
-    ) as mock_reset_logger:  # Mock reset_logger
+        "emt.utils.logger._reset_logger"
+    ) as mock_reset_logger:  # Mock _reset_logger
         # Call setup_logger
         setup_logger(logger, log_dir="logs", log_file_name="test.log")
-        # Assert reset_logger was called once
+        # Assert _reset_logger was called once
         mock_reset_logger.assert_called_once()
 
 

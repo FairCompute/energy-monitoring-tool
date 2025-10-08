@@ -2,9 +2,17 @@ import os
 import csv
 import asyncio
 from enum import Enum
-from typing import Collection
+from typing import Collection, Optional
 from datetime import datetime
 from emt.power_groups import PowerGroup
+
+# Public API
+__all__ = [
+    "TensorBoardWriterType",
+    "TraceRecorder",
+    "CSVRecorder",
+    "TensorboardRecorder",
+]
 
 
 class TensorBoardWriterType(Enum):
@@ -13,14 +21,17 @@ class TensorBoardWriterType(Enum):
 
 
 class TraceRecorder:
-    def __init__(self, location: os.PathLike = None, write_interval: int = 50):
+    def __init__(
+        self, location, write_interval: int = 50
+    ):
         """
         This class is responsible for recording the energy traces of the power groups. The traces are
         saved in the specified location at regular intervals, defined by `write_interval`.
         """
         self._power_groups = []
-        # This is set in the __enter__ method of energy monitor
         self._location = location
+        if not os.path.exists(self._location):
+            os.makedirs(self._location)
         self.write_interval = write_interval
 
     @property
@@ -51,7 +62,7 @@ class TraceRecorder:
 
 
 class CSVRecorder(TraceRecorder):
-    def __init__(self, location=None, write_interval=50):
+    def __init__(self, location, write_interval=50):
         self.write_interval = write_interval
         super().__init__(location, write_interval)
 
@@ -75,7 +86,7 @@ class CSVRecorder(TraceRecorder):
 
 
 class TensorboardRecorder(TraceRecorder):
-    def __init__(self, writer=None, location=None, write_interval=50):
+    def __init__(self, location, writer=None, write_interval=50):
         self.writer = writer
         self.writer_type = None
         self.add_scalar = None
@@ -122,33 +133,37 @@ class TensorboardRecorder(TraceRecorder):
             raise ValueError("Unsupported writer type provided.")
 
     def write_traces(self):
-        # if no writer is passed then create a default writer based on the available libraries
         if self.writer is None:
-            # this executes once, even if the writer is not passed initially,
-            # from the second call onwards it will be set
-            # necessary to setup here as otherwise the self.trace_location will not be set
             self._setup_a_default_writer()
 
         for pg in self.power_groups:
-            pg_name = pg.__class__.__name__
-            energy_trace = pg.energy_trace
-            ps_util_var = "ps_util" if pg_name == "NvidiaGPU" else "norm_ps_util"
-            plot_vars = [
-                "consumed_utilized_energy",
-                "consumed_utilized_energy_cumsum",
-                ps_util_var,
-            ]
-            trace_num = energy_trace["trace_num"]
-            for var in plot_vars:  # iterate over the variables
-                for step, value in zip(
-                    trace_num, energy_trace[var]
-                ):  # iterate time steps
+            self._write_power_group_traces(pg)
 
-                    if self.writer_type == TensorBoardWriterType.TF:
-                        with self.writer.as_default():
-                            self.add_scalar(f"EMT: {pg_name}/{var}", value, step=step)
-                    else:
-                        self.add_scalar(
-                            f"EMT: {pg_name}/{var}", value, global_step=step
-                        )
-        self.writer.flush()
+        if hasattr(self.writer, "flush"):
+            self.writer.flush()
+
+    def _write_power_group_traces(self, pg):
+        pg_name = pg.__class__.__name__
+        energy_trace = pg.energy_trace
+        ps_util_var = "ps_util" if pg_name == "NvidiaGPU" else "norm_ps_util"
+        plot_vars = [
+            "consumed_utilized_energy",
+            "consumed_utilized_energy_cumsum",
+            ps_util_var,
+        ]
+
+        trace_num = energy_trace["trace_num"]
+        for var in plot_vars:
+            for step, value in zip(trace_num, energy_trace.get(var, [])):
+                self._write_scalar(f"EMT: {pg_name}/{var}", value, step)
+
+    def _write_scalar(self, tag, value, step):
+        if self.writer_type == TensorBoardWriterType.TF:
+            import tensorflow as tf
+
+            with self.writer.as_default():
+                tf.summary.scalar(tag, value, step=step)
+        elif self.writer_type == TensorBoardWriterType.PYTORCH and self.add_scalar:
+            self.add_scalar(tag, value, global_step=step)
+        else:
+            raise RuntimeError("add_scalar method is not set for the writer.")

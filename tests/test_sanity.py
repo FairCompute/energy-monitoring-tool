@@ -14,7 +14,7 @@ def test_energy_monitor_sanity_check():
     try:
         with EnergyMonitor(
             name="sanity_check",
-            trace_recorders=[CSVRecorder()],
+            trace_recorders=[CSVRecorder("./test_csv_traces")],
         ) as monitor:
             execution_time = timeit.timeit(dummy_cpu_operation, number=100)
             assert monitor.total_consumed_energy >= 0.0

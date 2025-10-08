@@ -4,7 +4,6 @@ import logging
 import numpy as np
 
 try:
-    import tensorflow as tf
     from tensorflow.keras import layers, models
     from tensorflow.keras.datasets import mnist
 except ImportError:
@@ -12,20 +11,12 @@ except ImportError:
     sys.exit(0)
 
 
-import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
 _NAME = "mnist_tf"
 logger = logging.getLogger(_NAME)
-LOG_FILE_NAME = f"{_NAME}.log"
-
-emt.setup_logger(
-    logger,
-    log_file_name=LOG_FILE_NAME,
-    logging_level=logging.DEBUG,
-    mode="w",
-)
+logging.basicConfig(level=logging.INFO)
 
 
 # This implementation ensures that MNIST runs only on gpu 0
@@ -106,8 +97,8 @@ def run_mnist_flow(epochs=10, batch_size=32):
     with EnergyMonitor(
         name=_NAME,
         trace_recorders=[
-            CSVRecorder(write_interval=60),
-            TensorboardRecorder(write_interval=30),
+            CSVRecorder("./csv_traces", write_interval=60),
+            TensorboardRecorder("./tensorboard_logs", write_interval=30),
         ],
     ) as monitor:
         start_time = time.time()

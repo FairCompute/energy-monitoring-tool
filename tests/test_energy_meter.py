@@ -4,7 +4,8 @@ from collections import defaultdict
 import threading
 
 from unittest.mock import MagicMock, patch, AsyncMock, ANY
-from emt.energy_meter import EnergyMeter, PowerGroup, EnergyMonitor
+from emt.energy_monitor import EnergyMonitorCore, EnergyMonitor
+from emt.power_groups import PowerGroup
 from emt.utils import TraceRecorder
 
 TOLERANCE = 1e-9
@@ -52,8 +53,8 @@ def mock_power_groups():
 
 @pytest.fixture
 def energy_meter(mock_power_groups):
-    """Fixture to create an EnergyMeter instance."""
-    return EnergyMeter(
+    """Fixture to create an EnergyMonitorCore instance."""
+    return EnergyMonitorCore(
         powergroups=mock_power_groups,
         context_name="test_name",
         trace_recorders=None,
@@ -61,8 +62,8 @@ def energy_meter(mock_power_groups):
 
 
 def test_initialization(energy_meter):
-    """Test initialization of EnergyMeter."""
-    assert isinstance(energy_meter, EnergyMeter)
+    """Test initialization of EnergyMonitorCore."""
+    assert isinstance(energy_meter, EnergyMonitorCore)
     assert energy_meter.monitoring is False
     assert energy_meter.concluded is False
     assert len(energy_meter.power_groups) == 2
@@ -106,7 +107,7 @@ async def test_run_tasks_asynchronous(energy_meter):
 
 
 def test_run(energy_meter):
-    """Test the synchronous `run` method of EnergyMeter."""
+    """Test the synchronous `run` method of EnergyMonitorCore."""
 
     # Mock the `_run_tasks_asynchronous` to avoid running actual asynchronous tasks
     with patch.object(

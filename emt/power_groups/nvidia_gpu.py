@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import pynvml
 import time
 import numpy as np
 from functools import cached_property
 from collections import defaultdict
 from emt.power_groups.power_group import PowerGroup
+
+logger = logging.getLogger(__name__)
 
 
 class DeltaCalculator:
@@ -100,7 +103,7 @@ class NvidiaGPU(PowerGroup):
                 # get the zone level utilizations and delta energy
                 consumed_energy_zones[zone] = delta_calculator(current_total_energy)
             except pynvml.NVMLError as e:
-                self.logger.warning(f"Could not read energy due to NVML error: {e}")
+                logger.warning(f"Could not read energy due to NVML error: {e}")
         return consumed_energy_zones
 
     def _read_utilization(self):
@@ -137,9 +140,7 @@ class NvidiaGPU(PowerGroup):
                 ps_mem_zones[zone] = zone_ps_memory
                 ps_util_zones[zone] = zone_ps_memory / zone_memory_used
             except pynvml.NVMLError as e:
-                self.logger.warning(
-                    f"Could not read utilizations due to NVML error: {e}"
-                )
+                logger.warning(f"Could not read utilizations due to NVML error: {e}")
         return used_mem_zones, ps_mem_zones, ps_util_zones
 
     async def commence(self) -> None:

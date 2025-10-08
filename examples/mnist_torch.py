@@ -14,20 +14,12 @@ except ImportError:
     exit(0)
 
 
-import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
 _NAME = "mnist_example"
 logger = logging.getLogger(_NAME)
-LOG_FILE_NAME = f"{_NAME}.log"
-
-emt.setup_logger(
-    logger,
-    log_file_name=LOG_FILE_NAME,
-    logging_level=logging.DEBUG,
-    mode="w",
-)
+logging.basicConfig(level=logging.INFO)
 
 
 class Net(nn.Module):
@@ -162,8 +154,8 @@ def run_mnist_flow(epochs=5):
     with EnergyMonitor(
         name=_NAME,
         trace_recorders=[
-            CSVRecorder(write_interval=50),
-            TensorboardRecorder(write_interval=10),
+            CSVRecorder("./csv_traces", write_interval=50),
+            TensorboardRecorder("./tensorboard_logs", write_interval=10),
         ],
     ) as monitor:
         start_time = time.time()

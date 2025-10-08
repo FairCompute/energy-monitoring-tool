@@ -13,21 +13,13 @@ except ImportError:
     print("This example requires TensorFlow. Please install it to run this script.")
     exit(0)
 
-import emt
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
 
 
 _NAME = "multi_scope_tf"
 logger = logging.getLogger(_NAME)
-LOG_FILE_NAME = f"{_NAME}.log"
-
-emt.setup_logger(
-    logger,
-    log_file_name=LOG_FILE_NAME,
-    logging_level=logging.DEBUG,
-    mode="w",
-)
+logging.basicConfig(level=logging.INFO)
 
 
 def add_tensors_gpu(device="gpu"):
@@ -116,8 +108,8 @@ def run_training(epochs=20):
     with EnergyMonitor(
         name="tf_addition",
         trace_recorders=[
-            CSVRecorder(write_interval=50),
-            TensorboardRecorder(write_interval=10),
+            CSVRecorder("./csv_traces", write_interval=50),
+            TensorboardRecorder("./tensorboard_logs", write_interval=10),
         ],
     ) as monitor_tf_add:
         start_time_1 = time.time()
@@ -127,8 +119,8 @@ def run_training(epochs=20):
         with EnergyMonitor(
             name="tf_mnist",
             trace_recorders=[
-                CSVRecorder(write_interval=50),
-                TensorboardRecorder(write_interval=10),
+                CSVRecorder("./csv_traces", write_interval=50),
+                TensorboardRecorder("./tensorboard_logs", write_interval=10),
             ],
         ) as monitor_mnist:
 

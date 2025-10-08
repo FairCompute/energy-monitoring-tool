@@ -2,6 +2,9 @@ from emt import power_groups
 from emt.power_groups import PowerGroup
 from tabulate import tabulate
 
+# Public API
+__all__ = ["PGUtils"]
+
 
 class PGUtils:
     def __init__(

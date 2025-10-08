@@ -3,10 +3,13 @@ import re
 import time
 import asyncio
 import psutil
+import logging
 from pathlib import Path
 from typing import Collection, Mapping
 from functools import cached_property
 from emt.power_groups.power_group import PowerGroup
+
+logger = logging.getLogger(__name__)
 
 
 class DeltaReader:
@@ -46,6 +49,7 @@ class DeltaReader:
                    (in micro-joules) and is scaled to joules for the return value.
         """
         value = None
+        delta = 0.0  # Initialize delta before the loop
         for _ in range(self._num_trails):
             delta = 0.0
             with open(Path(self._file, "energy_uj"), "r") as f:
@@ -62,7 +66,7 @@ class DeltaReader:
         # after first ever call this value is set and then for consecutive calls its used and reset
         self._previous_value = value
         if delta < 0:
-            self.logger.warning(f"Energy counter overflow detected for: \n{self._file}")
+            logger.warning(f"Energy counter overflow detected for: \n{self._file}")
             return 0.0
         return delta
 
@@ -255,18 +259,27 @@ class RAPLSoC(PowerGroup):
             ps_mem_util = sum(ps.memory_percent() for ps in self.processes)
             # dividing by cpu count normalizes the utilization to [0-100]% for each process
             utilizations["cpu_util"] = psutil.cpu_percent()
-            utilizations["ps_util"] = ps_cpu_util / psutil.cpu_count()
-            utilizations["norm_ps_util"] = (
-                utilizations["ps_util"] / utilizations["cpu_util"]
-            )
+            cpu_count = (
+                psutil.cpu_count() or 1
+            )  # Default to 1 if cpu_count() returns None
+            utilizations["ps_util"] = ps_cpu_util / cpu_count
+
+            # Handle the case when total CPU usage is zero
+            if utilizations["cpu_util"] > 0:
+                utilizations["norm_ps_util"] = (
+                    utilizations["ps_util"] / utilizations["cpu_util"]
+                )
+            else:
+                # When total CPU usage is zero, set normalized process utilization to 0
+                # This prevents division by zero and handles idle system scenarios
+                utilizations["norm_ps_util"] = 0.0
+                logger.debug(
+                    "Total CPU usage is zero, setting normalized process utilization to 0."
+                )
 
             utilizations["dram"] = ps_mem_util
         except psutil.NoSuchProcess:
-            self.logger.error("Process utilization could not be found.")
-        except ZeroDivisionError:
-            self.logger.error(
-                "Total CPU usage is zero, cannot calculate CPU usage fraction."
-            )
+            logger.error("Process utilization could not be found.")
 
         return utilizations
 

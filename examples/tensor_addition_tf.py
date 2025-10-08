@@ -27,7 +27,10 @@ def add_tensors_gpu(device="gpu"):
 
 with EnergyMonitor(
     name=_NAME,
-    trace_recorders=[CSVRecorder(), TensorboardRecorder()],
+    trace_recorders=[
+        CSVRecorder("./csv_traces"), 
+        TensorboardRecorder("./tensorboard_logs")
+    ],
 ) as monitor:
     # repeat the addition 100000 times
     execution_time = timeit.timeit(add_tensors_gpu, number=100000)

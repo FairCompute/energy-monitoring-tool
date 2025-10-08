@@ -8,21 +8,12 @@ from torch.optim import AdamW
 from transformers import BertTokenizer, BertForSequenceClassification
 from datasets import load_dataset, DatasetDict
 from sklearn.metrics import accuracy_score
-
-import emt
 from emt import EnergyMonitor
 from emt.utils import TensorboardRecorder
 
 _NAME = "sentiment_analysis"
 logger = logging.getLogger(_NAME)
-LOG_FILE_NAME = f"{_NAME}.log"
-
-emt.setup_logger(
-    logger,
-    log_file_name=LOG_FILE_NAME,
-    logging_level=logging.DEBUG,
-    mode="w",
-)
+logging.basicConfig(level=logging.INFO)
 
 # initialize the general summary writer
 LOG_TF_EVENTS_PATH = f"./tf_logs/{_NAME}/"
@@ -180,7 +171,7 @@ if __name__ == "__main__":
     with EnergyMonitor(
         name=_NAME,
         # pass existing general writer to TensorboardRecorder
-        trace_recorders=[TensorboardRecorder(writer=summary_writer)],
+        trace_recorders=[TensorboardRecorder("./tensorboard_logs", writer=summary_writer)],
     ) as monitor:
         start_time = time.time()
         pipeline = SentimentPipeline()

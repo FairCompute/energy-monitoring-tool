@@ -6,6 +6,8 @@ from collections import defaultdict
 from functools import cached_property
 from copy import deepcopy
 
+logger = logging.getLogger(__name__)
+
 
 class PowerGroup:
     def __init__(self, pid: Optional[int] = None, rate: float = 1):
@@ -25,7 +27,6 @@ class PowerGroup:
         self._process = psutil.Process(pid=pid)
         self._consumed_energy = 0.0
         self._rate = rate
-        self.logger = logging.getLogger(__name__)
         self._energy_trace = defaultdict(list)
 
     @cached_property
@@ -81,7 +82,7 @@ class PowerGroup:
         This includes stopping the periodic execution and flushing the energy trace.
         The shutdown is called when the context manager exits.
         """
-        set.logger.info(f"shutting down {type(self).__name__} ")
+        logger.info(f"shutting down {type(self).__name__} ")
 
     @property
     def consumed_energy(self) -> float:
