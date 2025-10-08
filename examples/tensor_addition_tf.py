@@ -1,15 +1,14 @@
 import timeit
 import logging
 import tensorflow as tf
-import emt
 from emt import EnergyMonitor
-from emt.utils import CSVRecorder, TensorboardRecorder
+from emt.utils import CSVRecorder, TensorboardRecorder, setup_logger
 
 _NAME = "tensor_addition_tf"
 logger = logging.getLogger(_NAME)
 LOG_FILE_NAME = f"{_NAME}.log"
 
-emt.setup_logger(
+setup_logger(
     logger,
     logging_level=logging.DEBUG,
     log_file_name=LOG_FILE_NAME,
@@ -34,6 +33,8 @@ with EnergyMonitor(
 ) as monitor:
     # repeat the addition 100000 times
     execution_time = timeit.timeit(add_tensors_gpu, number=100000)
-    print(f"execution time: {execution_time:.2f} Seconds.")
-    print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
-    print(f"energy consumption: {monitor.consumed_energy}")
+
+logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
+logger.info(f"execution time: {execution_time:.2f} Seconds.")
+logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

@@ -2,9 +2,7 @@ import os
 import csv
 import asyncio
 from enum import Enum
-from typing import Collection, Optional
 from datetime import datetime
-from emt.power_groups import PowerGroup
 
 # Public API
 __all__ = [
@@ -35,11 +33,11 @@ class TraceRecorder:
         self.write_interval = write_interval
 
     @property
-    def power_groups(self) -> Collection[PowerGroup]:
+    def power_groups(self):
         return self._power_groups
 
     @power_groups.setter
-    def power_groups(self, value: Collection[PowerGroup]):
+    def power_groups(self, value):
         self._power_groups = value
 
     @property

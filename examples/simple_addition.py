@@ -18,6 +18,9 @@ with EnergyMonitor(
 ) as monitor:
     # repeat the addition 100000 times
     execution_time = timeit.timeit(foo, number=10000)
-    logger.info(f"execution time: {execution_time:.2f} Seconds.")
-    logger.info(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
-    logger.info(f"energy consumption: {monitor.consumed_energy}")
+
+
+logger.info(f"\n\n{'*' * 20} Context name: {__NAME} {'*' * 20}")
+logger.info(f"execution time: {execution_time:.2f} Seconds.")
+logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

@@ -113,9 +113,10 @@ class NvidiaGPU(PowerGroup):
         Returns:
             defaultdict: memory utilization of each zone
         """
-        used_mem_zones = defaultdict(int)
-        ps_mem_zones = defaultdict(int)
-        ps_util_zones = defaultdict(int)
+        used_mem_zones = defaultdict(float)
+        ps_mem_zones = defaultdict(float)
+        ps_util_zones = defaultdict(float)
+
         for zone, zone_handle in zip(self.zones, self._zones):
             try:
                 # get total used memory of a zone (zone: gpu 0,1,2 etc)
@@ -136,9 +137,9 @@ class NvidiaGPU(PowerGroup):
                     # memory usage of all filtered processes in a zone
                     zone_ps_memory += memory_used
                 # store values
-                used_mem_zones[zone] = zone_memory_used
+                used_mem_zones[zone] = float(zone_memory_used)
                 ps_mem_zones[zone] = zone_ps_memory
-                ps_util_zones[zone] = zone_ps_memory / zone_memory_used
+                ps_util_zones[zone] = zone_ps_memory / float(zone_memory_used)
             except pynvml.NVMLError as e:
                 logger.warning(f"Could not read utilizations due to NVML error: {e}")
         return used_mem_zones, ps_mem_zones, ps_util_zones

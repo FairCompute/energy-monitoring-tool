@@ -28,6 +28,43 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self._energy_trace = defaultdict(list)
+        
+        # Load configuration to get target energy unit (lazy import to avoid circular dependency)
+        self._config = None
+        self._target_energy_unit: Optional[str] = None
+        self._internal_energy_unit = "Joules"  # Internal energy is stored in Joules (base unit)
+
+    def _get_target_energy_unit(self) -> str:
+        """
+        Lazily load the target energy unit from configuration.
+        """
+        if self._target_energy_unit is None:
+            try:
+                # Import here to avoid circular dependency
+                from emt.utils.config import load_config
+                self._config = load_config()
+                unit = self._config.get("measurement_units", {}).get("energy", "Joules")
+                self._target_energy_unit = unit if isinstance(unit, str) else "Joules"
+            except Exception as e:
+                logger.warning(f"Could not load configuration for unit conversion: {e}. Using default unit 'Joules'.")
+                self._target_energy_unit = "Joules"
+        
+        # Return with fallback to ensure we always return a string
+        return self._target_energy_unit or "Joules"
+
+    def _convert_energy_to_target_unit(self, energy_joules: float) -> float:
+        """
+        Convert energy from Joules to the configured target unit.
+        """
+        target_unit = self._get_target_energy_unit()
+        try:
+            # Import here to avoid circular dependency
+            from emt.utils.units import UnitConverter
+            return UnitConverter.convert_energy(energy_joules, self._internal_energy_unit, target_unit)
+        except Exception as e:
+            logger.warning(f"Could not convert energy from {self._internal_energy_unit} to {target_unit}: {e}. Returning raw value.")
+            return energy_joules
+       
 
     @cached_property
     def sleep_interval(self) -> float:
@@ -88,16 +125,39 @@ class PowerGroup:
     def consumed_energy(self) -> float:
         """
         This provides the total consumed energy, attributed to the process for the whole power-group.
+        The energy is converted to the unit specified in the configuration file.
         """
-        return self._consumed_energy
+        return self._convert_energy_to_target_unit(self._consumed_energy)
+
+    @property
+    def energy_unit(self) -> str:
+        """
+        Returns the energy unit that consumed_energy is reported in.
+        """
+        return self._get_target_energy_unit()
 
     @property
     def energy_trace(self) -> dict:
         """
         This provides the energy trace of the power group. The energy trace is a dictionary
         where the keys are the time-stamps and the values are the energy consumption at that time-stamp.
+        Energy values in the trace are converted to the configured unit.
         On reading the energy trace, the buffer is flushed.
         """
         energy_trace = deepcopy(self._energy_trace)
+
+        # Convert energy values in trace to configured unit
+        if "consumed_energy" in energy_trace:
+            try:
+                converted_energies = [
+                    self._convert_energy_to_target_unit(energy)
+                    for energy in energy_trace["consumed_energy"]
+                ]
+                energy_trace["consumed_energy"] = converted_energies
+            except Exception as e:
+                logger.warning(
+                    f"Could not convert energy trace values: {e}. Returning raw values."
+                )
+
         self._energy_trace = defaultdict(list)
         return energy_trace

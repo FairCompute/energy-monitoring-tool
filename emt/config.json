@@ -1,0 +1,20 @@
+{
+  "logger": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "datefmt": "%Y-%m-%d %H:%M:%S",
+    "log_directory": "/var/log/emt"
+  },
+  "measurement_units": {
+    "energy": "kWh",
+    "power": "Watts"
+  },
+  "power_groups": {
+    "rapl": {
+      "rate": 1
+    },
+    "nvidia_gpu": {
+      "rate": 2
+    }
+  }
+}

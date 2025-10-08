@@ -104,9 +104,11 @@ def run_mnist_flow(epochs=10, batch_size=32):
         start_time = time.time()
         MNISTPipeline(epochs=epochs, batch_size=batch_size)
         execution_time = time.time() - start_time
-        print(f"execution time: {execution_time:.2f} Seconds.")
-        print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
-        print(f"energy consumption: {monitor.consumed_energy}")
+
+    logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
+    logger.info(f"execution time: {execution_time:.2f} Seconds.")
+    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")
 
 
 if __name__ == "__main__":

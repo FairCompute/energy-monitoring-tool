@@ -127,19 +127,18 @@ def run_training(epochs=20):
             start_time = time.time()
             MNIST(epochs=epochs)
             execution_time = time.time() - start_time
-            print(f"\n\nMNIST execution time: {execution_time:.2f} Seconds.")
-            print(
-                f"MNIST energy consumption: {monitor_mnist.total_consumed_energy:.2f} J"
-            )
-            print(f"MNIST energy consumption: {monitor_mnist.consumed_energy}")
+
+        logger.info(f"\n\n{'*' * 20} MNIST Context name: tf_mnist {'*' * 20}")
+        logger.info(f"MNIST execution time: {execution_time:.2f} Seconds.")
+        logger.info(f"MNIST energy consumption: {monitor_mnist.total_consumed_energy} {monitor_mnist.energy_unit}")
+        logger.info(f"MNIST energy consumption: {monitor_mnist.consumed_energy} {monitor_mnist.energy_unit}")
 
         execution_time_1 = time.time() - start_time_1
 
-    print(f"\n\nTF + MNIST execution time: {execution_time_1:.2f} Seconds.")
-    print(
-        f"TF + MNIST energy consumption: {monitor_tf_add.total_consumed_energy:.2f} J"
-    )
-    print(f"TF + MNIST energy consumption: {monitor_tf_add.consumed_energy}")
+    logger.info(f"\n\n{'*' * 20} TF + MNIST Context name: tf_addition {'*' * 20}")
+    logger.info(f"TF + MNIST execution time: {execution_time_1:.2f} Seconds.")
+    logger.info(f"TF + MNIST energy consumption: {monitor_tf_add.total_consumed_energy} {monitor_tf_add.energy_unit}")
+    logger.info(f"TF + MNIST energy consumption: {monitor_tf_add.consumed_energy} {monitor_tf_add.energy_unit}")
 
 
 if __name__ == "__main__":

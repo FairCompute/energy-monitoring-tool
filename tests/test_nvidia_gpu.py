@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from collections import defaultdict
-from emt.power_groups import NvidiaGPU, DeltaCalculator
+from emt.power_groups import NvidiaGPU
+from emt.power_groups.nvidia_gpu import DeltaCalculator
 
 # define global variabels
 enregy_call_counter = 0

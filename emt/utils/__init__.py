@@ -11,8 +11,8 @@ from .trace_recorders import (
     CSVRecorder,
     TensorboardRecorder,
 )
-from .powergroup_utils import PGUtils
 from . import config
+from . import units
 
 # Export all public symbols
 __all__ = [
@@ -23,8 +23,8 @@ __all__ = [
     "TraceRecorder",
     "CSVRecorder",
     "TensorboardRecorder",
-    # Power group utilities
-    "PGUtils",
     # Config module (as submodule)
     "config",
+    # Units module (as submodule)
+    "units",
 ]

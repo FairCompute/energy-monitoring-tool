@@ -1,13 +1,13 @@
 import logging
 import torch
-import emt
 from emt import EnergyMonitor
+from emt.utils import setup_logger
 
 _NAME = "tensor_addition_torch"
 logger = logging.getLogger(_NAME)
 LOG_FILE_NAME = f"{_NAME}.log"
 
-emt.setup_logger(
+setup_logger(
     logger,
     log_file_name=LOG_FILE_NAME,
     logging_level=logging.DEBUG,
@@ -28,5 +28,6 @@ if __name__ == "__main__":
     ) as monitor:
         add_tensors_gpu()
 
-    print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
-    print(f"energy consumption: {monitor.consumed_energy}")
+    logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
+    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

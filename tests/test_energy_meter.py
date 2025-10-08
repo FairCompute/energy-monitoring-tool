@@ -18,6 +18,10 @@ class MockPGCPU(PowerGroup):
         self.name = "RAPLSoC"
         self._energy_trace = defaultdict(list)
         self._consumed_energy = 1000.0
+        # Add missing attributes for unit conversion
+        self._config = None
+        self._target_energy_unit = None
+        self._internal_energy_unit = "Joules"
 
     async def commence(self):
         """Simulates a long-running asynchronous task."""
@@ -35,6 +39,10 @@ class MockPGGPU(PowerGroup):
         self.name = "NvidiaGPU"
         self._energy_trace = defaultdict(list)
         self._consumed_energy = 1000.0
+        # Add missing attributes for unit conversion
+        self._config = None
+        self._target_energy_unit = None
+        self._internal_energy_unit = "Joules"
 
     async def commence(self):
         """Simulates a long-running asynchronous task."""
@@ -146,18 +154,20 @@ def test_conclude(energy_meter):
 
 def test_total_consumed_energy(energy_meter):
     """Test total consumed energy calculation."""
-    total_energy = energy_meter.total_consumed_energy
-    assert (
-        abs(total_energy - 2000.0) < TOLERANCE
-    )  # 2 power groups with 1000 energy each
+    with patch("emt.utils.config.load_config", return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}}):
+        total_energy = energy_meter.total_consumed_energy
+        assert (
+            abs(total_energy - 2000.0) < TOLERANCE
+        )  # 2 power groups with 1000 energy each
 
 
 def test_consumed_energy(energy_meter):
     """Test consumed energy per power group."""
-    consumed_energy = energy_meter.consumed_energy
-    assert len(consumed_energy.keys()) == 2
-    for key, value in consumed_energy.items():
-        assert abs(value - 1000.0) < TOLERANCE
+    with patch("emt.utils.config.load_config", return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}}):
+        consumed_energy = energy_meter.consumed_energy
+        assert len(consumed_energy.keys()) == 2
+        for key, value in consumed_energy.items():
+            assert abs(value - 1000.0) < TOLERANCE
 
 
 def test_energy_monitor_initialization():
@@ -211,7 +221,7 @@ def test_enter_method(mock_trace_recorders):
         trace_recorders=mock_trace_recorders,
     )
     with (
-        patch("emt.energy_meter.logger", return_value=MagicMock()) as mock_logger,
+        patch("emt.energy_monitor.logger", return_value=MagicMock()) as mock_logger,
         patch("threading.Thread", return_value=MagicMock()) as mock_thread,
         patch("time.sleep", return_value=None),
     ):
@@ -240,7 +250,7 @@ def test_exit_method(mock_trace_recorders):
     monitor.start_time = 0
     # Invoke the __enter__ method (which gets triggered when used with the 'with' statement)
     with (
-        patch("emt.energy_meter.logger", return_value=MagicMock()),
+        patch("emt.energy_monitor.logger", return_value=MagicMock()),
         patch("threading.Thread", return_value=MagicMock()),
         patch("logging.getLogger", return_value=MagicMock()),
     ):

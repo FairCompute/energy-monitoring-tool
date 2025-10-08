@@ -178,6 +178,8 @@ if __name__ == "__main__":
         pipeline.run(epochs=2)
 
         execution_time = time.time() - start_time
-        print(f"execution time: {execution_time:.2f} Seconds.")
-        print(f"energy consumption: {monitor.total_consumed_energy:.2f} J")
-        print(f"energy consumption: {monitor.consumed_energy}")
+
+    logger.info(f"\n\n{'*' * 20} Context name: {_NAME} {'*' * 20}")
+    logger.info(f"execution time: {execution_time:.2f} Seconds.")
+    logger.info(f"energy consumption: {monitor.total_consumed_energy} {monitor.energy_unit}")
+    logger.info(f"energy consumption: {monitor.consumed_energy} {monitor.energy_unit}")

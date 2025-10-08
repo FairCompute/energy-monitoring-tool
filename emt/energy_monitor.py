@@ -4,8 +4,8 @@ import logging
 import threading
 from threading import RLock
 from typing import Collection, Mapping, Optional
-from emt.power_groups import PowerGroup
-from emt.utils import setup_logger, TraceRecorder, PGUtils
+from emt.power_groups import PowerGroup, get_available_pgs, get_pg_table
+from emt.utils import setup_logger, TraceRecorder
 
 # Public API
 __all__ = ["EnergyMonitorCore", "EnergyMonitor"]
@@ -63,6 +63,16 @@ class EnergyMonitorCore:
     def concluded(self):
         with self._lock:
             return self._concluded
+        
+    @property
+    def energy_unit(self) -> str:
+        """
+        Returns the energy unit that total_consumed_energy is reported in.
+        """
+        # Assuming all power groups use the same energy unit
+        if self._power_groups:
+            return next(iter(self._power_groups)).energy_unit
+        return "Joules"
 
     async def _shutdown_asynchronous(self):
         """
@@ -142,7 +152,7 @@ class EnergyMonitorCore:
     @property
     def consumed_energy(self) -> Mapping[str, float]:
         consumed_energy = {
-            type(power_group).__name__: round(power_group.consumed_energy, 2)
+            type(power_group).__name__: power_group.consumed_energy
             for power_group in self.power_groups
         }
         return consumed_energy
@@ -183,11 +193,10 @@ class EnergyMonitor:
     def __enter__(self):
         logger.info(f"EMT context manager invoked - {self.context_name} ...")
         self.start_time = time.time()
-        pg_utils = PGUtils()
         # get available powergroups
-        self.pg_objs = pg_utils.get_available_pgs()
+        self.pg_objs = get_available_pgs()
         # log powergroup info in a tabular format
-        logger.info("\n" + pg_utils.get_pg_table())
+        logger.info("\n" + get_pg_table())
 
         # set trace emitters
         for trace_emitter in self._trace_recorders:
@@ -216,7 +225,7 @@ class EnergyMonitor:
             f"{self.context_name}: Execution time: {execution_time:.2f} seconds"
         )
         logger.info(
-            f"{self.context_name}: Total energy consumption: {self.energy_meter.total_consumed_energy:.2f} J"
+            f"{self.context_name}: Total energy consumption: {self.energy_meter.total_consumed_energy:.2f} {self.energy_meter.energy_unit}"
         )
         logger.info(
             f"{self.context_name}: Power group energy consumptions: {self.energy_meter.consumed_energy}"
