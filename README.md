@@ -31,15 +31,18 @@ Our mission is to simplify and standardize monitoring and reporting of the energ
   - Nvidia GPUs.
 - Visualization interface for energy data using TensorBoard,  making it easy to analyze energy usage trends.
 
-## Supported Platforms
+## Supported Platforms & Hardware
 
 - Linux
-  
+- Hardware
+  - Nvidia GPU through NVML
+  - Intel & AMD x86 sockets through RAPL
+      
 > Road Map
->
 > - Environmentally conscious coding tips.
 > - Virtual CPU(s) covered by Teads dataset.
 > - Add support for Windows through PCM/OpenHardwareMonitor
+> - Extend harware support
 
 ## 🌍 Why EMT?
 
@@ -123,12 +126,9 @@ The EMT context manager spawns a separate thread to monitor energy usage for CPU
 
 We welcome contributions to this project! To ensure a smooth review and merge process, please ensure your pull request meets the following requirements:
 
-Code Formatting: All code must be formatted using Black. Please run `black .` on your changes before committing.  
-Test Coverage: New features and bug fixes must include tests, achieving at least 80% test coverage for the added or modified code.  
-Quality Gate: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.  
-Branching Strategy The main branch is locked and protected. All contributions must be made via pull requests from a feature or bugfix branch.  
-feature requests: Create a new branch prefixed with feature/ (e.g., feature/add-dark-mode).  
-bug fixes: Create a new branch prefixed with bugfix/ (e.g., bugfix/fix-login-error).  
+**Code Formatting**: All code must be formatted using Black. Please run `black .` on your changes before committing.  
+**Test Coverage**: New features and bug fixes should include tests, achieving at least 80% test coverage for the added or modified code.  
+**Quality Gate**: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.    
 
 Thank you for helping us maintain a high-quality codebase!   
 
