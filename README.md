@@ -57,6 +57,9 @@ pip install emt
 
 # verify installation and the version
 python -m emt --version
+
+# One time configuration to allow access to the RAPL files
+emt_cfgup
 ```
 
 ### *Usage*
