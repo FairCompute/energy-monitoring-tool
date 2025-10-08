@@ -91,7 +91,25 @@ print(f"energy consumption: {monitor.consumed_energy}")
 Refer to the following folder for example codes:
 📁 examples/
 
-####
+#### Dynamic Child Processes
+
+In some cases, such as when using non-Python applications within a script (s. example below) or when workers are spawned dynamically, the child processes are not be created before the `EnergyMonitor`, which must therefore reload the child processes.  
+This can be enabled through the environment variable `EMT_RELOAD_PROCS`.
+
+```python
+import json, os
+
+# Enforce reloading (child) processes
+os.environ["EMT_RELOAD_PROCS"] = "1"
+from emt import EnergyMonitor
+
+with EnergyMonitor() as monitor:
+   # Example: Run non-Python GPU binary
+   cmd = "lmp -in input.in -sf gpu"
+   os.system(cmd)
+
+print(f"energy consumption: {monitor.consumed_energy}")
+```
 
 ## ⚙️ Methodology
 

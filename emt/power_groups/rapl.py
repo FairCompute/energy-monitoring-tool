@@ -130,9 +130,6 @@ class RAPLSoC(PowerGroup):
                 self._zones.append(zone)
                 self._components.append(zone_comps)
 
-        self.processes = [self.tracked_process] + self.tracked_process.children(
-            recursive=True
-        )
         # create delta energy_readers for each types
         self.zone_readers = [DeltaReader(_zone) for _zone in self._zones]
         self.core_readers = [
