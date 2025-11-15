@@ -48,8 +48,8 @@ pub struct EnergyGroup<T: EnergyCollector> {
     energy_trace: DataFrame,
     /// DataFrame: pid | timestamp | device | utilization
     utilization_trace: DataFrame,
-    /// Underlying concrete energy group
-    energy_collector: T,
+    /// Underlying collector instance
+    energy_collector: Arc<T>,
     /// Track whether the collector is currently running
     is_running: Arc<AtomicBool>,
     /// Handle to the background monitoring task
@@ -113,7 +113,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             tracked_processes,
             energy_trace,
             utilization_trace,
-            energy_collector: collector,
+            energy_collector: Arc::new(collector),
             is_running: Arc::new(AtomicBool::new(false)),
             task_handle: None,
         })
@@ -240,18 +240,30 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         let rate = self.rate;
         let interval = tokio::time::Duration::from_secs_f64(1.0 / rate);
         let is_running = Arc::clone(&self.is_running);
+        let collector = Arc::clone(&self.energy_collector);
         
-        // For this simplified version, we'll just simulate data generation
-        // In a real implementation, we'd move the collector to the background task
         let handle = tokio::spawn(async move {
             let mut iteration = 0;
             while is_running.load(Ordering::Relaxed) {
                 iteration += 1;
                 println!("Background monitoring iteration {}", iteration);
+
+                // Collect data concurrently using tokio::join!
+                let (energy_result, utilization_result) = tokio::join!(
+                    collector.get_energy_trace(),
+                    collector.get_utilization_trace()
+                );
                 
-                // Simulate collecting data concurrently
-                // In real implementation, we'd call collector methods here concurrently
-                // and update the data structures
+                match (energy_result, utilization_result) {
+                    (Ok(energy_records), Ok(utilization_records)) => {
+                        println!("Collected {} energy records and {} utilization records",
+                                energy_records.len(), utilization_records.len());
+                        // TODO: Send these records back to the main struct via channel
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        eprintln!("Error collecting data: {}", e);
+                    }
+                }
                 
                 tokio::time::sleep(interval).await;
             }
@@ -280,7 +292,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 }
 
 #[async_trait]
-pub trait EnergyCollector {
+pub trait EnergyCollector: Send + Sync + 'static {
     /// Get energy trace data
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String>;
 
