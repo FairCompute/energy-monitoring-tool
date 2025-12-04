@@ -8,6 +8,8 @@ from pathlib import Path
 
 logger = logging.getLogger("emt.cfgup")
 
+SYSTEMD_ENERGY_ACCESS_UNIT = "energy_access.service"
+
 
 # Optionally add stdout handler
 def add_stdout_handler():
@@ -46,18 +48,18 @@ def _advertise_group_membership(group_name=_GROUP_NAME):
     )
 
 
-def _install_systemd_unit(destination="/etc/systemd/system/energy_access.service"):
-    service_src = Path(__file__).parent.parent / "assets" / "energy_access.service"
+def _install_systemd_unit(destination=f"/etc/systemd/system/{SYSTEMD_ENERGY_ACCESS_UNIT}"):
+    service_src = Path(__file__).parent.parent / "assets" / SYSTEMD_ENERGY_ACCESS_UNIT
     service_dst = Path(destination)
     logger.info(f"Installing systemd unit to {service_dst}...")
     subprocess.run(["sudo", "cp", str(service_src), str(service_dst)], check=True)
     subprocess.run(["sudo", "systemctl", "daemon-reexec"], check=True)
     subprocess.run(
-        ["sudo", "systemctl", "enable", "--now", "energy_access.service"], check=True
+        ["sudo", "systemctl", "enable", "--now", SYSTEMD_ENERGY_ACCESS_UNIT], check=True
     )
 
 
-def _is_service_enabled(service="energy_access.service"):
+def _is_service_enabled(service=SYSTEMD_ENERGY_ACCESS_UNIT):
     result = subprocess.run(
         ["systemctl", "is-enabled", service],
         stdout=subprocess.PIPE,
@@ -67,7 +69,7 @@ def _is_service_enabled(service="energy_access.service"):
     return result.stdout.strip() == "enabled"
 
 
-def _is_service_active(service="energy_access.service"):
+def _is_service_active(service=SYSTEMD_ENERGY_ACCESS_UNIT):
     result = subprocess.run(
         ["systemctl", "is-active", service],
         stdout=subprocess.PIPE,
@@ -77,7 +79,7 @@ def _is_service_active(service="energy_access.service"):
     return result.stdout.strip() == "active"
 
 
-def _is_service_loaded_properly(service="energy_access.service"):
+def _is_service_loaded_properly(service=SYSTEMD_ENERGY_ACCESS_UNIT):
     result = subprocess.run(
         ["systemctl", "show", "-p", "LoadState", service],
         stdout=subprocess.PIPE,
@@ -106,12 +108,12 @@ def setup() -> bool:
             if not service_loaded:
                 logger.info("Service has loading issues, reinstalling...")
                 subprocess.run(
-                    ["sudo", "systemctl", "stop", "energy_access.service"],
+                    ["sudo", "systemctl", "stop", SYSTEMD_ENERGY_ACCESS_UNIT],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
                 subprocess.run(
-                    ["sudo", "systemctl", "disable", "energy_access.service"],
+                    ["sudo", "systemctl", "disable", SYSTEMD_ENERGY_ACCESS_UNIT],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )

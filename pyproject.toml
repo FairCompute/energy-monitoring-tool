@@ -19,7 +19,7 @@ keywords = [
   "emt",
 ]
 requires-python = ">=3.10"
-dependencies = ["psutil", "numpy", "pandas", "pynvml", "tabulate", "click"]
+dependencies = ["psutil", "numpy", "pandas", "nvidia-ml-py", "tabulate", "click"]
 
 dynamic = ["version"]
 
