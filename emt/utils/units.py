@@ -105,7 +105,7 @@ class UnitConverter:
 
     @staticmethod
     def normalize_sampling_interval_to_rate(
-        sampling_interval: Union[float, int],
+        sampling_interval: float | int,
     ) -> int:
         """
         Convert sampling interval (in seconds) to rate (measurements per second).
