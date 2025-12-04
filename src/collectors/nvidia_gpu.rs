@@ -22,6 +22,10 @@ impl Default for NvidiaGpu {
 
 #[async_trait]
 impl EnergyCollector for NvidiaGpu {
+    fn set_tracked_pids(&mut self, _pids: Vec<u32>) {
+        // GPU collector doesn't use PIDs for attribution yet
+    }
+
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
         info!("NVIDIA GPU get_energy_trace called for devices: {:?}", self.device_ids);
         // Return empty trace for now - would implement actual NVIDIA energy trace collection here

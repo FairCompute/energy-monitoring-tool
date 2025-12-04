@@ -66,7 +66,7 @@ pub struct EnergyGroup<T: EnergyCollector> {
 impl<T: EnergyCollector> EnergyGroup<T> {
     /// Create a new PowerGroup with explicit collector instance
     pub fn create_with_collector(
-        collector: T,
+        mut collector: T,
         rate: f64,
         pids: Option<Vec<usize>>,
         batch_size: Option<usize>,
@@ -86,6 +86,9 @@ impl<T: EnergyCollector> EnergyGroup<T> {
                     .iter()
                     .map(move |&pid| (group.user.clone(), group.task.clone(), pid as u32))
             }));
+
+        // Set tracked PIDs in the collector for per-process energy attribution
+        collector.set_tracked_pids(pids_col.clone());
 
         let tracked_processes = df![
             "user" => users,
@@ -445,6 +448,9 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
 #[async_trait]
 pub trait EnergyCollector: Send + Sync + 'static {
+    /// Set the list of tracked process PIDs for energy attribution
+    fn set_tracked_pids(&mut self, pids: Vec<u32>);
+
     /// Get energy trace data
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String>;
 

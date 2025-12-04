@@ -5,7 +5,7 @@ use log::{info, warn, debug};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use sysinfo::System;
+use sysinfo::{System, Pid};
 
 /// DeltaReader tracks energy deltas from RAPL MSR registers
 /// It reads the energy_uj file and computes the delta from the previous reading
@@ -73,55 +73,19 @@ impl DeltaReader {
     }
 }
 
-/// RAPL zone information
-#[derive(Clone, Debug)]
-struct RaplZone {
-    path: PathBuf,
-    name: String,
-}
-
-/// Main RAPL collector
+/// Main RAPL collector with per-process energy attribution
 pub struct Rapl {
-    zones: Vec<RaplZone>,
     zone_readers: Vec<DeltaReader>,
     core_readers: Vec<DeltaReader>,
     dram_readers: Vec<DeltaReader>,
     igpu_readers: Vec<DeltaReader>,
+    /// Tracked process PIDs for per-process energy attribution
+    tracked_pids: Arc<Mutex<Vec<u32>>>,
 }
 
 impl Rapl {
     pub fn new(rapl_path: Option<String>) -> Self {
         let rapl_dir = rapl_path.unwrap_or_else(|| "/sys/class/powercap".to_string());
-        let mut zones = Vec::new();
-
-        // Discover RAPL zones
-        if let Ok(entries) = fs::read_dir(&rapl_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                // Filter for intel-rapl zones (but not psys)
-                if name.contains("intel-rapl") && !name.contains("psys") && name.contains(":") {
-                    // Check if this is a main zone or subcomponent
-                    let is_component = name.matches(":").count() > 1;
-                    
-                    if !is_component {
-                        // This is a main zone
-                        if let Ok(name_content) = fs::read_to_string(path.join("name")) {
-                            let zone_name = name_content.trim().to_string();
-                            zones.push(RaplZone {
-                                path: path.clone(),
-                                name: zone_name,
-                            });
-                        }
-                    }
-                }
-            }
-        }
 
         // Discover components (cores, dram, igpu)
         let mut core_readers = Vec::new();
@@ -156,18 +120,32 @@ impl Rapl {
             }
         }
 
-        // Create zone readers
-        let zone_readers = zones
-            .iter()
-            .map(|zone| DeltaReader::new(zone.path.clone(), 3))
-            .collect();
+        // Discover and create zone readers - find main RAPL zones
+        let mut zone_readers = Vec::new();
+        if let Ok(entries) = fs::read_dir(&rapl_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                // Filter for intel-rapl main zones (single colon, but not psys)
+                if name.contains("intel-rapl") && !name.contains("psys") && name.matches(":").count() == 1 {
+                    if fs::metadata(path.join("energy_uj")).is_ok() {
+                        zone_readers.push(DeltaReader::new(path, 3));
+                    }
+                }
+            }
+        }
 
         Self {
-            zones,
             zone_readers,
             core_readers,
             dram_readers,
             igpu_readers,
+            tracked_pids: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -180,120 +158,261 @@ impl Default for Rapl {
 
 #[async_trait]
 impl EnergyCollector for Rapl {
+    fn set_tracked_pids(&mut self, pids: Vec<u32>) {
+        self.tracked_pids = Arc::new(Mutex::new(pids));
+    }
+
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
         let timestamp = Utc::now().timestamp_millis();
         let mut records = Vec::new();
 
-        // Read energy from all zones
-        for (i, reader) in self.zone_readers.iter().enumerate() {
+        // Read total system energy from zones
+        let mut total_zone_energy = 0.0;
+        for reader in &self.zone_readers {
             match reader.read_delta() {
-                Ok(delta) => {
-                    if let Some(zone) = self.zones.get(i) {
-                        records.push(EnergyRecord {
-                            pid: 0,
-                            timestamp,
-                            device: format!("rapl_zone:{}", zone.name),
-                            energy: delta,
-                        });
-                    }
-                }
+                Ok(delta) => total_zone_energy += delta,
                 Err(e) => warn!("Failed to read zone energy: {}", e),
             }
         }
 
-        // Read energy from cores
-        let mut core_energy = 0.0;
+        // Read energy from core components
+        let mut total_core_energy = 0.0;
         for reader in &self.core_readers {
             match reader.read_delta() {
-                Ok(delta) => {
-                    core_energy += delta;
-                }
+                Ok(delta) => total_core_energy += delta,
                 Err(e) => warn!("Failed to read core energy: {}", e),
             }
         }
 
-        if !self.core_readers.is_empty() && core_energy > 0.0 {
-            records.push(EnergyRecord {
-                pid: 0,
-                timestamp,
-                device: "rapl:cores".to_string(),
-                energy: core_energy,
-            });
-        }
-
-        // Read energy from DRAM
-        let mut dram_energy = 0.0;
+        // Read energy from DRAM components
+        let mut total_dram_energy = 0.0;
         for reader in &self.dram_readers {
             match reader.read_delta() {
-                Ok(delta) => {
-                    dram_energy += delta;
-                }
+                Ok(delta) => total_dram_energy += delta,
                 Err(e) => warn!("Failed to read DRAM energy: {}", e),
             }
         }
 
-        if !self.dram_readers.is_empty() && dram_energy > 0.0 {
-            records.push(EnergyRecord {
-                pid: 0,
-                timestamp,
-                device: "rapl:dram".to_string(),
-                energy: dram_energy,
-            });
-        }
-
-        // Read energy from iGPU
-        let mut igpu_energy = 0.0;
+        // Read energy from iGPU components
+        let mut total_igpu_energy = 0.0;
         for reader in &self.igpu_readers {
             match reader.read_delta() {
-                Ok(delta) => {
-                    igpu_energy += delta;
-                }
+                Ok(delta) => total_igpu_energy += delta,
                 Err(e) => warn!("Failed to read iGPU energy: {}", e),
             }
         }
 
-        if !self.igpu_readers.is_empty() && igpu_energy > 0.0 {
-            records.push(EnergyRecord {
-                pid: 0,
-                timestamp,
-                device: "rapl:igpu".to_string(),
-                energy: igpu_energy,
-            });
+        // Get tracked PIDs for per-process attribution
+        let pids = self.tracked_pids.lock().unwrap().clone();
+        
+        if pids.is_empty() {
+            // No tracked PIDs, return system-wide records
+            if total_zone_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: 0,
+                    timestamp,
+                    device: "rapl:zones".to_string(),
+                    energy: total_zone_energy,
+                });
+            }
+            if total_core_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: 0,
+                    timestamp,
+                    device: "rapl:cores".to_string(),
+                    energy: total_core_energy,
+                });
+            }
+            if total_dram_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: 0,
+                    timestamp,
+                    device: "rapl:dram".to_string(),
+                    energy: total_dram_energy,
+                });
+            }
+            if total_igpu_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: 0,
+                    timestamp,
+                    device: "rapl:igpu".to_string(),
+                    energy: total_igpu_energy,
+                });
+            }
+            info!("RAPL energy trace collected (system-wide): {} records", records.len());
+            return Ok(records);
         }
 
-        info!("RAPL energy trace collected: {} records", records.len());
+        // Per-process energy attribution based on CPU utilization
+        let mut system = System::new_all();
+        system.refresh_all();
+
+        // Calculate per-process CPU utilization
+        let mut _total_process_cpu = 0.0;
+        let mut process_cpus: Vec<(u32, f64)> = Vec::new();
+
+        for &pid in &pids {
+            if let Some(process) = system.process(Pid::from(pid as usize)) {
+                let cpu_usage = process.cpu_usage() as f64;
+                _total_process_cpu += cpu_usage;
+                process_cpus.push((pid, cpu_usage));
+            } else {
+                process_cpus.push((pid, 0.0));
+            }
+        }
+
+        // Calculate per-process memory utilization
+        let mut total_process_memory = 0.0;
+        let mut process_memory: Vec<(u32, f64)> = Vec::new();
+
+        for &pid in &pids {
+            if let Some(process) = system.process(Pid::from(pid as usize)) {
+                let memory_bytes = process.memory();
+                let total_memory = system.total_memory();
+                let memory_percent = if total_memory > 0 {
+                    (memory_bytes as f64 / total_memory as f64) * 100.0
+                } else {
+                    0.0
+                };
+                total_process_memory += memory_percent;
+                process_memory.push((pid, memory_percent));
+            } else {
+                process_memory.push((pid, 0.0));
+            }
+        }
+
+        // Get global system CPU utilization
+        let system_cpu = system.global_cpu_usage() as f64;
+        let cpu_count = system.cpus().len().max(1) as f64;
+
+        // Attribute energy to each tracked PID
+        for &pid in &pids {
+            let cpu_util = process_cpus
+                .iter()
+                .find(|(p, _)| *p == pid)
+                .map(|(_, u)| u)
+                .unwrap_or(&0.0);
+            
+            let memory_util = process_memory
+                .iter()
+                .find(|(p, _)| *p == pid)
+                .map(|(_, u)| u)
+                .unwrap_or(&0.0);
+
+            // Calculate normalized CPU utilization: (process_cpu / cpu_count) / system_cpu
+            let normalized_cpu = if system_cpu > 0.0 {
+                (cpu_util / cpu_count) / system_cpu
+            } else {
+                0.0
+            };
+
+            // Calculate normalized memory utilization
+            let normalized_memory = if total_process_memory > 0.0 {
+                memory_util / total_process_memory
+            } else {
+                0.0
+            };
+
+            // Attribute CPU energy based on CPU utilization
+            if total_core_energy > 0.0 && normalized_cpu > 0.0 {
+                let cpu_energy = total_core_energy * normalized_cpu;
+                records.push(EnergyRecord {
+                    pid,
+                    timestamp,
+                    device: "rapl:cores".to_string(),
+                    energy: cpu_energy,
+                });
+            }
+
+            // Attribute DRAM energy based on memory utilization
+            if total_dram_energy > 0.0 && normalized_memory > 0.0 {
+                let dram_energy = total_dram_energy * normalized_memory;
+                records.push(EnergyRecord {
+                    pid,
+                    timestamp,
+                    device: "rapl:dram".to_string(),
+                    energy: dram_energy,
+                });
+            }
+        }
+
+        info!("RAPL energy trace collected: {} records for {} processes", 
+              records.len(), pids.len());
         Ok(records)
     }
 
     async fn get_utilization_trace(&self) -> Result<Vec<UtilizationRecord>, String> {
         let timestamp = Utc::now().timestamp_millis();
+        let mut records = Vec::new();
 
-        // Get system CPU utilization
+        // Get tracked PIDs for per-process attribution
+        let pids = self.tracked_pids.lock().unwrap().clone();
+
+        // Get system CPU and memory information
         let mut system = System::new_all();
         system.refresh_all();
 
-        let cpu_util = system.global_cpu_usage();
-        
-        // Get global memory info
+        let system_cpu = system.global_cpu_usage() as f64;
+        let cpu_count = system.cpus().len().max(1) as f64;
         let total_memory = system.total_memory();
-        let used_memory = system.used_memory();
+
+        if pids.is_empty() {
+            // No tracked PIDs, return system-wide utilization
+            let memory_percent = if total_memory > 0 {
+                (system.used_memory() as f64 / total_memory as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let record = UtilizationRecord {
+                pid: 0,
+                timestamp,
+                device: "rapl".to_string(),
+                utilization: system_cpu,
+            };
+            records.push(record);
+
+            info!("RAPL utilization trace collected (system-wide): CPU={:.2}%, Memory={:.2}%", 
+                  system_cpu, memory_percent);
+            return Ok(records);
+        }
+
+        // Per-process utilization attribution
+        // Calculate normalized utilization for each process
+        for &pid in &pids {
+            let cpu_usage = if let Some(process) = system.process(Pid::from(pid as usize)) {
+                process.cpu_usage() as f64
+            } else {
+                0.0
+            };
+
+            // Normalize CPU utilization: (process_cpu / cpu_count) / system_cpu
+            let normalized_cpu = if system_cpu > 0.0 {
+                (cpu_usage / cpu_count) / system_cpu
+            } else {
+                0.0
+            };
+
+            // Convert to percentage (normalized_cpu is already a ratio, multiply by 100 for percentage)
+            let utilization_percent = normalized_cpu * 100.0;
+
+            records.push(UtilizationRecord {
+                pid,
+                timestamp,
+                device: "rapl".to_string(),
+                utilization: utilization_percent,
+            });
+        }
+
         let memory_percent = if total_memory > 0 {
-            (used_memory as f64 / total_memory as f64) * 100.0
+            (system.used_memory() as f64 / total_memory as f64) * 100.0
         } else {
             0.0
         };
 
-        // Return single utilization record with average of CPU and memory utilization
-        let avg_utilization = (cpu_util as f64 + memory_percent) / 2.0;
-        let record = UtilizationRecord {
-            pid: 0,
-            timestamp,
-            device: "rapl".to_string(),
-            utilization: avg_utilization,
-        };
-
-        info!("RAPL utilization trace collected: CPU={:.2}%, Memory={:.2}%", cpu_util, memory_percent);
-        Ok(vec![record])
+        info!("RAPL utilization trace collected: {} records, system CPU={:.2}%, process memory={:.2}%", 
+              records.len(), system_cpu, memory_percent);
+        Ok(records)
     }
 
     fn is_available() -> bool {
