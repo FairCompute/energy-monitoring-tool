@@ -1,4 +1,4 @@
-use crate::energy_group::{EnergyCollector, EnergyRecord, UtilizationRecord};
+use crate::energy_group::{EnergyCollector, EnergyRecord};
 use async_trait::async_trait;
 use log::info;
 
@@ -29,12 +29,6 @@ impl EnergyCollector for NvidiaGpu {
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
         info!("NVIDIA GPU get_energy_trace called for devices: {:?}", self.device_ids);
         // Return empty trace for now - would implement actual NVIDIA energy trace collection here
-        Ok(Vec::new())
-    }
-
-    async fn get_utilization_trace(&self) -> Result<Vec<UtilizationRecord>, String> {
-        info!("NVIDIA GPU get_utilization_trace called for devices: {:?}", self.device_ids);
-        // Return empty trace for now - would implement actual NVIDIA utilization trace collection here
         Ok(Vec::new())
     }
 

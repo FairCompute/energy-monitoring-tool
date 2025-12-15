@@ -1,6 +1,7 @@
 
 use crate::utils::errors::MonitoringError;
 use crate::utils::psutils::collect_process_groups;
+use crate::utils::trace_rotation::RotatingTrace;
 use async_trait::async_trait;
 use itertools::multiunzip;
 use polars::prelude::*;
@@ -49,18 +50,16 @@ pub struct EnergyGroup<T: EnergyCollector> {
     batch_size: usize,
     /// DataFrame: user | task | pid
     tracked_processes: DataFrame,
-    /// DataFrame: pid | timestamp | device | energy
-    energy_trace: DataFrame,
-    /// DataFrame: pid | timestamp | device | utilization
-    utilization_trace: DataFrame,
+    /// Rotating trace: pid | timestamp | device | energy 
+    energy_trace: RotatingTrace,
     /// Underlying collector instance
     energy_collector: Arc<T>,
     /// Flag indicating if the collector is running
     is_running: Arc<AtomicBool>,
     /// Handle to the background monitoring task
     task_handle: Option<JoinHandle<()>>,
-    /// Receiver for collected data from the background task
-    data_receiver: Option<mpsc::Receiver<(Vec<EnergyRecord>, Vec<UtilizationRecord>)>>,
+    /// Receiver for collected energy data from the background task
+    data_receiver: Option<mpsc::Receiver<Vec<EnergyRecord>>>,
 }
 
 impl<T: EnergyCollector> EnergyGroup<T> {
@@ -90,44 +89,21 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         // Set tracked PIDs in the collector for per-process energy attribution
         collector.set_tracked_pids(pids_col.clone());
 
-        let tracked_processes = df![
+        let tracked_processes: DataFrame = df![
             "user" => users,
             "task" => tasks,
             "pid" => pids_col,
         ]
         .map_err(|e| MonitoringError::Other(format!("Failed to create DataFrame: {}", e)))?;
 
-        // Create empty energy_traces DataFrame: pid | timestamp | device | energy
-        let energy_trace = df![
-            "pid" => Vec::<u32>::new(),
-            "device" => Vec::<String>::new(),
-            "energy" => Vec::<f64>::new(),
-            "timestamp" => Vec::<i64>::new(),
-        ]
-        .map_err(|e| {
-            MonitoringError::Other(format!("Failed to create energy_traces DataFrame: {}", e))
-        })?;
-
-        // Create empty utilization_trace DataFrame: pid | timestamp | device | utilization
-        let utilization_trace = df![
-            "pid" => Vec::<u32>::new(),
-            "device" => Vec::<String>::new(),
-            "utilization" => Vec::<f64>::new(),
-            "timestamp" => Vec::<i64>::new(),
-        ]
-        .map_err(|e| {
-            MonitoringError::Other(format!(
-                "Failed to create utilization_trace DataFrame: {}",
-                e
-            ))
-        })?;
+        // Create rotating trace with 1 hour default retention
+        let energy_trace = RotatingTrace::new(3600);
 
         Ok(Self {
             rate,
-            batch_size: batch_size.unwrap_or(1),
+            batch_size: batch_size.unwrap_or(1000),
             tracked_processes,
             energy_trace,
-            utilization_trace,
             energy_collector: Arc::new(collector),
             is_running: Arc::new(AtomicBool::new(false)),
             task_handle: None,
@@ -149,17 +125,33 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         &self.tracked_processes
     }
 
-    /// Get a reference to the energy trace DataFrame
+    /// Get a reference to the energy trace data (as DataFrame)
     pub fn energy_trace(&self) -> &DataFrame {
-        &self.energy_trace
+        self.energy_trace.data()
     }
 
-    /// Get a reference to the utilization trace DataFrame
-    pub fn utilization_trace(&self) -> &DataFrame {
-        &self.utilization_trace
+
+    /// Get a mutable reference to the energy trace for advanced operations
+    pub fn energy_trace_mut(&mut self) -> &mut RotatingTrace {
+        &mut self.energy_trace
     }
 
-    /// Add energy records to the energy trace DataFrame
+
+    /// Set the retention window for all traces (in seconds)
+    /// This affects both energy and utilization traces
+    pub fn set_trace_retention(&mut self, retention_seconds: i64) {
+        self.energy_trace.set_retention_seconds(retention_seconds);
+    }
+
+    /// Get memory usage statistics for energy trace
+    pub fn trace_stats(&self) -> TraceMemoryStats {
+        TraceMemoryStats {
+            energy_trace_rows: self.energy_trace.row_count(),
+            energy_trace_stats: self.energy_trace.stats(),
+        }
+    }
+
+    /// Add energy records to the energy trace
     pub fn append_energy_records(
         &mut self,
         records: Vec<EnergyRecord>,
@@ -188,46 +180,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         ])
         .map_err(|err| MonitoringError::Other(err.to_string()))?;
 
-        self.energy_trace = self
-            .energy_trace
-            .vstack(&data)
-            .map_err(|err| MonitoringError::Other(err.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Add utilization records to the utilization trace DataFrame
-    pub fn append_utilization_records(
-        &mut self,
-        records: Vec<UtilizationRecord>,
-    ) -> Result<(), MonitoringError> {
-        if records.is_empty() {
-            return Ok(());
-        }
-
-        // Extract data from records
-        let pids: Vec<u32> = records.iter().map(|r| r.pid).collect();
-        let timestamps: Vec<i64> = records.iter().map(|r| r.timestamp).collect();
-        let devices: Vec<String> = records.iter().map(|r| r.device.clone()).collect();
-        let utilizations: Vec<f64> = records.iter().map(|r| r.utilization).collect();
-
-        // Create new DataFrame from records
-        let new_data: DataFrame = df![
-            "pid" => pids,
-            "device" => devices,
-            "utilization" => utilizations,
-            "timestamp" => timestamps,
-        ]
-        .map_err(|e| {
-            MonitoringError::Other(format!("Failed to create utilization DataFrame: {}", e))
-        })?;
-
-        // Append to existing utilization trace
-        self.utilization_trace
-            .vstack(&new_data)
-            .map_err(|e| {
-            MonitoringError::Other(format!("Failed to append utilization data: {}", e))
-            })?;
+        self.energy_trace.append(&data)?;
 
         Ok(())
     }
@@ -245,56 +198,40 @@ impl<T: EnergyCollector> EnergyGroup<T> {
     /// Background monitoring task that collects data at a specified rate and sends batches
     async fn run_monitoring_loop<C: EnergyCollector>(
         collector: Arc<C>,
-        tx: mpsc::Sender<(Vec<EnergyRecord>, Vec<UtilizationRecord>)>,
+        tx: mpsc::Sender<Vec<EnergyRecord>>,
         is_monitoring_active: Arc<AtomicBool>,
         rate: f64,
         batch_size: usize,
     ) {
         let interval = tokio::time::Duration::from_secs_f64(1.0 / rate);
         let mut iteration = 0;
-        let mut batch_energy_records = Vec::new();
-        let mut batch_utilization_records = Vec::new();
+        let mut collected_energy_records = Vec::new();
 
         while is_monitoring_active.load(Ordering::SeqCst) {
             iteration += 1;
             println!("Background monitoring iteration {}", iteration);
 
-            // Collect data concurrently using tokio::join!
-            let (energy_result, utilization_result) = tokio::join!(
-                collector.get_energy_trace(),
-                collector.get_utilization_trace()
-            );
-
-            match (energy_result, utilization_result) {
-                (Ok(energy_records), Ok(utilization_records)) => {
+            match collector.get_energy_trace().await {
+                Ok(energy_records) => {
                     log::debug!(
-                        "Collected {} energy records and {} utilization records",
+                        "Collected {} energy records",
                         energy_records.len(),
-                        utilization_records.len()
                     );
 
                     // Add to batch
-                    batch_energy_records.extend(energy_records);
-                    batch_utilization_records.extend(utilization_records);
+                    collected_energy_records.extend(energy_records);
 
                     // Send batch when it reaches the batch size
                     if iteration % batch_size == 0 {
                         println!(
-                            "Sending batch of {} energy and {} utilization records",
-                            batch_energy_records.len(),
-                            batch_utilization_records.len()
+                            "Sending batch of {} energy records",
+                            collected_energy_records.len(),
                         );
 
                         // Use send().await for bounded channel (provides backpressure)
                         // This will wait if the channel is full, slowing down collection
                         let send_start = std::time::Instant::now();
-                        match tx
-                            .send((
-                                batch_energy_records.clone(),
-                                batch_utilization_records.clone(),
-                            ))
-                            .await
-                        {
+                        match tx.send(collected_energy_records.clone()).await {
                             Ok(_) => {
                                 let send_duration = send_start.elapsed();
                                 if send_duration.as_millis() > 100 {
@@ -311,11 +248,10 @@ impl<T: EnergyCollector> EnergyGroup<T> {
                         }
 
                         // Clear the batch
-                        batch_energy_records.clear();
-                        batch_utilization_records.clear();
+                        collected_energy_records.clear();
                     }
                 }
-                (Err(e), _) | (_, Err(e)) => {
+                Err(e) => {
                     eprintln!("Error collecting data: {}", e);
                 }
             }
@@ -324,15 +260,12 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         }
 
         // Send any remaining records in the batch before stopping
-        if !batch_energy_records.is_empty() || !batch_utilization_records.is_empty() {
+        if !collected_energy_records.is_empty() {
             println!(
-                "Sending final batch of {} energy and {} utilization records",
-                batch_energy_records.len(),
-                batch_utilization_records.len()
+                "Sending final batch of {} energy records",
+                collected_energy_records.len(),
             );
-            let _ = tx
-                .send((batch_energy_records, batch_utilization_records))
-                .await;
+            let _ = tx.send(collected_energy_records).await;
         }
 
         println!(
@@ -357,21 +290,12 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         // Set running state before starting
         self.is_running.store(true, Ordering::SeqCst);
 
-        // Collect initial data concurrently using tokio::join!
-        let (energy_result, utilization_result) = tokio::join!(
-            self.energy_collector.get_energy_trace(),
-            self.energy_collector.get_utilization_trace()
-        );
-
-        let energy_records = energy_result
+        // Collect initial energy data
+        let energy_records = self.energy_collector.get_energy_trace().await
             .map_err(|e| MonitoringError::Other(format!("Failed to get energy trace: {}", e)))?;
-        let utilization_records = utilization_result.map_err(|e| {
-            MonitoringError::Other(format!("Failed to get utilization trace: {}", e))
-        })?;
 
         // Append initial data
         self.append_energy_records(energy_records)?;
-        self.append_utilization_records(utilization_records)?;
 
         // Create bounded channel for background task to send data back
         // Channel capacity: allow a reasonable buffer (e.g., 10 batches)
@@ -397,26 +321,21 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         Ok(())
     }
 
-    /// Poll the channel and append any received data to the traces
+    /// Poll the channel and append any received data to the energy trace
     /// Call this periodically to receive and process data from the background task
     pub fn poll_data(&mut self) -> Result<(), MonitoringError> {
         // Collect all available messages first
         let mut all_energy_records = Vec::new();
-        let mut all_utilization_records = Vec::new();
 
         if let Some(rx) = &mut self.data_receiver {
-            while let Ok((energy_records, utilization_records)) = rx.try_recv() {
+            while let Ok(energy_records) = rx.try_recv() {
                 all_energy_records.extend(energy_records);
-                all_utilization_records.extend(utilization_records);
             }
         }
 
         // Now append all collected records
         if !all_energy_records.is_empty() {
             self.append_energy_records(all_energy_records)?;
-        }
-        if !all_utilization_records.is_empty() {
-            self.append_utilization_records(all_utilization_records)?;
         }
 
         Ok(())
@@ -454,11 +373,18 @@ pub trait EnergyCollector: Send + Sync + 'static {
     /// Get energy trace data
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String>;
 
-    /// Get utilization trace data  
-    async fn get_utilization_trace(&self) -> Result<Vec<UtilizationRecord>, String>;
-
     /// Check if this collector type is available on the system
     fn is_available() -> bool {
         unimplemented!()
     }
 }
+
+/// Statistics about trace memory usage
+#[derive(Debug, Clone)]
+pub struct TraceMemoryStats {
+    /// Number of rows in energy trace
+    pub energy_trace_rows: usize,
+    /// Energy trace statistics
+    pub energy_trace_stats: crate::utils::trace_rotation::TraceStats,
+}
+
