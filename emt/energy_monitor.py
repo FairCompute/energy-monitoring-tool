@@ -164,9 +164,11 @@ class EnergyMonitor:
         *,
         name: str = "unnamed_context",
         trace_recorders: Optional[Collection[TraceRecorder] | TraceRecorder] = None,
+        startup_delay_s: float = 1.0,
     ):
         self.context_name = name
         setup_logger(logger)
+        self._startup_delay_s = max(0.0, float(startup_delay_s))
 
         self._trace_recorders = self._normalize_trace_recorders(trace_recorders)
 
@@ -214,7 +216,8 @@ class EnergyMonitor:
         )
         self.energy_meter_thread.start()
 
-        time.sleep(1)
+        if self._startup_delay_s:
+            time.sleep(self._startup_delay_s)
         return self.energy_meter
 
     def __exit__(self, *_):

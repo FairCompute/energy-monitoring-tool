@@ -8,7 +8,9 @@ and managing power groups in the Energy Monitoring Tool.
 from emt import power_groups
 from emt.power_groups import PowerGroup
 from tabulate import tabulate
-from typing import List, Type, Any, Optional
+from typing import List, Type, Any, Optional, Dict
+
+from emt.utils.config import load_config
 
 # Public API
 __all__ = [
@@ -55,6 +57,20 @@ def get_available_pg_types() -> List[Type[PowerGroup]]:
     return [pg_type for pg_type in all_pg_types if pg_type.is_available()]
 
 
+def _get_pg_rate(pg_type: Type[PowerGroup], config: Dict[str, Any]) -> Optional[int]:
+    pg_map = {
+        "RAPLSoC": "rapl",
+        "NvidiaGPU": "nvidia_gpu",
+    }
+    key = pg_map.get(pg_type.__name__)
+    if not key:
+        return None
+    rate = config.get("power_groups", {}).get(key, {}).get("rate")
+    if isinstance(rate, int) and rate > 0:
+        return rate
+    return None
+
+
 def get_available_pgs(**kwargs) -> List[PowerGroup]:
     """
     Get instantiated available PowerGroup objects.
@@ -66,7 +82,19 @@ def get_available_pgs(**kwargs) -> List[PowerGroup]:
         List of instantiated PowerGroup objects for available power groups.
     """
     available_types = get_available_pg_types()
-    return [pg_type(**kwargs) for pg_type in available_types]
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+
+    power_groups = []
+    for pg_type in available_types:
+        pg_kwargs = dict(kwargs)
+        rate = _get_pg_rate(pg_type, config)
+        if rate is not None and "rate" not in pg_kwargs:
+            pg_kwargs["rate"] = rate
+        power_groups.append(pg_type(**pg_kwargs))
+    return power_groups
 
 
 def get_pg_table() -> str:
@@ -78,17 +106,20 @@ def get_pg_table() -> str:
     """
     all_pg_types = get_pg_types()
 
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+
     table = []
     headers = ["Devices", "Available", "Tracked"]
 
     for pg_type in all_pg_types:
         is_available = pg_type.is_available()
-        table.append(
-            [
-                pg_type.__name__,
-                "Yes" if is_available else "No",
-                "Tracked @ 10Hz" if is_available else "No",
-            ]
-        )
+        rate = _get_pg_rate(pg_type, config)
+        tracked = "No"
+        if is_available:
+            tracked = f"Tracked @ {rate}Hz" if rate is not None else "Tracked"
+        table.append([pg_type.__name__, "Yes" if is_available else "No", tracked])
 
     return tabulate(table, headers, tablefmt="pretty")

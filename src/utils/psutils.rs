@@ -39,6 +39,36 @@ fn collect_all() -> Result<HashMap<(String, String), Vec<usize>>, MonitoringErro
     Ok(groups)
 }
 
+/// Get all child PIDs of a given parent PID (recursive)
+fn get_child_pids(system: &System, parent_pid: usize) -> Vec<usize> {
+    let mut children = Vec::new();
+    let parent_pid_obj = sysinfo::Pid::from_u32(parent_pid as u32);
+    
+    for (pid, process) in system.processes() {
+        if let Some(ppid) = process.parent() {
+            if ppid == parent_pid_obj {
+                let child_pid = pid.as_u32() as usize;
+                children.push(child_pid);
+                // Recursively get grandchildren
+                children.extend(get_child_pids(system, child_pid));
+            }
+        }
+    }
+    children
+}
+
+/// Expand PIDs to include all children (process tree)
+fn expand_pids_with_children(system: &System, pids: &[usize]) -> Vec<usize> {
+    let mut expanded = pids.to_vec();
+    for &pid in pids {
+        expanded.extend(get_child_pids(system, pid));
+    }
+    // Remove duplicates
+    expanded.sort();
+    expanded.dedup();
+    expanded
+}
+
 /// Filters process groups to only include groups that have at least one of the specified PIDs.
 fn filter_groups_by_pids(groups: &mut HashMap<(String, String), Vec<usize>>, selected_pids: &[usize]) {
     groups.retain(|_, pids| {
@@ -48,15 +78,22 @@ fn filter_groups_by_pids(groups: &mut HashMap<(String, String), Vec<usize>>, sel
 }
 
 // Collects process groups based on the provided PIDs, if not explicitly provided collect all.
+// When PIDs are provided, also includes all child processes (process tree).
 pub fn collect_process_groups(selected_pids: Option<Vec<usize>>) -> Result<Vec<ProcessGroup>, MonitoringError> {
+    let system = System::new_all();
+    
     let groups = match selected_pids {
         Some(ref pids) if pids.is_empty() => {
             // Explicitly requested no processes: return empty groups
             Ok(HashMap::new())
         }
         Some(pids) => {
+            // Expand PIDs to include children (process tree)
+            let expanded_pids = expand_pids_with_children(&system, &pids);
+            log::info!("Expanded {} PIDs to {} (including children)", pids.len(), expanded_pids.len());
+            
             let mut groups = collect_all()?;
-            filter_groups_by_pids(&mut groups, &pids);
+            filter_groups_by_pids(&mut groups, &expanded_pids);
             Ok(groups)
         }
         None => {

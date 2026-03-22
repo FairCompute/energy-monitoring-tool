@@ -209,7 +209,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
         while is_monitoring_active.load(Ordering::SeqCst) {
             iteration += 1;
-            println!("Background monitoring iteration {}", iteration);
+            log::trace!("Background monitoring iteration {}", iteration);
 
             match collector.get_energy_trace().await {
                 Ok(energy_records) => {
@@ -223,7 +223,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
                     // Send batch when it reaches the batch size
                     if iteration % batch_size == 0 {
-                        println!(
+                        log::debug!(
                             "Sending batch of {} energy records",
                             collected_energy_records.len(),
                         );
@@ -235,14 +235,14 @@ impl<T: EnergyCollector> EnergyGroup<T> {
                             Ok(_) => {
                                 let send_duration = send_start.elapsed();
                                 if send_duration.as_millis() > 100 {
-                                    eprintln!(
-                                        "Warning: Channel send blocked for {:?} - receiver may be slow!",
+                                    log::warn!(
+                                        "Channel send blocked for {:?} - receiver may be slow!",
                                         send_duration
                                     );
                                 }
                             }
                             Err(_) => {
-                                eprintln!("Failed to send data - receiver dropped");
+                                log::error!("Failed to send data - receiver dropped");
                                 break;
                             }
                         }
@@ -252,7 +252,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error collecting data: {}", e);
+                    log::error!("Error collecting data: {}", e);
                 }
             }
 
@@ -261,14 +261,14 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
         // Send any remaining records in the batch before stopping
         if !collected_energy_records.is_empty() {
-            println!(
+            log::debug!(
                 "Sending final batch of {} energy records",
                 collected_energy_records.len(),
             );
             let _ = tx.send(collected_energy_records).await;
         }
 
-        println!(
+        log::debug!(
             "Background monitoring stopped after {} iterations",
             iteration
         );
@@ -350,15 +350,21 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             return Ok(());
         }
     
-        // Poll any remaining data before shutting down
+        // Signal the background task to stop
+        self.is_running.store(false, Ordering::SeqCst);
+        
+        // Give the background task time to send its final batch
+        // This is necessary because the task may be in the middle of collecting data
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        
+        // Poll any remaining data from the channel
         self.poll_data()?;
 
-        // Cancel the background task if it exists
+        // Now abort the background task (it should already be stopped)
         if let Some(handle) = self.task_handle.take() {
             handle.abort();
         }
 
-        self.is_running.store(false, Ordering::SeqCst);
         // Drop the receiver to signal completion
         self.data_receiver = None;
         Ok(())

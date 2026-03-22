@@ -57,5 +57,11 @@
         "connectionId": "https-sonarqube-workstation-home-com",
         "projectKey": "FairCompute_energy-monitoring-tool_0b11396c-f1bf-41be-910a-f93bbc56f045"
     },
-    "python.terminal.activateEnvironment": true
+    "python.terminal.activateEnvironment": true,
+    "chat.tools.terminal.autoApprove": {
+        "cargo build": true,
+        "./target/release/energy-monitoring-tool": true,
+        "awk": true,
+        "type": true
+    }
 }

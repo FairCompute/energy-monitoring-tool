@@ -106,15 +106,19 @@ class RAPLSoC(PowerGroup):
         super().__init__(**kwargs)
 
         # Get intel-rapl power zones/domains
-        zones = [
+        # Only include top-level package zones (e.g., intel-rapl:0, intel-rapl:1)
+        # Skip subdomains (e.g., intel-rapl:0:0, intel-rapl:0:1) as package already includes them
+        all_zones = [
             Path(self.RAPL_DIR, zone)
             for zone in filter(lambda x: ":" in x, os.listdir(self.RAPL_DIR))
         ]
-
-        # filter out zones that do not match zone_pattern
-        zones = list(
-            filter(lambda zone: not re.fullmatch(zone_pattern, str(zone)), zones)
-        )
+        
+        # Filter to only keep package-level zones (exactly one colon, e.g., intel-rapl:0)
+        # This prevents double-counting as package energy = core + uncore
+        zones = [
+            zone for zone in all_zones
+            if zone.name.count(":") == 1  # Only top-level: intel-rapl:N
+        ]
 
         # Get components for each zone (if available);
         #  Not all processors expose components.
@@ -254,11 +258,16 @@ class RAPLSoC(PowerGroup):
             "norm_ps_util": 0.0,
         }
         try:
-            # process level cpu utilization for all the process
-            ps_cpu_util = sum(ps.cpu_percent() for ps in self.processes)
+            # Get system CPU first (this establishes a consistent time reference)
+            # Using interval=None returns delta since last call
+            utilizations["cpu_util"] = psutil.cpu_percent(interval=None)
+            
+            # Process level cpu utilization for all processes
+            # Note: cpu_percent(interval=None) uses time since last call for that Process object
+            ps_cpu_util = sum(ps.cpu_percent(interval=None) for ps in self.processes)
             ps_mem_util = sum(ps.memory_percent() for ps in self.processes)
-            # dividing by cpu count normalizes the utilization to [0-100]% for each process
-            utilizations["cpu_util"] = psutil.cpu_percent()
+            
+            # Dividing by cpu count normalizes the utilization to [0-100]% for each process
             cpu_count = (
                 psutil.cpu_count() or 1
             )  # Default to 1 if cpu_count() returns None
@@ -266,9 +275,10 @@ class RAPLSoC(PowerGroup):
 
             # Handle the case when total CPU usage is zero
             if utilizations["cpu_util"] > 0:
-                utilizations["norm_ps_util"] = (
-                    utilizations["ps_util"] / utilizations["cpu_util"]
-                )
+                norm_ps_util = utilizations["ps_util"] / utilizations["cpu_util"]
+                # Cap at 1.0 to prevent over-attribution due to timing mismatches
+                # between process and system CPU measurements
+                utilizations["norm_ps_util"] = min(norm_ps_util, 1.0)
             else:
                 # When total CPU usage is zero, set normalized process utilization to 0
                 # This prevents division by zero and handles idle system scenarios
@@ -294,6 +304,16 @@ class RAPLSoC(PowerGroup):
         trace, obtained from the zones and the devices, by the utilization of the devices by the processes.
         """
 
+        # Warm up psutil counters so first sample is not artificially zero.
+        try:
+            psutil.cpu_percent(interval=None)
+            for ps in self.processes:
+                ps.cpu_percent(interval=None)
+        except psutil.NoSuchProcess:
+            logger.warning("Warmup failed: process not found.")
+
+        start_wall = time.time()
+
         while True:
             start_time = time.perf_counter()
             energy_trace = self._read_energy()
@@ -316,7 +336,11 @@ class RAPLSoC(PowerGroup):
             self._consumed_energy += consumed_utilized_energy
 
             # add trace info
+            now = time.time()
             self._energy_trace["trace_num"].append(self._count_trace_calls)
+            self._energy_trace["timestamp"].append(round(now, 3))
+            self._energy_trace["elapsed_s"].append(round(now - start_wall, 3))
+            self._energy_trace["proc_count"].append(len(self.processes))
             self._energy_trace["measurement_time"].append(round(measurement_time, 4))
             self._energy_trace["ps_util"].append(round(utilization_trace["ps_util"], 2))
             self._energy_trace["cpu_util"].append(
