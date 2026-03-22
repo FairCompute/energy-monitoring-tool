@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 logger = logging.getLogger("emt.cfgup")
 
 SYSTEMD_ENERGY_ACCESS_UNIT = "energy_access.service"
@@ -48,7 +47,9 @@ def _advertise_group_membership(group_name=_GROUP_NAME):
     )
 
 
-def _install_systemd_unit(destination=f"/etc/systemd/system/{SYSTEMD_ENERGY_ACCESS_UNIT}"):
+def _install_systemd_unit(
+    destination=f"/etc/systemd/system/{SYSTEMD_ENERGY_ACCESS_UNIT}",
+):
     service_src = Path(__file__).parent.parent / "assets" / SYSTEMD_ENERGY_ACCESS_UNIT
     service_dst = Path(destination)
     logger.info(f"Installing systemd unit to {service_dst}...")
