@@ -4,6 +4,8 @@ nav:
   - Executive Summary: executive_summary.md
   - Introduction: introduction.md
   - Getting Started: getting_started.md
+  - How EMT Works: how_EMT_works.md
+  - Trace Rotation: trace_rotation.md
   - Virtualization Challenges: virtualization_challenges.md
   - Virtualization Strategies: virtualization_strategies.md
   - Conclusion: conclusion.md
