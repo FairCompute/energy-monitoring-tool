@@ -8,22 +8,49 @@ A systematic verification study was conducted to validate the accuracy of EMT's 
 
 ### Current Results After All Fixes
 
-| Method | Energy (J) | Duration | Attribution % | Status |
-|--------|-----------|----------|---------------|--------|
-| Rust CLI | 70-75 J | ~7s | ~70% | ✅ Working |
-| Bash Baseline | ~10 J | ~5s | ~4% | ✅ Working (fixed double-count) |
+| Method | Energy (J) | Duration | Variance | Status |
+|--------|-----------|----------|----------|--------|
+| Python EMT | 73-78 J | ~3s | ±5% | ✅ Working |
+| Rust CLI | 70-84 J | ~3s | ±10% | ✅ Working |
+| Bash Baseline | ~10 J | ~3s | ±2% | ✅ Working |
 
-**Note**: Python EMT could not be tested due to missing `pynvml` dependency. Historical results showed 25-36 J.
+**Python and Rust now agree within ~15%** - both use the same attribution formula and read from the same RAPL sources.
 
 ### Bugs Fixed
 
-1. **Rust CLI zero energy bug** (CRITICAL): Fixed `sysinfo` warmup issue
-2. **Rust shutdown race condition**: Fixed data loss from premature task abort
-3. **Bash double-counting bug**: Fixed RAPL zone reading (was summing core+uncore+package)
+1. **Python EMT - RAPL Double Counting** (CRITICAL):
+   - Was reading from all RAPL zones: `intel-rapl:0` + `intel-rapl:0:0` + `intel-rapl:0:1`
+   - Package energy **already includes** core + uncore, causing ~2-3x overcounting
+   - **Fix**: Only read from package-level zones (`intel-rapl:N` where colon count = 1)
+
+2. **Python EMT - Child Process CPU Shows 0%**:
+   - With `EMT_RELOAD_PROCS=1`, new `psutil.Process` objects were created each sample
+   - `cpu_percent()` on fresh objects returns 0 (needs baseline)
+   - **Fix**: Cache Process objects in `_process_cache` and reuse them
+
+3. **Python EMT - Normalization Over 1.0**:
+   - Timing mismatch between system and process CPU measurements
+   - **Fix**: Cap `norm_ps_util` at 1.0
+
+4. **Rust CLI - Unstable CPU Measurements**:
+   - `sysinfo` library's `cpu_usage()` gave inconsistent values (64%, 2%, 44%)
+   - **Fix**: Custom CPU tracking reading `/proc/stat` and `/proc/<pid>/stat` directly
+
+5. **Rust CLI - Zero Energy Bug**:
+   - `sysinfo` needs warmup between refresh calls
+   - **Fix**: Added 100ms delay between initial refresh calls
+
+6. **Rust CLI - Shutdown Race Condition**:
+   - Task was aborted before final data batch was sent
+   - **Fix**: Signal stop first, wait 200ms, then poll and abort
+
+7. **Bash Baseline - Double Counting**:
+   - Same as Python - reading package + subdomains
+   - **Fix**: Only read `intel-rapl:N` paths (count colons = 1)
 
 ### Key Finding: Attribution Formula Difference
 
-The **~7x difference** between Rust (~70J) and Bash (~10J) is due to different attribution formulas:
+The **~7x difference** between Python/Rust (~75J) and Bash (~10J) is due to different attribution formulas:
 
 | Method | Formula | Process Fraction |
 |--------|---------|------------------|
@@ -37,7 +64,7 @@ The **~7x difference** between Rust (~70J) and Bash (~10J) is due to different a
 - **Bash**: 500 jiffies / 12500 jiffies = **4%** of total capacity
 
 Both formulas are mathematically valid but measure different things:
-- **Active CPU Share (Rust/Python)**: "Of energy consumed by running code, what's my share?"
+- **Active CPU Share (Rust/Python)**: "Of energy consumed by active processes, what's my share?"
 - **Total Capacity (Bash)**: "Of total CPU capacity (including idle), what did I use?"
 
 ## Verification Methodology
