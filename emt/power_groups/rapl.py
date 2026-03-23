@@ -12,6 +12,38 @@ from emt.power_groups.power_group import PowerGroup
 logger = logging.getLogger(__name__)
 
 
+def extract_components(zone_path: Path, all_zone_paths: list) -> list:
+    """Extract sub-components of a zone from the list of all available zone paths.
+
+    Sub-components are RAPL domains with more than one colon in their name
+    (e.g., ``intel-rapl:0:0``) that belong to the given parent zone.  The
+    parent–child relationship is determined by the name prefix: a sub-component
+    of ``intel-rapl:0`` must have a name that starts with ``intel-rapl:0:``.
+
+    This function intentionally does **not** rely on filesystem traversal so
+    that it works regardless of whether the powercap entries are represented as
+    a flat collection of symlinks or as a nested directory tree.
+
+    The correct threshold for identifying a sub-component is
+    ``name.count(":") > 1`` (more than one colon), **not** ``> 2``; the latter
+    would wrongly require three or more colon-separated segments and thereby
+    miss valid sub-components such as ``intel-rapl:0:0``.
+
+    Args:
+        zone_path:       Path to a top-level RAPL zone (e.g.,
+                         ``/sys/class/powercap/intel-rapl:0``).
+        all_zone_paths:  All available zone paths, including sub-components.
+
+    Returns:
+        A list of paths that are direct sub-components of *zone_path*.
+    """
+    return [
+        comp
+        for comp in all_zone_paths
+        if comp.name.count(":") > 1 and comp.name.startswith(zone_path.name + ":")
+    ]
+
+
 class DeltaReader:
     """
     This class provides a method that provides the delta between the previously
@@ -123,10 +155,9 @@ class RAPLSoC(PowerGroup):
 
         # Get components for each zone (if available);
         #  Not all processors expose components.
-        components = [
-            list(filter(lambda x: len(x.stem.split(":")) > 2, Path(zone).rglob("*")))
-            for zone in zones
-        ]
+        # Use all_zones (not zones) so that sub-components, which reside as
+        # siblings in the flat powercap directory, are found correctly.
+        components = [extract_components(zone, all_zones) for zone in zones]
 
         self.zones_count = len(zones)
         self._zones = []
