@@ -28,7 +28,6 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self._energy_trace = defaultdict(list)
-        
         # Cache for Process objects when using EMT_RELOAD_PROCS
         # Key: PID, Value: psutil.Process object (reused for cpu_percent tracking)
         self._process_cache: Dict[int, psutil.Process] = {}
