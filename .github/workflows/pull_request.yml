@@ -44,7 +44,7 @@ jobs:
           src: "."
 
       - name: Commit Black Formatting Changes
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "style: auto-format with Black"
