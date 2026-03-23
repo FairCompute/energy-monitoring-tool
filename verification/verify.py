@@ -45,6 +45,7 @@ class Result:
 
 # ── Method 1: Python EMT ────────────────────────────────────────────────────
 
+
 def measure_python_emt(workload_duration: float, iteration: int) -> Result:
     """
     Run workload.py as a subprocess, monitored by Python EMT.
@@ -59,7 +60,8 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
     with EnergyMonitor(name=f"verify_{iteration}") as monitor:
         proc = subprocess.Popen(
             [PYTHON, str(WORKLOAD_SCRIPT), str(workload_duration)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         proc.wait()
 
@@ -71,9 +73,13 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
         total_energy *= 3_600_000  # kWh → J
 
     devices = {}
-    if hasattr(monitor, "consumed_energy") and isinstance(monitor.consumed_energy, dict):
-        devices = {k: v * 3_600_000 if unit.lower() == "kwh" else v
-                   for k, v in monitor.consumed_energy.items()}
+    if hasattr(monitor, "consumed_energy") and isinstance(
+        monitor.consumed_energy, dict
+    ):
+        devices = {
+            k: v * 3_600_000 if unit.lower() == "kwh" else v
+            for k, v in monitor.consumed_energy.items()
+        }
 
     return Result(
         method="python_emt",
@@ -85,6 +91,7 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
 
 
 # ── Method 2: Rust CLI ──────────────────────────────────────────────────────
+
 
 def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
     """
@@ -104,21 +111,30 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
     # Start workload first so we have a PID to monitor
     workload = subprocess.Popen(
         [PYTHON, str(WORKLOAD_SCRIPT), str(workload_duration)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     time.sleep(0.3)  # let it spin up
 
     rust_cmd = [
-        "sudo", str(RUST_BINARY),
-        "--pid", str(workload.pid),
-        "--duration", str(rust_duration),
-        "--rate", "10.0",
-        "--output", output_file,
+        "sudo",
+        str(RUST_BINARY),
+        "--pid",
+        str(workload.pid),
+        "--duration",
+        str(rust_duration),
+        "--rate",
+        "10.0",
+        "--output",
+        output_file,
         "--quiet",
     ]
 
     rust = subprocess.Popen(
-        rust_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        rust_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
 
     workload.wait()
@@ -138,8 +154,7 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
         iteration=iteration,
         duration=elapsed,
         total_energy_j=data.get("total_energy", 0.0),
-        details={"devices": data.get("devices", {}),
-                 "workload_pid": workload.pid},
+        details={"devices": data.get("devices", {}), "workload_pid": workload.pid},
     )
 
 
@@ -170,6 +185,7 @@ def _parse_json_str(s: str) -> dict | None:
 
 # ── Method 3: Raw bash / RAPL baseline ──────────────────────────────────────
 
+
 def measure_bash_baseline(workload_duration: float, iteration: int) -> Result:
     """
     Run rapl_baseline.sh which reads RAPL counters + /proc/stat around
@@ -181,24 +197,40 @@ def measure_bash_baseline(workload_duration: float, iteration: int) -> Result:
     start = time.perf_counter()
 
     proc = subprocess.run(
-        ["sudo", "bash", str(BASH_BASELINE), str(int(workload_duration)),
-         str(WORKLOAD_SCRIPT), PYTHON],
-        capture_output=True, text=True, timeout=int(workload_duration) * 3 + 30,
+        [
+            "sudo",
+            "bash",
+            str(BASH_BASELINE),
+            str(int(workload_duration)),
+            str(WORKLOAD_SCRIPT),
+            PYTHON,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=int(workload_duration) * 3 + 30,
     )
 
     elapsed = time.perf_counter() - start
 
     if proc.returncode != 0:
         print(f"    bash stderr: {proc.stderr[:300]}")
-        return Result(method="bash_baseline", iteration=iteration,
-                      duration=elapsed, total_energy_j=0.0)
+        return Result(
+            method="bash_baseline",
+            iteration=iteration,
+            duration=elapsed,
+            total_energy_j=0.0,
+        )
 
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
         print(f"    Could not parse bash output: {proc.stdout[:300]}")
-        return Result(method="bash_baseline", iteration=iteration,
-                      duration=elapsed, total_energy_j=0.0)
+        return Result(
+            method="bash_baseline",
+            iteration=iteration,
+            duration=elapsed,
+            total_energy_j=0.0,
+        )
 
     return Result(
         method="bash_baseline",
@@ -214,9 +246,9 @@ def measure_bash_baseline(workload_duration: float, iteration: int) -> Result:
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 METHODS = [
-    ("Python EMT",      measure_python_emt),
-    ("Rust CLI",        measure_rust_cli),
-    ("Bash Baseline",   measure_bash_baseline),
+    ("Python EMT", measure_python_emt),
+    ("Rust CLI", measure_rust_cli),
+    ("Bash Baseline", measure_bash_baseline),
 ]
 
 SETTLE_SECONDS = 3  # pause between phases to let system idle
@@ -310,9 +342,13 @@ def run_verification(num_iterations: int, workload_duration: float):
     output_path = Path(__file__).parent / "verification_results.json"
     with open(output_path, "w") as f:
         json.dump(
-            {name: [asdict(r) for r in results]
-             for name, results in all_results.items()},
-            f, indent=2, default=str,
+            {
+                name: [asdict(r) for r in results]
+                for name, results in all_results.items()
+            },
+            f,
+            indent=2,
+            default=str,
         )
     print(f"\n  Results saved to {output_path}")
 
@@ -321,6 +357,7 @@ def run_verification(num_iterations: int, workload_duration: float):
 
 if __name__ == "__main__":
     import argparse
+
     p = argparse.ArgumentParser(description="Verify EMT energy measurements")
     p.add_argument("-n", "--iterations", type=int, default=5)
     p.add_argument("-d", "--duration", type=float, default=10.0)

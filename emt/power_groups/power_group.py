@@ -102,8 +102,10 @@ class PowerGroup:
         """
         if not os.getenv("EMT_RELOAD_PROCS"):
             # Standard behavior - return simple list
-            return [self.tracked_process] + self.tracked_process.children(recursive=True)
-        
+            return [self.tracked_process] + self.tracked_process.children(
+                recursive=True
+            )
+
         # EMT_RELOAD_PROCS mode - discover new children but reuse cached Process objects
         current_pids = {self.tracked_process.pid}
         try:
@@ -111,13 +113,13 @@ class PowerGroup:
                 current_pids.add(child.pid)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-        
+
         # Update cache: add new processes, remove dead ones
         # Remove PIDs that are no longer children
         dead_pids = [pid for pid in self._process_cache if pid not in current_pids]
         for pid in dead_pids:
             del self._process_cache[pid]
-        
+
         # Add new PIDs to cache (this is where cpu_percent warmup starts)
         for pid in current_pids:
             if pid not in self._process_cache:
@@ -128,7 +130,7 @@ class PowerGroup:
                     self._process_cache[pid] = proc
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
-        
+
         # Return cached Process objects in order (tracked first, then children)
         result = []
         if self.tracked_process.pid in self._process_cache:
@@ -136,7 +138,7 @@ class PowerGroup:
         for pid in current_pids:
             if pid != self.tracked_process.pid and pid in self._process_cache:
                 result.append(self._process_cache[pid])
-        
+
         return result
 
     if os.getenv("EMT_RELOAD_PROCS"):

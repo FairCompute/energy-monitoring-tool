@@ -112,11 +112,12 @@ class RAPLSoC(PowerGroup):
             Path(self.RAPL_DIR, zone)
             for zone in filter(lambda x: ":" in x, os.listdir(self.RAPL_DIR))
         ]
-        
+
         # Filter to only keep package-level zones (exactly one colon, e.g., intel-rapl:0)
         # This prevents double-counting as package energy = core + uncore
         zones = [
-            zone for zone in all_zones
+            zone
+            for zone in all_zones
             if zone.name.count(":") == 1  # Only top-level: intel-rapl:N
         ]
 
@@ -261,12 +262,12 @@ class RAPLSoC(PowerGroup):
             # Get system CPU first (this establishes a consistent time reference)
             # Using interval=None returns delta since last call
             utilizations["cpu_util"] = psutil.cpu_percent(interval=None)
-            
+
             # Process level cpu utilization for all processes
             # Note: cpu_percent(interval=None) uses time since last call for that Process object
             ps_cpu_util = sum(ps.cpu_percent(interval=None) for ps in self.processes)
             ps_mem_util = sum(ps.memory_percent() for ps in self.processes)
-            
+
             # Dividing by cpu count normalizes the utilization to [0-100]% for each process
             cpu_count = (
                 psutil.cpu_count() or 1
