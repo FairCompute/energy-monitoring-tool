@@ -96,7 +96,6 @@ class PowerGroup:
     def get_processes(self):
         """
         Get all processes under the current one.
-        
         When EMT_RELOAD_PROCS is set, this returns fresh process list each time.
         Process objects are cached and reused so that psutil.cpu_percent() works
         correctly (it needs same object instance to compute delta between calls).
