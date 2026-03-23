@@ -20,46 +20,36 @@ jobs:
     runs-on: [ubuntu-latest]
 
     steps:
+      - name: Checkout Code (same-repo PR)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/checkout@v4
       - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Checkout Code (fork PR or non-PR)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup ReviewDog
-        uses: reviewdog/action-setup@v1
-        with:
-          reviewdog_version: latest
-
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
-      - name: Setup Black
+      - name: Run Black
         uses: psf/black@stable
-        id: action_black
         with:
           options: ""
           src: "."
 
-      - name: Submit Review via ReviewDog [Black]
-        run: |
-          set -euxo pipefail
-          echo "Running Black"
-          TEMPFILE="$(mktemp)"
-          git diff > $TEMPFILE
-          git stash -u || true
-          git stash drop || true
-          reviewdog -f=diff\
-                    -name=BLACK\
-                    -reporter=github-pr-review\
-                    -filter-mode='nofilter'\
-                    -fail-level=error\
-                    -diff="git diff FETCH_HEAD"\
-                    -level=warning\
-                    -tee < $TEMPFILE
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit Black Formatting Changes
+        if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format with Black"
 
   TestSuite:
     runs-on: [ubuntu-latest]
@@ -68,10 +58,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
@@ -96,7 +86,7 @@ jobs:
           python -m coverage xml -o coverage.xml
 
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report-${{ github.sha }}
           path: coverage.xml
@@ -110,12 +100,12 @@ jobs:
     needs: TestSuite
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download Coverage Report
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: coverage-report-${{ github.sha }}
           path: .

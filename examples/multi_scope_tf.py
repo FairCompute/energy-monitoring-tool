@@ -3,7 +3,6 @@ import timeit
 import numpy as np
 import logging
 
-
 try:
     import tensorflow as tf
     from tensorflow.keras import layers, models
@@ -15,7 +14,6 @@ except ImportError:
 
 from emt import EnergyMonitor
 from emt.utils import CSVRecorder, TensorboardRecorder
-
 
 _NAME = "multi_scope_tf"
 logger = logging.getLogger(_NAME)
