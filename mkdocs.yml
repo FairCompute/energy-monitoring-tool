@@ -8,6 +8,7 @@ nav:
   - Trace Rotation: trace_rotation.md
   - Virtualization Challenges: virtualization_challenges.md
   - Virtualization Strategies: virtualization_strategies.md
+  - Roadmap: roadmap.md
   - Conclusion: conclusion.md
 theme:
   name: material
