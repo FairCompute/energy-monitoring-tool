@@ -2,25 +2,56 @@
 
 This document translates the challenges described in [Virtualization Challenges](virtualization_challenges.md) into a concrete, prioritised feature roadmap. Each tier builds on the previous one, progressing from the simplest single-host scenario to fully distributed, heterogeneous deployments.
 
+For a detailed explanation of the current Python flow and the planned Rust/PyO3 flow, see [How EMT Works](how_EMT_works.md).
+
 ---
 
-## Tier 0 — Current State (Baseline)
+## Tier 0 — Current State and In-Progress Work
 
-EMT today supports **single-host, bare-metal** deployments. The process being monitored runs directly on the physical host, which has unrestricted access to hardware energy counters.
+### Today: Python Collector (Shipping)
 
-| Component | Status |
-|---|---|
-| RAPL (Intel/AMD CPU energy) | ✅ Implemented (`RAPLSoC`) |
-| NVML (NVIDIA GPU energy) | ✅ Implemented (`NvidiaGPU`) |
-| Process-level CPU energy attribution | ✅ Implemented (proportional CPU utilisation) |
-| Process-level GPU energy attribution | ✅ Implemented (proportional GPU memory utilisation) |
-| Dynamic child-process tracking | ✅ Implemented (psutil process tree walk) |
-| Rotating in-memory trace | ✅ Implemented (`RotatingTrace`) |
-| CSV trace export | ✅ Implemented |
-| Python context manager API | ✅ Implemented |
-| CLI monitor (`--pid`) | 🚧 In progress |
+EMT's shipping implementation is **entirely Python**. The process being monitored runs on a physical host with unrestricted access to hardware energy counters.
 
-All subsequent tiers are **additive** — each new tier extends EMT without breaking the existing API.
+| Component | Status | Implementation |
+|---|---|---|
+| RAPL (Intel/AMD CPU energy) | ✅ Shipping | Python `RAPLSoC` PowerGroup |
+| NVML (NVIDIA GPU energy) | ✅ Shipping | Python `NvidiaGPU` PowerGroup |
+| Process-level CPU energy attribution | ✅ Shipping | proportional CPU utilisation via `psutil` |
+| Process-level GPU energy attribution | ✅ Shipping | proportional GPU memory via NVML |
+| Dynamic child-process tracking | ✅ Shipping | `psutil` process tree walk |
+| Rotating in-memory trace | ✅ Shipping | Python `RotatingTrace` (list of dicts) |
+| CSV trace export | ✅ Shipping | `TraceRecorder` |
+| Python context manager API | ✅ Shipping | `with EnergyMonitor(…) as monitor:` |
+| CLI monitor (`--pid`) | 🚧 In progress | Rust binary (`energy-monitoring-tool`) |
+
+### In Progress: Rust Collector
+
+A Rust collector is under active development in `src/`. It re-implements the same collection pipeline in native code and will be integrated into the Python context manager via [PyO3](https://pyo3.rs/) once verification is complete.
+
+| Component | Status | Implementation |
+|---|---|---|
+| RAPL collector | ✅ Implemented | Rust `Rapl` struct — reads `/sys/class/powercap` and `/proc/stat` |
+| NVIDIA GPU collector | ✅ Implemented | Rust `NvidiaGpu` struct |
+| Process tree walk | ✅ Implemented | `collect_process_groups()` with recursive child expansion |
+| CPU utilisation tracking | ✅ Implemented | Direct `/proc/<pid>/stat` reads (no `psutil` dependency) |
+| Rotating in-memory trace | ✅ Implemented | Polars `DataFrame` backed `RotatingTrace` |
+| Tokio async runtime | ✅ Implemented | `EnergyGroup<T>` with bounded `mpsc` channel for backpressure |
+| CLI binary | ✅ Implemented | `energy-monitoring-tool --pid <PID> --duration <s>` |
+| PyO3 Python bindings | 🔜 Planned | Will expose `EnergyGroup` to Python as `emt._rust` extension module |
+
+### What Changes vs. What Stays the Same
+
+| Aspect | Current (Python) | Planned (Rust via PyO3) |
+|---|---|---|
+| Public Python API | `with EnergyMonitor(name="task") as monitor:` | **Unchanged** |
+| Energy attribution formulas | Proportional CPU + memory utilisation | **Unchanged** |
+| Supported hardware | RAPL (Intel/AMD), NVML (NVIDIA) | **Unchanged** + AMD `amd_energy` driver |
+| Hardware reads | Python file I/O + `psutil` | Rust direct `/proc` and `/sys` reads |
+| Async runtime | Python `asyncio` in a dedicated OS thread | Tokio inside a Rust background task |
+| CLI | `python -m emt --pid …` (delegates to Rust binary) | Native Rust `energy-monitoring-tool` binary |
+| Trace format | Python list of dicts → CSV | Polars `DataFrame` → CSV / Arrow / Parquet |
+
+All subsequent roadmap tiers are **additive** — each tier extends EMT without breaking the existing API, and each tier's features apply equally to the Python and Rust collector paths.
 
 ---
 
@@ -34,7 +65,7 @@ Ensure that the existing host-level attribution correctly covers the **entire pr
 
 ### Current Gap
 
-EMT today tracks processes by walking the psutil child tree from a root PID. If a child process is spawned after the `EnergyMonitor.__enter__` call, it may be missed during the first collection interval.
+EMT today tracks processes by walking the psutil / sysinfo child tree from a root PID. If a child process is spawned after the `EnergyMonitor.__enter__` call, it may be missed during the first collection interval.
 
 ### Feature Plan
 
@@ -48,13 +79,12 @@ EMT today tracks processes by walking the psutil child tree from a root PID. If 
 ### Architecture Change
 
 ```
-EnergyMonitorCore
-  └── PowerGroup.commence()
-        └── _read_utilization()
-              └── ProcessTracker (new class)
-                    ├── walk_process_tree(root_pid)     ← already exists
-                    ├── refresh_children()              ← NEW: called every interval
-                    └── finalize_exited_processes()     ← NEW: drain exited PIDs
+EnergyGroup<T>  (Rust) / EnergyMonitorCore  (Python — current)
+  └── PowerGroup.commence() / EnergyCollector.get_energy_trace()
+        └── ProcessTracker
+              ├── walk_process_tree(root_pid)     ← already exists (both paths)
+              ├── refresh_children()              ← NEW: called every interval
+              └── finalize_exited_processes()     ← NEW: drain exited PIDs
 ```
 
 ### Acceptance Criteria
@@ -90,6 +120,8 @@ Support the case where the **compute workload runs inside a container** (Docker,
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+The host sidecar will be implemented as the **Rust `energy-monitoring-tool` binary** (already available) deployed with appropriate host mounts, removing the need for a separate Python process.
+
 ### Feature Plan
 
 | Feature | Description |
@@ -119,12 +151,14 @@ Support cloud-hosted containers (e.g. AWS ECS, Azure Container Instances, GCP Cl
 
 ```
 Container / VPS / Serverless Environment
-  └── EnergyMonitor
+  └── EnergyMonitor (Python context manager — unchanged API)
         └── CPUEstimator PowerGroup  (NEW)
               ├── detect_cpu_model()         → reads /proc/cpuinfo
               ├── lookup_tdp(cpu_model)      → Teads TDP CSV lookup
               └── estimate_energy(util, tdp) → TDP_idle + (TDP_max - TDP_idle) × util
 ```
+
+With the Rust path, `CPUEstimator` will be implemented as a Rust `EnergyCollector` trait implementation inside `EnergyGroup<CPUEstimator>` — the same generic pattern already used by `Rapl` and `NvidiaGpu`.
 
 ### Feature Plan
 
@@ -178,19 +212,21 @@ When a privileged host agent is available, correlate host RAPL readings with per
 | **Per-VM RAPL attribution** | Attribute socket energy to VMs using the same CPU-time proportional formula as Tier 2 |
 | **Guest ↔ host correlation API** | Optional host agent endpoint that a guest can query to retrieve its attributed energy (requires shared network or virtio socket) |
 
+The host agent will be implemented as the **Rust `energy-monitoring-tool` binary** running with `--pid` set to the vCPU thread PIDs of each guest domain.
+
 ### Architecture (Dual-Layer)
 
 ```
 Physical Host
-  ├── Host EMT agent (privileged)
+  ├── Host EMT agent (Rust binary, privileged)
   │     ├── reads RAPL
   │     ├── queries libvirt for VM vCPU PIDs
   │     ├── attributes energy per VM
   │     └── exposes /vm/<uuid>/energy via virtio/vsock
   │
   └── Guest VM
-        └── EnergyMonitor
-              ├── tries RAPLSoC (succeeds if MSR passthrough enabled)
+        └── EnergyMonitor (Python context manager — unchanged API)
+              ├── tries Rapl collector (succeeds if MSR passthrough enabled)
               ├── falls back to CPUEstimator
               └── optionally queries host agent via vsock for corrected reading
 ```
@@ -246,13 +282,15 @@ Support the case where a Kubernetes cluster (typically k3s or k3d for local or e
 
 ```
 Single Host (k3s node)
-  └── EMT DaemonSet pod (privileged)
+  └── EMT DaemonSet pod (Rust binary or Python, privileged)
         ├── reads RAPL via /sys/class/powercap (host volume mount)
         ├── reads /proc on host (hostPID: true)
         ├── resolves PID → container ID → pod UID via /proc/<pid>/cgroup
         ├── queries Kubernetes API for pod metadata (labels, namespace, owner)
         └── exposes Prometheus metrics labelled by pod/namespace/label
 ```
+
+The DaemonSet will preferably run the **Rust binary** for lower overhead and no Python/pip dependency inside the container image.
 
 ### Feature Plan
 
@@ -288,7 +326,8 @@ Scale EMT to production Kubernetes clusters where a single logical job (e.g. a d
 │  Node A (Intel + NVIDIA)   Node B (AMD CPU)   Node C (ARM)     │
 │  ┌──────────────────────┐  ┌───────────────┐  ┌─────────────┐  │
 │  │ EMT DaemonSet        │  │ EMT DaemonSet │  │ EMT DaemonSet│  │
-│  │ RAPLSoC + NvidiaGPU  │  │ AMDEnergy     │  │ CPUEstimator│  │
+│  │ Rapl + NvidiaGpu     │  │ AMDEnergy     │  │ CPUEstimator│  │
+│  │ (Rust binary)        │  │ (Rust binary) │  │ (Rust binary│  │
 │  └──────────┬───────────┘  └───────┬───────┘  └──────┬──────┘  │
 │             │                      │                 │         │
 │             └──────────────────────┴─────────────────┘         │
@@ -310,7 +349,7 @@ Scale EMT to production Kubernetes clusters where a single logical job (e.g. a d
 
 | Feature | Description |
 |---|---|
-| **`AMDEnergy` PowerGroup** | New power group wrapping the `amd_energy` kernel driver (`/sys/bus/platform/devices/amd_energy.*/`) for AMD EPYC nodes |
+| **`AMDEnergy` collector** | New Rust `EnergyCollector` impl wrapping the `amd_energy` kernel driver (`/sys/bus/platform/devices/amd_energy.*/`) for AMD EPYC nodes |
 | **ARM/Graviton estimation** | `CPUEstimator` extended with ARM TDP profiles (AWS Graviton 2/3, Ampere Altra) |
 | **Job-level aggregation** | PromQL recording rules that sum `emt_pod_energy_joules_total` across all pods sharing a `batch.kubernetes.io/job-name` label |
 | **Network energy estimation** | Attribute energy cost of network transfers using byte-count × energy-per-byte coefficients (based on published datacenter network energy studies) |
@@ -321,7 +360,7 @@ Scale EMT to production Kubernetes clusters where a single logical job (e.g. a d
 ### Acceptance Criteria
 
 - Job-level energy aggregation across 10 nodes produces results within ±5 % of the sum of individual node attributions.
-- DaemonSet image auto-selects the correct `PowerGroup` on each node type without manual configuration.
+- DaemonSet image auto-selects the correct `EnergyCollector` on each node type without manual configuration.
 
 ---
 
@@ -329,6 +368,7 @@ Scale EMT to production Kubernetes clusters where a single logical job (e.g. a d
 
 | Tier | Priority | Effort | Compute Context Covered |
 |---|---|---|---|
+| **0** | ★★★★★ | — | Current: Python collector; In progress: Rust collector + PyO3 bridge |
 | **1** | ★★★★★ | Low | Physical host, full process tree |
 | **2** | ★★★★★ | Medium | Container on host with RAPL |
 | **3** | ★★★★☆ | Medium | Container / VPS, no RAPL (model) |
@@ -345,13 +385,15 @@ The following features are needed by multiple tiers and should be implemented as
 
 | Feature | Required By | Notes |
 |---|---|---|
-| **`AttributionChain` pipeline** | Tiers 5–7 | Compose attribution stages; each stage scales the energy budget from the stage above |
-| **Hypervisor / container layer auto-detection** | Tiers 3–5 | Read CPUID, DMI, `/run/containerenv`, `/proc/1/cgroup` at startup |
+| **Rust → Python PyO3 bridge** | All tiers | Exposes `EnergyGroup<T>` to Python as `emt._rust`; replaces Python PowerGroups without changing the public API |
+| **`AttributionChain` pipeline** | Tiers 5–7 | Compose attribution stages; each stage scales the energy budget from the stage above; implement in Rust for performance |
+| **Hypervisor / container layer auto-detection** | Tiers 3–5 | Read CPUID, DMI, `/run/containerenv`, `/proc/1/cgroup` at startup — portable in Rust |
 | **Prometheus exporter** | Tiers 6–7 | Reuse existing metric schema; add `source` label (`measured` / `estimated`) |
-| **`AMDEnergy` PowerGroup** | Tiers 1, 7 | AMD EPYC is common in both HPC and Kubernetes clusters |
+| **`AMDEnergy` collector** | Tiers 1, 7 | AMD EPYC is common in both HPC and Kubernetes clusters; implement as `EnergyCollector` trait in Rust |
 | **Trace `source` metadata** | Tiers 3–5 | Distinguish measured from estimated values in every output row |
-| **Helm chart** | Tiers 6–7 | Reduce deployment friction; configurable resource limits, RBAC, tolerations |
+| **Helm chart** | Tiers 6–7 | Reduce deployment friction; configurable resource limits, RBAC, tolerations; use Rust binary image for small footprint |
 
 ---
 
-*For the technical challenges that motivate this roadmap, see [Virtualization Challenges](virtualization_challenges.md). For current deployment patterns and configuration examples, see [Virtualization Strategies](virtualization_strategies.md).*
+*For the technical challenges that motivate this roadmap, see [Virtualization Challenges](virtualization_challenges.md). For the current Python and planned Rust flow in detail, see [How EMT Works](how_EMT_works.md). For current deployment patterns and configuration examples, see [Virtualization Strategies](virtualization_strategies.md).*
+
