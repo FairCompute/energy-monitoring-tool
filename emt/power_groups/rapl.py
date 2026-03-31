@@ -24,10 +24,10 @@ def extract_components(zone_path: Path, all_zone_paths: list) -> list:
     that it works regardless of whether the powercap entries are represented as
     a flat collection of symlinks or as a nested directory tree.
 
-    The correct threshold for identifying a sub-component is
-    ``name.count(":") > 1`` (more than one colon), **not** ``> 2``; the latter
-    would wrongly require three or more colon-separated segments and thereby
-    miss valid sub-components such as ``intel-rapl:0:0``.
+    The threshold used for identifying a sub-component is
+    ``name.count(":") > 1`` (more than one colon), which correctly classifies
+    domains such as ``intel-rapl:0:0`` (a child of ``intel-rapl:0``) as
+    sub-components rather than top-level zones.
 
     Args:
         zone_path:       Path to a top-level RAPL zone (e.g.,
