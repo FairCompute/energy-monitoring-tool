@@ -20,7 +20,7 @@ import subprocess
 import statistics
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-from typing import List
+from typing import Any, List
 
 # Add parent directory to path for emt imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -75,7 +75,7 @@ def assert_rapl_available(root: Path = RAPL_ROOT) -> list[Path]:
 def build_acceptance_analysis(
     all_results: dict[str, List[Result]],
     tolerance_percent: float = ACCURACY_TOLERANCE_PERCENT,
-) -> dict:
+) -> dict[str, Any]:
     """Summarize whether the physical-host Python vs Rust comparison passed."""
     analysis = {
         "tolerance_percent": tolerance_percent,
@@ -93,6 +93,9 @@ def build_acceptance_analysis(
     within_tolerance = False
 
     if python_mean > 0:
+        # Use Python EMT as the reference denominator because the acceptance
+        # criterion is defined as "Rust-measured total energy within ±2% of the
+        # Python-measured total" before the Rust collector replaces it.
         relative_diff_percent = abs(rust_mean - python_mean) / python_mean * 100.0
         within_tolerance = relative_diff_percent <= tolerance_percent
 

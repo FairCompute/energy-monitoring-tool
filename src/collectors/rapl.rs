@@ -690,6 +690,24 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    struct TempTestDir {
+        path: PathBuf,
+    }
+
+    impl TempTestDir {
+        fn new(name: &str) -> Self {
+            Self {
+                path: create_temp_dir(name),
+            }
+        }
+    }
+
+    impl Drop for TempTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
     fn create_temp_dir(name: &str) -> PathBuf {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -710,31 +728,31 @@ mod tests {
 
     #[test]
     fn delta_reader_returns_zero_on_counter_wraparound() {
-        let zone_dir = create_temp_dir("delta-wrap");
-        fs::write(zone_dir.join("energy_uj"), "4000000").unwrap();
+        let zone_dir = TempTestDir::new("delta-wrap");
+        fs::write(zone_dir.path.join("energy_uj"), "4000000").unwrap();
 
-        let reader = DeltaReader::new(zone_dir.clone());
+        let reader = DeltaReader::new(zone_dir.path.clone());
 
         assert_eq!(reader.read_delta().unwrap(), 0.0);
 
-        fs::write(zone_dir.join("energy_uj"), "1000").unwrap();
+        // Simulate a wrapped counter: the new reading is lower than the previous one,
+        // so the collector should discard the sample instead of reporting negative energy.
+        fs::write(zone_dir.path.join("energy_uj"), "1000").unwrap();
         assert_eq!(reader.read_delta().unwrap(), 0.0);
-
-        fs::remove_dir_all(zone_dir).unwrap();
     }
 
     #[test]
     fn scan_powercap_entries_keeps_multi_socket_components_separate() {
-        let rapl_dir = create_temp_dir("multi-socket");
+        let rapl_dir = TempTestDir::new("multi-socket");
 
-        write_zone(&rapl_dir, "intel-rapl:0", "package-0");
-        write_zone(&rapl_dir, "intel-rapl:0:0", "core");
-        write_zone(&rapl_dir, "intel-rapl:0:1", "uncore");
-        write_zone(&rapl_dir, "intel-rapl:1", "package-1");
-        write_zone(&rapl_dir, "intel-rapl:1:0", "core");
+        write_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+        write_zone(&rapl_dir.path, "intel-rapl:0:0", "core");
+        write_zone(&rapl_dir.path, "intel-rapl:0:1", "uncore");
+        write_zone(&rapl_dir.path, "intel-rapl:1", "package-1");
+        write_zone(&rapl_dir.path, "intel-rapl:1:0", "core");
 
         let (socket_readers, dram_reader, psys_reader) =
-            Rapl::scan_powercap_entries(rapl_dir.to_str().unwrap());
+            Rapl::scan_powercap_entries(rapl_dir.path.to_str().unwrap());
 
         assert!(dram_reader.is_none());
         assert!(psys_reader.is_none());
@@ -755,7 +773,5 @@ mod tests {
         assert!(socket1.package_reader.is_some());
         assert!(socket1.core_reader.is_some());
         assert!(socket1.uncore_reader.is_none());
-
-        fs::remove_dir_all(rapl_dir).unwrap();
     }
 }
