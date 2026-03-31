@@ -703,9 +703,18 @@ mod tests {
         dir
     }
 
+    struct TempDirGuard(PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn delta_reader_handles_wrap_around() {
         let temp_dir = create_temp_energy_dir(3_000_000);
+        let _guard = TempDirGuard(temp_dir.clone());
         let reader = DeltaReader::new(temp_dir.clone());
 
         {
@@ -714,6 +723,7 @@ mod tests {
         }
 
         let delta = reader.read_delta().unwrap();
+        // Wrap-around is modeled as a negative counter delta; collector clamps it to 0.0.
         assert_eq!(delta, 0.0);
 
         let previous = reader.previous_value.lock().unwrap();
@@ -723,7 +733,5 @@ mod tests {
         fs::write(temp_dir.join("energy_uj"), "8000000").unwrap();
         let recovered_delta = reader.read_delta().unwrap();
         assert_eq!(recovered_delta, 5.0);
-
-        fs::remove_dir_all(temp_dir).unwrap();
     }
 }

@@ -28,6 +28,7 @@ def test_python_and_rust_fixture_totals_within_two_percent():
     python_total = _load_python_total_energy_from_trace(PYTHON_TRACE_CSV)
     rust_total = _load_rust_total_energy(FIXTURES_DIR / "rust_output_fixture.json")
 
+    assert python_total > 0.0
     relative_error = abs(rust_total - python_total) / python_total
     assert relative_error <= TOLERANCE
 
