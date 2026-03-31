@@ -56,13 +56,14 @@ class TestExtractComponents:
         assert result == [_p("intel-rapl:0:0")]
 
     # ------------------------------------------------------------------
-    # Regression: the old > 2 assumption would have missed valid sub-components
+    # Regression: flat sysfs layout and rglob traversal of RAPL zones
     # ------------------------------------------------------------------
 
-    def test_old_gt2_assumption_would_fail_for_valid_subcomponent(self):
-        """Regression: the old implementation used len(stem.split(':')) > 2, which
-        is equivalent to colon_count > 1 — but it did so via rglob, which would fail
-        for a flat sysfs layout where sub-components are siblings of top-level zones.
+    def test_flat_layout_sibling_subcomponents_are_discovered(self):
+        """Regression: a previous implementation relied on rglob() directory traversal
+        and expected sub-components to be nested under their parent zone directory.
+        On systems where zones and their sub-components are siblings in a flat sysfs
+        layout, that traversal only saw top-level zones and missed valid sub-components.
         The new extract_components function works correctly for the flat layout."""
         zone = _p("intel-rapl:0")
         # intel-rapl:0:0 has exactly 2 colons; it is a valid sub-component
