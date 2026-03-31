@@ -30,6 +30,8 @@ WORKLOAD_SCRIPT = Path(__file__).parent / "workload.py"
 RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
 BASH_BASELINE = Path(__file__).parent / "rapl_baseline.sh"
 PYTHON = sys.executable
+RAPL_ROOT = Path("/sys/class/powercap")
+ACCURACY_TOLERANCE_PERCENT = 2.0
 
 
 @dataclass
@@ -41,6 +43,67 @@ class Result:
     raw_rapl_energy_j: float = 0.0
     process_fraction: float = 0.0
     details: dict = field(default_factory=dict)
+
+
+def rapl_energy_entries(root: Path = RAPL_ROOT) -> list[Path]:
+    """Return readable RAPL counter directories under *root*."""
+    if not root.exists():
+        return []
+
+    return sorted(
+        entry
+        for entry in root.iterdir()
+        if entry.is_dir()
+        and entry.name.startswith(("intel-rapl", "amd-rapl"))
+        and (entry / "energy_uj").exists()
+    )
+
+
+def assert_rapl_available(root: Path = RAPL_ROOT) -> list[Path]:
+    """Fail fast when the host does not expose any readable RAPL counters."""
+    entries = rapl_energy_entries(root)
+    if entries:
+        return entries
+
+    raise RuntimeError(
+        f"No readable RAPL energy counters were found under {root}. "
+        "Run this verification on a physical host with populated "
+        "/sys/class/powercap entries."
+    )
+
+
+def build_acceptance_analysis(
+    all_results: dict[str, List[Result]],
+    tolerance_percent: float = ACCURACY_TOLERANCE_PERCENT,
+) -> dict:
+    """Summarize whether the physical-host Python vs Rust comparison passed."""
+    analysis = {
+        "tolerance_percent": tolerance_percent,
+        "python_vs_rust": None,
+    }
+
+    python_results = all_results.get("Python EMT", [])
+    rust_results = all_results.get("Rust CLI", [])
+    if not python_results or not rust_results:
+        return analysis
+
+    python_mean = statistics.mean(result.total_energy_j for result in python_results)
+    rust_mean = statistics.mean(result.total_energy_j for result in rust_results)
+    relative_diff_percent = None
+    within_tolerance = False
+
+    if python_mean > 0:
+        relative_diff_percent = abs(rust_mean - python_mean) / python_mean * 100.0
+        within_tolerance = relative_diff_percent <= tolerance_percent
+
+    analysis["python_vs_rust"] = {
+        "python_mean_j": python_mean,
+        "rust_mean_j": rust_mean,
+        "relative_diff_percent": relative_diff_percent,
+        "within_tolerance": within_tolerance,
+        "iterations_compared": min(len(python_results), len(rust_results)),
+    }
+    return analysis
 
 
 # ── Method 1: Python EMT ────────────────────────────────────────────────────
@@ -255,10 +318,13 @@ SETTLE_SECONDS = 3  # pause between phases to let system idle
 
 
 def run_verification(num_iterations: int, workload_duration: float):
+    rapl_entries = assert_rapl_available()
+
     print("=" * 70)
     print("Energy Monitoring Tool — Verification")
     print(f"Methods: {', '.join(n for n, _ in METHODS)}")
     print(f"Iterations: {num_iterations}  |  Workload duration: {workload_duration}s")
+    print("RAPL zones: " + ", ".join(entry.name for entry in rapl_entries))
     print("=" * 70)
 
     all_results: dict[str, List[Result]] = {name: [] for name, _ in METHODS}
@@ -338,18 +404,27 @@ def run_verification(num_iterations: int, workload_duration: float):
                 print(f"  {'—':>15}", end="")
         print()
 
+    analysis = build_acceptance_analysis(all_results)
+    python_vs_rust = analysis.get("python_vs_rust")
+    if python_vs_rust is not None:
+        status = "✅ PASS" if python_vs_rust["within_tolerance"] else "⚠️ FAIL"
+        relative_diff = python_vs_rust["relative_diff_percent"]
+        rel_text = f"{relative_diff:.2f}%" if relative_diff is not None else "n/a"
+        print(f"\n  {'─'*50}")
+        print("  Acceptance criterion — Python EMT vs Rust CLI:")
+        print(
+            f"    {status} relative difference {rel_text} "
+            f"(tolerance ±{analysis['tolerance_percent']:.2f}%)"
+        )
+
     # Save JSON
     output_path = Path(__file__).parent / "verification_results.json"
+    output_payload = {
+        "analysis": analysis,
+        **{name: [asdict(r) for r in results] for name, results in all_results.items()},
+    }
     with open(output_path, "w") as f:
-        json.dump(
-            {
-                name: [asdict(r) for r in results]
-                for name, results in all_results.items()
-            },
-            f,
-            indent=2,
-            default=str,
-        )
+        json.dump(output_payload, f, indent=2, default=str)
     print(f"\n  Results saved to {output_path}")
 
 

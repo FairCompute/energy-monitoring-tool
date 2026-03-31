@@ -1,7 +1,7 @@
 use crate::energy_group::{EnergyCollector, EnergyRecord};
 use async_trait::async_trait;
 use chrono::Utc;
-use log::{info, warn};
+use log::warn;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -682,5 +682,80 @@ impl EnergyCollector for Rapl {
                     Some(false)
                 })
                 .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn create_temp_dir(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("emt-rapl-{}-{}-{}", name, std::process::id(), unique));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_zone(root: &Path, entry_name: &str, zone_name: &str) {
+        let zone_dir = root.join(entry_name);
+        fs::create_dir_all(&zone_dir).unwrap();
+        fs::write(zone_dir.join("name"), zone_name).unwrap();
+        fs::write(zone_dir.join("energy_uj"), "0").unwrap();
+    }
+
+    #[test]
+    fn delta_reader_returns_zero_on_counter_wraparound() {
+        let zone_dir = create_temp_dir("delta-wrap");
+        fs::write(zone_dir.join("energy_uj"), "4000000").unwrap();
+
+        let reader = DeltaReader::new(zone_dir.clone());
+
+        assert_eq!(reader.read_delta().unwrap(), 0.0);
+
+        fs::write(zone_dir.join("energy_uj"), "1000").unwrap();
+        assert_eq!(reader.read_delta().unwrap(), 0.0);
+
+        fs::remove_dir_all(zone_dir).unwrap();
+    }
+
+    #[test]
+    fn scan_powercap_entries_keeps_multi_socket_components_separate() {
+        let rapl_dir = create_temp_dir("multi-socket");
+
+        write_zone(&rapl_dir, "intel-rapl:0", "package-0");
+        write_zone(&rapl_dir, "intel-rapl:0:0", "core");
+        write_zone(&rapl_dir, "intel-rapl:0:1", "uncore");
+        write_zone(&rapl_dir, "intel-rapl:1", "package-1");
+        write_zone(&rapl_dir, "intel-rapl:1:0", "core");
+
+        let (socket_readers, dram_reader, psys_reader) =
+            Rapl::scan_powercap_entries(rapl_dir.to_str().unwrap());
+
+        assert!(dram_reader.is_none());
+        assert!(psys_reader.is_none());
+        assert_eq!(socket_readers.len(), 2);
+
+        let socket0 = socket_readers
+            .iter()
+            .find(|socket| socket.socket_id == 0)
+            .unwrap();
+        assert!(socket0.package_reader.is_some());
+        assert!(socket0.core_reader.is_some());
+        assert!(socket0.uncore_reader.is_some());
+
+        let socket1 = socket_readers
+            .iter()
+            .find(|socket| socket.socket_id == 1)
+            .unwrap();
+        assert!(socket1.package_reader.is_some());
+        assert!(socket1.core_reader.is_some());
+        assert!(socket1.uncore_reader.is_none());
+
+        fs::remove_dir_all(rapl_dir).unwrap();
     }
 }
