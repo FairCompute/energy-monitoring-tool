@@ -156,7 +156,7 @@ impl EnergyCollector for NvidiaGpu {
                 .map(|prev| ((gpu.total_energy_mj - prev) / 1000.0).max(0.0))
                 .unwrap_or(0.0);
 
-            if delta_joules <= 0.0 || gpu.used_memory_mib <= f64::EPSILON {
+            if delta_joules <= 0.0 || gpu.used_memory_mib <= 0.0 {
                 continue;
             }
 
@@ -173,6 +173,8 @@ impl EnergyCollector for NvidiaGpu {
             }
 
             for (pid, process_memory_mib) in process_memories {
+                // Match Python collector attribution: distribute zone energy by each tracked
+                // process memory share on the GPU for this sampling interval.
                 let energy = delta_joules * (process_memory_mib / gpu.used_memory_mib);
                 records.push(EnergyRecord {
                     pid,
