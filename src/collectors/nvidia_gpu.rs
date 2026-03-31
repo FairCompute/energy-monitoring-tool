@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_process_line_with_na_memory() {
+    fn rejects_process_line_with_n_a_memory() {
         let parsed = NvidiaGpu::parse_process_line("GPU-1234, 4242, N/A");
         assert!(parsed.is_none());
     }
