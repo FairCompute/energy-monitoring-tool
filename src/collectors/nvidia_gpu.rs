@@ -99,9 +99,16 @@ impl NvidiaGpu {
             "--format=csv,noheader,nounits",
         ]);
 
-        let Ok(output) = output else {
-            // No active compute processes is expected frequently
-            return HashMap::new();
+        let output = match output {
+            Ok(output) => output,
+            Err(err) => {
+                // Treat failures as no active processes, but log so outages/misconfigurations are visible.
+                warn!(
+                    "Failed to query active compute processes via nvidia-smi: {}",
+                    err
+                );
+                return HashMap::new();
+            }
         };
 
         let mut per_gpu_processes: HashMap<String, Vec<(u32, f64)>> = HashMap::new();
