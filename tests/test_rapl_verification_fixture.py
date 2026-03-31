@@ -36,7 +36,8 @@ def test_rust_fixture_contains_per_socket_devices_for_multi_socket_attribution()
     with open(FIXTURES_DIR / "rust_output_fixture.json") as file:
         payload = json.load(file)
 
+    device_map = payload["devices"]
     socket_devices = [
-        device for device in payload.get("devices", {}) if device.startswith("rapl:socket:")
+        device for device in device_map.keys() if device.startswith("rapl:socket:")
     ]
     assert socket_devices

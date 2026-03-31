@@ -718,6 +718,11 @@ mod tests {
 
         let previous = reader.previous_value.lock().unwrap();
         assert_eq!(*previous, Some(3_000_000));
+        drop(previous);
+
+        fs::write(temp_dir.join("energy_uj"), "8000000").unwrap();
+        let recovered_delta = reader.read_delta().unwrap();
+        assert_eq!(recovered_delta, 5.0);
 
         fs::remove_dir_all(temp_dir).unwrap();
     }
