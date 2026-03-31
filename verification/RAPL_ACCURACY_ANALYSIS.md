@@ -18,9 +18,11 @@ This note documents the verification path for comparing the Rust collector in
 - Rust unit test:
   - `delta_reader_returns_zero_on_counter_wraparound`
   - `scan_powercap_entries_keeps_multi_socket_components_separate`
-- Python unit test:
-  - `tests/test_verification_verify.py`
-  - Covers RAPL preflight checks and the ±2% acceptance analysis logic.
+- Verification harness coverage:
+  - The RAPL preflight checks and the ±2% acceptance analysis logic remain
+    implemented in `verification/verify.py`.
+  - These transition-only verification checks are intentionally kept localized
+    to the `verification/` workflow instead of the permanent `tests/` suite.
 
 ## Physical-host verification command
 
