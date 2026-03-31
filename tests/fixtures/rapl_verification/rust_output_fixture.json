@@ -1,0 +1,10 @@
+{
+  "pid": 4242,
+  "duration_seconds": 30.0,
+  "total_energy": 35.96,
+  "energy_unit": "Joules",
+  "devices": {
+    "rapl:socket:0:package": 17.98,
+    "rapl:socket:1:package": 17.98
+  }
+}

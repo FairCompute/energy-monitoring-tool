@@ -684,3 +684,41 @@ impl EnergyCollector for Rapl {
                 .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DeltaReader;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn create_temp_energy_dir(initial_value: i64) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("emt_rapl_delta_reader_test_{}", unique));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("energy_uj"), initial_value.to_string()).unwrap();
+        dir
+    }
+
+    #[test]
+    fn delta_reader_handles_wrap_around() {
+        let temp_dir = create_temp_energy_dir(3_000_000);
+        let reader = DeltaReader::new(temp_dir.clone());
+
+        {
+            let mut previous = reader.previous_value.lock().unwrap();
+            *previous = Some(4_000_000);
+        }
+
+        let delta = reader.read_delta().unwrap();
+        assert_eq!(delta, 0.0);
+
+        let previous = reader.previous_value.lock().unwrap();
+        assert_eq!(*previous, Some(3_000_000));
+
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+}
