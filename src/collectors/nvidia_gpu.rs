@@ -32,8 +32,7 @@ impl NvidiaGpu {
 
     async fn run_nvidia_smi(args: &[&str]) -> Result<String, String> {
         let args_vec: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        let join_args = args_vec.clone();
-        let output = task::spawn_blocking(move || {
+        let task_result = task::spawn_blocking(move || {
             let output = Command::new("nvidia-smi")
                 .args(&args_vec)
                 .output()
@@ -51,9 +50,9 @@ impl NvidiaGpu {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         })
         .await
-        .map_err(|e| format!("Failed to join nvidia-smi task with args {:?}: {}", join_args, e))??;
+        .map_err(|e| format!("Failed to join nvidia-smi task with args {:?}: {}", args, e))?;
 
-        Ok(output)
+        task_result
     }
 
     fn parse_gpu_snapshot_line(line: &str) -> Option<GpuSnapshot> {
