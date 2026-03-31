@@ -85,6 +85,35 @@ impl NvidiaGpu {
         Some((fields[0].to_string(), pid, used_memory_mib))
     }
 
+    fn compute_delta_joules(previous_total_energy_mj: Option<f64>, current_total_energy_mj: f64) -> f64 {
+        previous_total_energy_mj
+            .map(|prev| ((current_total_energy_mj - prev) / 1000.0).max(0.0))
+            .unwrap_or(0.0)
+    }
+
+    fn attribute_energy_for_processes(
+        gpu: &GpuSnapshot,
+        delta_joules: f64,
+        tracked_pid_set: &HashSet<u32>,
+        process_memories: &[(u32, f64)],
+        timestamp: i64,
+    ) -> Vec<EnergyRecord> {
+        if delta_joules <= 0.0 || gpu.used_memory_mib <= 0.0 {
+            return Vec::new();
+        }
+
+        process_memories
+            .iter()
+            .filter(|(pid, used_mem)| tracked_pid_set.contains(pid) && *used_mem > 0.0)
+            .map(|(pid, process_memory_mib)| EnergyRecord {
+                pid: *pid,
+                timestamp,
+                device: format!("nvidia:gpu:{}", gpu.index),
+                energy: delta_joules * (process_memory_mib / gpu.used_memory_mib),
+            })
+            .collect()
+    }
+
     async fn query_gpus(&self) -> Result<Vec<GpuSnapshot>, String> {
         let output = Self::run_nvidia_smi(&[
             "--query-gpu=index,uuid,total_energy_consumption,memory.used",
@@ -169,37 +198,26 @@ impl EnergyCollector for NvidiaGpu {
         for gpu in gpus {
             let previous = previous_energy_mj.get(&gpu.index).copied();
             previous_energy_mj.insert(gpu.index, gpu.total_energy_mj);
-            let delta_joules = previous
-                .map(|prev| ((gpu.total_energy_mj - prev) / 1000.0).max(0.0))
-                .unwrap_or(0.0);
-
-            if delta_joules <= 0.0 || gpu.used_memory_mib <= 0.0 {
-                continue;
-            }
+            let delta_joules = Self::compute_delta_joules(previous, gpu.total_energy_mj);
 
             let process_memories = per_gpu_processes
                 .get(&gpu.uuid)
                 .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(pid, used_mem)| tracked_pid_set.contains(pid) && *used_mem > 0.0)
-                .collect::<Vec<_>>();
+                .unwrap_or_default();
 
             if process_memories.is_empty() {
                 continue;
             }
 
-            for (pid, process_memory_mib) in process_memories {
-                // Match Python collector attribution: distribute zone energy by each tracked
-                // process memory share on the GPU for this sampling interval.
-                let energy = delta_joules * (process_memory_mib / gpu.used_memory_mib);
-                records.push(EnergyRecord {
-                    pid,
-                    timestamp,
-                    device: format!("nvidia:gpu:{}", gpu.index),
-                    energy,
-                });
-            }
+            // Match Python collector attribution: distribute zone energy by each tracked
+            // process memory share on the GPU for this sampling interval.
+            records.extend(Self::attribute_energy_for_processes(
+                &gpu,
+                delta_joules,
+                &tracked_pid_set,
+                &process_memories,
+                timestamp,
+            ));
         }
 
         debug!("NVIDIA GPU energy trace collected: {} records", records.len());
@@ -212,7 +230,14 @@ impl EnergyCollector for NvidiaGpu {
             .arg("--query-gpu=count")
             .arg("--format=csv,noheader,nounits")
             .output()
-            .map(|output| output.status.success())
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .and_then(|stdout| stdout.lines().next()?.trim().parse::<u32>().ok())
+            })
+            .map(|count| count > 0)
             .unwrap_or(false)
     }
 }
@@ -249,5 +274,38 @@ mod tests {
     fn rejects_process_line_with_n_a_memory() {
         let parsed = NvidiaGpu::parse_process_line("GPU-1234, 4242, N/A");
         assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn first_sample_delta_is_zero() {
+        let delta = NvidiaGpu::compute_delta_joules(None, 1200.0);
+        assert_eq!(delta, 0.0);
+    }
+
+    #[test]
+    fn negative_delta_is_clamped_to_zero() {
+        let delta = NvidiaGpu::compute_delta_joules(Some(2200.0), 1200.0);
+        assert_eq!(delta, 0.0);
+    }
+
+    #[test]
+    fn attributes_energy_by_process_memory_share() {
+        let gpu = GpuSnapshot {
+            index: 0,
+            uuid: "GPU-1234".to_string(),
+            total_energy_mj: 2000.0,
+            used_memory_mib: 100.0,
+        };
+        let tracked: HashSet<u32> = HashSet::from([1001, 1002]);
+        let process_memories = vec![(1001, 40.0), (1002, 60.0), (9999, 30.0)];
+
+        let records =
+            NvidiaGpu::attribute_energy_for_processes(&gpu, 10.0, &tracked, &process_memories, 42);
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].pid, 1001);
+        assert_eq!(records[1].pid, 1002);
+        assert!((records[0].energy - 4.0).abs() < f64::EPSILON);
+        assert!((records[1].energy - 6.0).abs() < f64::EPSILON);
     }
 }
