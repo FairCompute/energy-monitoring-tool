@@ -33,11 +33,15 @@ impl NvidiaGpu {
         let output = Command::new("nvidia-smi")
             .args(args)
             .output()
-            .map_err(|e| format!("Failed to execute nvidia-smi: {}", e))?;
+            .map_err(|e| format!("Failed to execute nvidia-smi with args {:?}: {}", args, e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("nvidia-smi command failed: {}", stderr.trim()));
+            return Err(format!(
+                "nvidia-smi command failed with args {:?}: {}",
+                args,
+                stderr.trim()
+            ));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -122,7 +126,7 @@ impl Default for NvidiaGpu {
 #[async_trait]
 impl EnergyCollector for NvidiaGpu {
     fn set_tracked_pids(&mut self, pids: Vec<u32>) {
-        self.tracked_pids = Arc::new(Mutex::new(pids));
+        *self.tracked_pids.lock().unwrap() = pids;
     }
 
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
@@ -152,7 +156,7 @@ impl EnergyCollector for NvidiaGpu {
                 .map(|prev| ((gpu.total_energy_mj - prev) / 1000.0).max(0.0))
                 .unwrap_or(0.0);
 
-            if delta_joules <= 0.0 || gpu.used_memory_mib <= 0.0 {
+            if delta_joules <= 0.0 || gpu.used_memory_mib <= f64::EPSILON {
                 continue;
             }
 
