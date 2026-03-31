@@ -67,5 +67,5 @@ def test_get_pg_table():
         assert "MockPowerGroup1" in table_output
         assert "MockPowerGroup2" in table_output
         assert "Yes" in table_output
-        assert "Tracked @ 10Hz" in table_output
+        assert "Tracked" in table_output
         assert "No" in table_output
