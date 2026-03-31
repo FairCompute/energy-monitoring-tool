@@ -5,6 +5,7 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use tokio::task;
 
 pub struct NvidiaGpu {
     pub device_ids: Vec<u32>,
@@ -29,22 +30,30 @@ impl NvidiaGpu {
         }
     }
 
-    fn run_nvidia_smi(args: &[&str]) -> Result<String, String> {
-        let output = Command::new("nvidia-smi")
-            .args(args)
-            .output()
-            .map_err(|e| format!("Failed to execute nvidia-smi with args {:?}: {}", args, e))?;
+    async fn run_nvidia_smi(args: &[&str]) -> Result<String, String> {
+        let args_vec: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+        let join_args = args_vec.clone();
+        let output = task::spawn_blocking(move || {
+            let output = Command::new("nvidia-smi")
+                .args(&args_vec)
+                .output()
+                .map_err(|e| format!("Failed to execute nvidia-smi with args {:?}: {}", args_vec, e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "nvidia-smi command failed with args {:?}: {}",
-                args,
-                stderr.trim()
-            ));
-        }
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!(
+                    "nvidia-smi command failed with args {:?}: {}",
+                    args_vec,
+                    stderr.trim()
+                ));
+            }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        })
+        .await
+        .map_err(|e| format!("Failed to join nvidia-smi task with args {:?}: {}", join_args, e))??;
+
+        Ok(output)
     }
 
     fn parse_gpu_snapshot_line(line: &str) -> Option<GpuSnapshot> {
@@ -77,11 +86,12 @@ impl NvidiaGpu {
         Some((fields[0].to_string(), pid, used_memory_mib))
     }
 
-    fn query_gpus(&self) -> Result<Vec<GpuSnapshot>, String> {
+    async fn query_gpus(&self) -> Result<Vec<GpuSnapshot>, String> {
         let output = Self::run_nvidia_smi(&[
             "--query-gpu=index,uuid,total_energy_consumption,memory.used",
             "--format=csv,noheader,nounits",
-        ])?;
+        ])
+        .await?;
 
         let wanted_devices: HashSet<u32> = self.device_ids.iter().cloned().collect();
         let snapshots = output
@@ -93,11 +103,12 @@ impl NvidiaGpu {
         Ok(snapshots)
     }
 
-    fn query_compute_processes(&self) -> HashMap<String, Vec<(u32, f64)>> {
+    async fn query_compute_processes(&self) -> HashMap<String, Vec<(u32, f64)>> {
         let output = Self::run_nvidia_smi(&[
             "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
             "--format=csv,noheader,nounits",
-        ]);
+        ])
+        .await;
 
         let output = match output {
             Ok(output) => output,
@@ -144,7 +155,7 @@ impl EnergyCollector for NvidiaGpu {
         }
 
         let tracked_pid_set: HashSet<u32> = tracked_pids.into_iter().collect();
-        let gpus = match self.query_gpus() {
+        let gpus = match self.query_gpus().await {
             Ok(gpus) => gpus,
             Err(e) => {
                 warn!("Could not query NVIDIA GPU energy: {}", e);
@@ -152,7 +163,7 @@ impl EnergyCollector for NvidiaGpu {
             }
         };
 
-        let per_gpu_processes = self.query_compute_processes();
+        let per_gpu_processes = self.query_compute_processes().await;
         let mut previous_energy_mj = self.previous_energy_mj.lock().unwrap();
         let mut records = Vec::new();
 
