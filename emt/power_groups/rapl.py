@@ -15,19 +15,19 @@ logger = logging.getLogger(__name__)
 def extract_components(zone_path: Path, all_zone_paths: list) -> list:
     """Extract sub-components of a zone from the list of all available zone paths.
 
-    Sub-components are RAPL domains with more than one colon in their name
-    (e.g., ``intel-rapl:0:0``) that belong to the given parent zone.  The
-    parent–child relationship is determined by the name prefix: a sub-component
-    of ``intel-rapl:0`` must have a name that starts with ``intel-rapl:0:``.
+    Sub-components are RAPL domains that belong to the given parent zone and
+    whose names both (a) start with the parent zone name followed by a colon
+    (e.g., a sub-component of ``intel-rapl:0`` starts with ``intel-rapl:0:``)
+    and (b) contain more than one colon in total (e.g., ``intel-rapl:0:0``).
+
+    This includes all descendant sub-domains, not just immediate children. For
+    example, for the parent zone ``intel-rapl:0``, both ``intel-rapl:0:0`` and
+    ``intel-rapl:0:0:0`` are considered sub-components as long as they appear in
+    *all_zone_paths*.
 
     This function intentionally does **not** rely on filesystem traversal so
     that it works regardless of whether the powercap entries are represented as
     a flat collection of symlinks or as a nested directory tree.
-
-    The threshold used for identifying a sub-component is
-    ``name.count(":") > 1`` (more than one colon), which correctly classifies
-    domains such as ``intel-rapl:0:0`` (a child of ``intel-rapl:0``) as
-    sub-components rather than top-level zones.
 
     Args:
         zone_path:       Path to a top-level RAPL zone (e.g.,
@@ -35,7 +35,7 @@ def extract_components(zone_path: Path, all_zone_paths: list) -> list:
         all_zone_paths:  All available zone paths, including sub-components.
 
     Returns:
-        A list of paths that are direct sub-components of *zone_path*.
+        A list of paths that are sub-components (descendants) of *zone_path*.
     """
     return [
         comp
