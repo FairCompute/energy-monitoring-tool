@@ -2,10 +2,9 @@
 """
 Energy Monitoring Tool — Verification Script
 
-Compares energy measurements from three independent methods, each run in ISOLATION:
-  1. Python EMT (emt.EnergyMonitor) — runs workload.py as a subprocess
-  2. Rust CLI   (energy-monitoring-tool) — runs workload.py as a subprocess
-  3. Raw bash   (rapl_baseline.sh) — reads RAPL counters around workload.py
+Compares energy measurements from two independent methods, each run in ISOLATION:
+    1. Python EMT (emt.EnergyMonitor) — runs workload.py as a subprocess
+    2. Rust CLI   (energy-monitoring-tool) — runs workload.py as a subprocess
 
 Isolation is critical: because idle energy is attributed proportionally to all
 active processes, each method runs the workload alone so that the workload is
@@ -28,7 +27,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 PROJECT_ROOT = Path(__file__).parent.parent
 WORKLOAD_SCRIPT = Path(__file__).parent / "workload.py"
 RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
-BASH_BASELINE = Path(__file__).parent / "rapl_baseline.sh"
 PYTHON = sys.executable
 
 
@@ -183,72 +181,11 @@ def _parse_json_str(s: str) -> dict | None:
         return None
 
 
-# ── Method 3: Raw bash / RAPL baseline ──────────────────────────────────────
-
-
-def measure_bash_baseline(workload_duration: float, iteration: int) -> Result:
-    """
-    Run rapl_baseline.sh which reads RAPL counters + /proc/stat around
-    workload.py and computes attributed energy from first principles.
-    """
-    if not BASH_BASELINE.exists():
-        raise FileNotFoundError(f"Bash baseline script not found: {BASH_BASELINE}")
-
-    start = time.perf_counter()
-
-    proc = subprocess.run(
-        [
-            "sudo",
-            "bash",
-            str(BASH_BASELINE),
-            str(int(workload_duration)),
-            str(WORKLOAD_SCRIPT),
-            PYTHON,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=int(workload_duration) * 3 + 30,
-    )
-
-    elapsed = time.perf_counter() - start
-
-    if proc.returncode != 0:
-        print(f"    bash stderr: {proc.stderr[:300]}")
-        return Result(
-            method="bash_baseline",
-            iteration=iteration,
-            duration=elapsed,
-            total_energy_j=0.0,
-        )
-
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        print(f"    Could not parse bash output: {proc.stdout[:300]}")
-        return Result(
-            method="bash_baseline",
-            iteration=iteration,
-            duration=elapsed,
-            total_energy_j=0.0,
-        )
-
-    return Result(
-        method="bash_baseline",
-        iteration=iteration,
-        duration=elapsed,
-        total_energy_j=float(data.get("attributed_energy_j", 0.0)),
-        raw_rapl_energy_j=float(data.get("rapl_total_energy_j", 0.0)),
-        process_fraction=float(data.get("process_fraction", 0.0)),
-        details=data,
-    )
-
-
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 METHODS = [
     ("Python EMT", measure_python_emt),
     ("Rust CLI", measure_rust_cli),
-    ("Bash Baseline", measure_bash_baseline),
 ]
 
 SETTLE_SECONDS = 3  # pause between phases to let system idle
