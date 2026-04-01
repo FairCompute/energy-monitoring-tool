@@ -3,70 +3,70 @@
     {
       "method": "python_emt",
       "iteration": 1,
-      "duration": 11.231432341970503,
-      "total_energy_j": 317.8090869622264,
+      "duration": 11.21806324296631,
+      "total_energy_j": 329.39103214292464,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
           "NvidiaGPU": 0.0,
-          "RAPLSoC": 317.8090869622264
+          "RAPLSoC": 329.39103214292464
         }
       }
     },
     {
       "method": "python_emt",
       "iteration": 2,
-      "duration": 11.576890395022929,
-      "total_energy_j": 356.24519184560666,
+      "duration": 11.604702278971672,
+      "total_energy_j": 357.61880814548744,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
           "NvidiaGPU": 0.0,
-          "RAPLSoC": 356.24519184560666
+          "RAPLSoC": 357.61880814548744
         }
       }
     },
     {
       "method": "python_emt",
       "iteration": 3,
-      "duration": 11.249570177868009,
-      "total_energy_j": 356.5005176717642,
+      "duration": 11.2667726080399,
+      "total_energy_j": 321.56383930797614,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
           "NvidiaGPU": 0.0,
-          "RAPLSoC": 356.5005176717642
+          "RAPLSoC": 321.56383930797614
         }
       }
     },
     {
       "method": "python_emt",
       "iteration": 4,
-      "duration": 11.770635860972106,
-      "total_energy_j": 359.47140094257156,
+      "duration": 11.292481842916459,
+      "total_energy_j": 336.67014781111624,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
           "NvidiaGPU": 0.0,
-          "RAPLSoC": 359.47140094257156
+          "RAPLSoC": 336.67014781111624
         }
       }
     },
     {
       "method": "python_emt",
       "iteration": 5,
-      "duration": 11.192003472009674,
-      "total_energy_j": 318.58261798334934,
+      "duration": 11.711070070974529,
+      "total_energy_j": 365.967867140269,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
           "NvidiaGPU": 0.0,
-          "RAPLSoC": 318.58261798334934
+          "RAPLSoC": 365.967867140269
         }
       }
     }
@@ -75,71 +75,71 @@
     {
       "method": "rust_cli",
       "iteration": 1,
-      "duration": 13.031113836914301,
-      "total_energy_j": 307.81760455656547,
+      "duration": 13.071338340872899,
+      "total_energy_j": 321.8309747733262,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
-          "rapl:socket:0:package": 307.81760455656547
+          "rapl:socket:0:package": 321.8309747733262
         },
-        "workload_pid": 2758599
+        "workload_pid": 2764761
       }
     },
     {
       "method": "rust_cli",
       "iteration": 2,
-      "duration": 13.030102064134553,
-      "total_energy_j": 318.49122544939337,
+      "duration": 13.076288609066978,
+      "total_energy_j": 318.3780011019771,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
-          "rapl:socket:0:package": 318.49122544939337
+          "rapl:socket:0:package": 318.3780011019771
         },
-        "workload_pid": 2758809
+        "workload_pid": 2764973
       }
     },
     {
       "method": "rust_cli",
       "iteration": 3,
-      "duration": 13.014490007888526,
-      "total_energy_j": 312.54170330991656,
+      "duration": 13.058359825983644,
+      "total_energy_j": 318.56056038872566,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
-          "rapl:socket:0:package": 312.54170330991656
+          "rapl:socket:0:package": 318.56056038872566
         },
-        "workload_pid": 2759040
+        "workload_pid": 2765195
       }
     },
     {
       "method": "rust_cli",
       "iteration": 4,
-      "duration": 13.04456266690977,
-      "total_energy_j": 302.9414889056909,
+      "duration": 13.068213102174923,
+      "total_energy_j": 309.1482993602505,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
-          "rapl:socket:0:package": 302.9414889056909
+          "rapl:socket:0:package": 309.1482993602505
         },
-        "workload_pid": 2759270
+        "workload_pid": 2765472
       }
     },
     {
       "method": "rust_cli",
       "iteration": 5,
-      "duration": 13.034251524833962,
-      "total_energy_j": 317.55246798770855,
+      "duration": 13.031280063092709,
+      "total_energy_j": 313.87112059097603,
       "raw_rapl_energy_j": 0.0,
       "process_fraction": 0.0,
       "details": {
         "devices": {
-          "rapl:socket:0:package": 317.55246798770855
+          "rapl:socket:0:package": 313.87112059097603
         },
-        "workload_pid": 2759496
+        "workload_pid": 2765698
       }
     }
   ]
