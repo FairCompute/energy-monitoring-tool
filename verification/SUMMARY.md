@@ -291,19 +291,41 @@ cargo build --release
 - ✅ **Python EMT**: Functional and validated
 - ✅ **Bash Baseline**: Reference implementation working  
 - ✅ **Rust CLI**: **Fixed** - Now measuring energy correctly
+- ✅ **Rust NVIDIA GPU collector**: Implemented with per-process attribution parity
+- ✅ **RAPL component extraction**: Refactored and tested
+- ✅ **Scaling documentation**: Added for VMs, containers, Kubernetes, Slurm
 
 ### Completed Actions
 
 1. ✅ **Fixed Rust CLI zero energy bug**: Added sysinfo warmup and process-specific refresh
 2. ✅ **Aligned attribution formula**: Rust now uses same normalization as Python EMT
 3. ✅ **Documented formula difference**: Explained why Python/Rust differ from Bash baseline
+4. ✅ **Rust NVIDIA GPU collector** (PR #40): Implemented real telemetry via `nvidia-smi`,
+   per-process memory-share attribution, async-safe `spawn_blocking`, and graceful
+   no-GPU handling; unit-tested attribution and parse edge cases.
+5. ✅ **RAPL component extraction** (PR #27): Fixed incorrect `> 2` colon threshold to `> 1`,
+   replaced `rglob`-based extraction with direct `all_zones` filtering, factored into
+   `extract_components()`, added regression and integration tests.
+6. ✅ **Scaling documentation** (PR #24): Created `docs/virtualization_strategies.md`,
+   expanded `docs/how_EMT_works.md` (current Python + planned Rust/PyO3 flows),
+   added `docs/roadmap.md` (7-tier prioritised blueprint), and structured GitHub
+   issue templates in `docs/rust_collector_issues.md`.
+7. ✅ **CI: auto-commit Black formatting** (PR #25): Replaced ReviewDog PR suggestions
+   with a direct push of auto-formatted files on each PR run.
+8. ✅ **RAPL parity verification** (PR #43 open): Added powercap preflight, Python-vs-Rust
+   acceptance summary (±2 % tolerance), `DeltaReader` wrap-around unit test, and
+   multi-socket reader-assignment unit test.
 
 ### Remaining Items
 
-1. **Expand Test Cases**: Add GPU workloads for Nvidia energy verification
-2. **Statistical Analysis**: Implement proper significance testing
-3. **Performance Benchmarking**: Add measurement overhead analysis
-4. **Formula Unification** (Optional): Decide if all methods should use same attribution
+1. **RAPL accuracy verification** (PR #43): Merge acceptance-criterion checks and
+   regression fixtures once CI passes on the host runner.
+2. **PyO3 Python bindings**: Expose `EnergyGroup` as `emt._rust` extension module.
+3. **EnergyMonitor delegation**: Wire `EnergyMonitor` context manager to the Rust
+   `EnergyGroup` via PyO3 (public Python API unchanged).
+4. **Dynamic PID refresh**: Refresh the monitored PID set on every collection interval.
+5. **Process exit accounting**: Account for processes that exit mid-collection.
+6. **End-to-end integration test**: Python context manager backed by Rust collector.
 
 ### Future Enhancements
 
