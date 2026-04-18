@@ -32,3 +32,5 @@ target/
 site/
 .site/
 
+
+emt/_rust*.so
