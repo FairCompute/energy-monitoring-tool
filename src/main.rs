@@ -1,17 +1,5 @@
-mod utils {
-    pub mod errors;
-    pub mod logger;
-    pub mod psutils;
-    pub mod trace_rotation;
-}
-
-// Collector modules
-pub mod collectors;
-pub mod energy_group;
-
-use collectors::Rapl;
-use energy_group::EnergyGroup;
 use clap::Parser;
+use emt::{collectors::Rapl, energy_group::EnergyGroup, utils};
 use log::info;
 use serde::Serialize;
 use std::fs::File;
