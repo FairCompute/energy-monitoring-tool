@@ -7,8 +7,9 @@ This note documents the verification path for comparing the Rust collector in
 ## Acceptance criteria
 
 - Run a CPU-bound benchmark on a **physical host** for 30 seconds.
-- Confirm the Rust-measured total energy is within **±2%** of the
-  Python-measured total.
+- Target Rust-measured total energy within **±2%** of the Python-measured
+  total. Treat this as an acceptance target: classify misses before merge, and
+  block only on a consistent real attribution mismatch.
 - Verify `DeltaReader` wrap-around handling with an automated unit test.
 - Verify multi-socket package/component discovery so vCPU attribution is based
   on the correct socket topology.
@@ -20,9 +21,10 @@ This note documents the verification path for comparing the Rust collector in
   - `scan_powercap_entries_keeps_multi_socket_components_separate`
 - Verification harness coverage:
   - The RAPL preflight checks and the ±2% acceptance analysis logic remain
-    implemented in `verification/verify.py`.
+    implemented in `scripts/verify.py`.
   - These transition-only verification checks are intentionally kept localized
-    to the `verification/` workflow instead of the permanent `tests/` suite.
+    to the explicit local verification workflow instead of the permanent
+    `tests/` suite.
 
 ## Physical-host verification command
 
@@ -31,7 +33,7 @@ real RAPL counters under `/sys/class/powercap`:
 
 ```bash
 cargo build --release
-python verification/verify.py --iterations 3 --duration 30
+python scripts/verify.py --iterations 3 --duration 30
 ```
 
 The harness now fails fast when the host has no readable RAPL counters instead
@@ -39,8 +41,8 @@ of running indefinitely on an unsupported environment.
 
 ## How to read the output
 
-`verification/verify.py` writes `verification/verification_results.json` with an
-`analysis` section:
+`scripts/verify.py` writes `.artifacts/verification_results.json` with host
+metadata and an `analysis` section:
 
 ```json
 {

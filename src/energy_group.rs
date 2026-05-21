@@ -1,4 +1,3 @@
-
 use crate::utils::errors::MonitoringError;
 use crate::utils::psutils::collect_process_groups;
 use crate::utils::trace_rotation::RotatingTrace;
@@ -50,7 +49,7 @@ pub struct EnergyGroup<T: EnergyCollector> {
     batch_size: usize,
     /// DataFrame: user | task | pid
     tracked_processes: DataFrame,
-    /// Rotating trace: pid | timestamp | device | energy 
+    /// Rotating trace: pid | timestamp | device | energy
     energy_trace: RotatingTrace,
     /// Underlying collector instance
     energy_collector: Arc<T>,
@@ -130,12 +129,10 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         self.energy_trace.data()
     }
 
-
     /// Get a mutable reference to the energy trace for advanced operations
     pub fn energy_trace_mut(&mut self) -> &mut RotatingTrace {
         &mut self.energy_trace
     }
-
 
     /// Set the retention window for all traces (in seconds)
     /// This affects both energy and utilization traces
@@ -213,10 +210,7 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
             match collector.get_energy_trace().await {
                 Ok(energy_records) => {
-                    log::debug!(
-                        "Collected {} energy records",
-                        energy_records.len(),
-                    );
+                    log::debug!("Collected {} energy records", energy_records.len(),);
 
                     // Add to batch
                     collected_energy_records.extend(energy_records);
@@ -282,16 +276,19 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         }
 
         if !T::is_available() {
-            return Err(MonitoringError::Other(format!(
-                "Collector type is not available on this system"
-            )));
+            return Err(MonitoringError::Other(
+                "Collector type is not available on this system".to_string(),
+            ));
         }
 
         // Set running state before starting
         self.is_running.store(true, Ordering::SeqCst);
 
         // Collect initial energy data
-        let energy_records = self.energy_collector.get_energy_trace().await
+        let energy_records = self
+            .energy_collector
+            .get_energy_trace()
+            .await
             .map_err(|e| MonitoringError::Other(format!("Failed to get energy trace: {}", e)))?;
 
         // Append initial data
@@ -349,14 +346,14 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             log::info!("Collector is not running, nothing to shut down");
             return Ok(());
         }
-    
+
         // Signal the background task to stop
         self.is_running.store(false, Ordering::SeqCst);
-        
+
         // Give the background task time to send its final batch
         // This is necessary because the task may be in the middle of collecting data
         std::thread::sleep(std::time::Duration::from_millis(200));
-        
+
         // Poll any remaining data from the channel
         self.poll_data()?;
 
@@ -393,4 +390,3 @@ pub struct TraceMemoryStats {
     /// Energy trace statistics
     pub energy_trace_stats: crate::utils::trace_rotation::TraceStats,
 }
-

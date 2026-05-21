@@ -2,7 +2,7 @@
 
 This document translates the challenges described in [Virtualization Challenges](virtualization_challenges.md) into a concrete, prioritised feature roadmap. Each tier builds on the previous one, progressing from the simplest single-host scenario to fully distributed, heterogeneous deployments.
 
-For a detailed explanation of the current Python flow and the planned Rust/PyO3 flow, see [How EMT Works](how_EMT_works.md).
+For a detailed explanation of the current Python flow and the Rust/PyO3 transition path, see [How EMT Works](how_EMT_works.md).
 
 ---
 
@@ -26,7 +26,7 @@ EMT's shipping implementation is **entirely Python**. The process being monitore
 
 ### In Progress: Rust Collector
 
-A Rust collector is under active development in `src/`. It re-implements the same collection pipeline in native code and will be integrated into the Python context manager via [PyO3](https://pyo3.rs/) once verification is complete.
+A Rust collector is under active development in `src/`. It re-implements the same collection pipeline in native code and exposes PyO3 bindings; the remaining integration work is wiring the Python context manager to those bindings while preserving the Python fallback.
 
 | Component | Status | Implementation |
 |---|---|---|
@@ -37,7 +37,8 @@ A Rust collector is under active development in `src/`. It re-implements the sam
 | Rotating in-memory trace | ✅ Implemented | Polars `DataFrame` backed `RotatingTrace` |
 | Tokio async runtime | ✅ Implemented | `EnergyGroup<T>` with bounded `mpsc` channel for backpressure |
 | CLI binary | ✅ Implemented | `energy-monitoring-tool --pid <PID> --duration <s>` |
-| PyO3 Python bindings | 🔜 Planned | Will expose `EnergyGroup` to Python as `emt._rust` extension module |
+| PyO3 Python bindings | ✅ Implemented | Exposes `EnergyGroup`, `RaplCollector`, and `NvidiaGpuCollector` to Python as `emt._rust` |
+| Python context-manager delegation to Rust | 🔜 Planned | Will let `EnergyMonitor` use `emt._rust` internally with Python fallback |
 
 ### What Changes vs. What Stays the Same
 
@@ -396,4 +397,3 @@ The following features are needed by multiple tiers and should be implemented as
 ---
 
 *For the technical challenges that motivate this roadmap, see [Virtualization Challenges](virtualization_challenges.md). For the current Python and planned Rust flow in detail, see [How EMT Works](how_EMT_works.md). For current deployment patterns and configuration examples, see [Virtualization Strategies](virtualization_strategies.md).*
-

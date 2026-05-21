@@ -1,5 +1,5 @@
 /// Trace Rotation Module
-/// 
+///
 /// This module implements a rotating trace buffer that maintains a limited history window.
 /// Similar to log rotation, it keeps only recent data within a configurable time window
 /// (default: 1 hour) to prevent unbounded memory growth.
@@ -11,7 +11,6 @@
 /// rotating_trace.append(&energy_records)?;
 /// rotating_trace.cleanup()?; // Periodically remove old entries
 /// ```
-
 use crate::utils::errors::MonitoringError;
 use polars::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -49,7 +48,7 @@ impl RotationConfig {
 }
 
 /// A rotating trace buffer that maintains limited history
-/// 
+///
 /// Automatically removes entries older than the configured retention window.
 /// Works with any DataFrame containing a "timestamp" column.
 pub struct RotatingTrace {
@@ -105,7 +104,7 @@ impl RotatingTrace {
     }
 
     /// Append new records to the trace
-    /// 
+    ///
     /// If auto_cleanup is enabled, this will also remove old entries outside the retention window.
     pub fn append(&mut self, new_data: &DataFrame) -> Result<(), MonitoringError> {
         if new_data.is_empty() {
@@ -113,7 +112,11 @@ impl RotatingTrace {
         }
 
         // Validate that the new data has a timestamp column
-        if !new_data.get_column_names().iter().any(|name| name.to_string() == "timestamp") {
+        if !new_data
+            .get_column_names()
+            .iter()
+            .any(|name| *name == "timestamp")
+        {
             return Err(MonitoringError::Other(
                 "DataFrame must contain a 'timestamp' column for rotation".to_string(),
             ));
@@ -140,7 +143,7 @@ impl RotatingTrace {
     }
 
     /// Remove entries older than the retention window
-    /// 
+    ///
     /// This operation filters the DataFrame to keep only entries with timestamps
     /// within the last `retention_seconds`.
     pub fn cleanup(&mut self) -> Result<(), MonitoringError> {
@@ -153,10 +156,9 @@ impl RotatingTrace {
         let cutoff_time = now - self.config.retention_seconds;
 
         // Get timestamp column
-        let timestamp_col = self
-            .data
-            .column("timestamp")
-            .map_err(|e| MonitoringError::Other(format!("Failed to access timestamp column: {}", e)))?;
+        let timestamp_col = self.data.column("timestamp").map_err(|e| {
+            MonitoringError::Other(format!("Failed to access timestamp column: {}", e))
+        })?;
 
         // Cast to i64 if needed
         let timestamps = timestamp_col.i64().map_err(|e| {
@@ -171,14 +173,14 @@ impl RotatingTrace {
 
         // Convert mask to BooleanChunked
         let mask_series = Series::new("filter".into(), mask);
-        let mask_bool = mask_series.bool().map_err(|e| {
-            MonitoringError::Other(format!("Failed to create boolean mask: {}", e))
-        })?;
+        let mask_bool = mask_series
+            .bool()
+            .map_err(|e| MonitoringError::Other(format!("Failed to create boolean mask: {}", e)))?;
 
         // Filter the DataFrame
         self.data = self
             .data
-            .filter(&mask_bool)
+            .filter(mask_bool)
             .map_err(|e| MonitoringError::Other(format!("Failed to filter trace data: {}", e)))?;
 
         self.last_cleanup_time = now;
@@ -198,7 +200,7 @@ impl RotatingTrace {
                 .column("timestamp")
                 .ok()
                 .and_then(|col| col.i64().ok())
-                .and_then(|s| s.iter().filter_map(|v| v).min())
+                .and_then(|s| s.iter().flatten().min())
         } else {
             None
         };
@@ -208,7 +210,7 @@ impl RotatingTrace {
                 .column("timestamp")
                 .ok()
                 .and_then(|col| col.i64().ok())
-                .and_then(|s| s.iter().filter_map(|v| v).max())
+                .and_then(|s| s.iter().flatten().max())
         } else {
             None
         };
@@ -287,7 +289,7 @@ mod tests {
     fn test_append_data() {
         let mut trace = RotatingTrace::new(3600);
         let now = current_timestamp_secs();
-        
+
         let data = df![
             "pid" => vec![1u32, 2u32],
             "timestamp" => vec![now, now],
@@ -304,7 +306,7 @@ mod tests {
     fn test_cleanup_old_entries() {
         let mut trace = RotatingTrace::new(100); // 100 second retention
         let now = current_timestamp_secs();
-        
+
         let data = df![
             "pid" => vec![1u32, 1u32, 1u32],
             "timestamp" => vec![now - 200, now - 50, now], // one is too old
@@ -318,7 +320,7 @@ mod tests {
 
         // Force cleanup
         trace.force_cleanup().unwrap();
-        
+
         // Should now have only 2 entries (the old one removed)
         assert_eq!(trace.row_count(), 2);
     }
@@ -327,7 +329,7 @@ mod tests {
     fn test_stats() {
         let mut trace = RotatingTrace::new(3600);
         let now = current_timestamp_secs();
-        
+
         let data = df![
             "pid" => vec![1u32, 1u32],
             "timestamp" => vec![now - 100, now],

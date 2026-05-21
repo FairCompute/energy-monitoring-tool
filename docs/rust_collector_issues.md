@@ -25,13 +25,13 @@ This file lists the parent issue and sub-issues to be created on GitHub for the 
 > | Polars `RotatingTrace` | ✅ Implemented |
 > | `EnergyGroup<T>` + Tokio async runtime | ✅ Implemented |
 > | CLI binary (`energy-monitoring-tool`) | ✅ Implemented |
-> | PyO3 Python bindings (`emt._rust`) | 🔜 Planned |
+> | PyO3 Python bindings (`emt._rust`) | ✅ Implemented |
 >
 > ### Sub-issues
 >
 > - [ ] #N+1 Verify Rust `Rapl` collector accuracy against Python `RAPLSoC`
 > - [ ] #N+2 Verify Rust `NvidiaGpu` collector accuracy against Python `NvidiaGPU`
-> - [ ] #N+3 Add PyO3 bindings: expose `EnergyGroup<T>` as `emt._rust` Python extension module
+> - [x] #N+3 Add PyO3 bindings: expose `EnergyGroup<T>` as `emt._rust` Python extension module
 > - [ ] #N+4 Update `EnergyMonitor` context manager to delegate to Rust `EnergyGroup` via PyO3
 > - [ ] #N+5 Implement dynamic PID refresh in Rust `EnergyGroup` (Tier 1)
 > - [ ] #N+6 Implement process exit accounting in Rust `EnergyGroup` (Tier 1)

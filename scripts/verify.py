@@ -3,8 +3,8 @@
 Energy Monitoring Tool — Verification Script
 
 Compares energy measurements from two independent methods, each run in ISOLATION:
-    1. Python EMT (emt.EnergyMonitor) — runs workload.py as a subprocess
-    2. Rust CLI   (energy-monitoring-tool) — runs workload.py as a subprocess
+    1. Python EMT (emt.EnergyMonitor) — runs verification_workload.py as a subprocess
+    2. Rust CLI   (energy-monitoring-tool) — runs verification_workload.py as a subprocess
 
 Isolation is critical: because idle energy is attributed proportionally to all
 active processes, each method runs the workload alone so that the workload is
@@ -12,21 +12,24 @@ the dominant consumer and attribution is meaningful.
 """
 
 import os
-import sys
-import time
 import json
+import platform
+import socket
 import subprocess
 import statistics
-from pathlib import Path
+import sys
+import time
 from dataclasses import dataclass, field, asdict
-from typing import Any, List
+from pathlib import Path
+from typing import Any, Callable
 
-# Add parent directory to path for emt imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to path for emt imports
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-PROJECT_ROOT = Path(__file__).parent.parent
-WORKLOAD_SCRIPT = Path(__file__).parent / "workload.py"
+WORKLOAD_SCRIPT = Path(__file__).parent / "verification_workload.py"
 RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
+DEFAULT_OUTPUT_PATH = PROJECT_ROOT / ".artifacts" / "verification_results.json"
 PYTHON = sys.executable
 RAPL_ROOT = Path("/sys/class/powercap")
 ACCURACY_TOLERANCE_PERCENT = 2.0
@@ -71,7 +74,7 @@ def assert_rapl_available(root: Path = RAPL_ROOT) -> list[Path]:
 
 
 def build_acceptance_analysis(
-    all_results: dict[str, List[Result]],
+    all_results: dict[str, list[Result]],
     tolerance_percent: float = ACCURACY_TOLERANCE_PERCENT,
 ) -> dict[str, Any]:
     """Summarize whether the physical-host Python vs Rust comparison passed."""
@@ -107,12 +110,142 @@ def build_acceptance_analysis(
     return analysis
 
 
+def _read_first_matching_cpuinfo_value(key: str) -> str | None:
+    cpuinfo = Path("/proc/cpuinfo")
+    if not cpuinfo.exists():
+        return None
+
+    for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        if name.strip().lower() == key.lower():
+            return value.strip()
+    return None
+
+
+def _read_memtotal_kib() -> int | None:
+    meminfo = Path("/proc/meminfo")
+    if not meminfo.exists():
+        return None
+
+    for line in meminfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith("MemTotal:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return None
+    return None
+
+
+def _probe_nvidia_smi() -> dict[str, Any]:
+    query = [
+        "nvidia-smi",
+        "--query-gpu=index,name,uuid,memory.total,driver_version",
+        "--format=csv,noheader,nounits",
+    ]
+    try:
+        result = subprocess.run(
+            query,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return {"available": False, "error": "nvidia-smi not found"}
+    except subprocess.TimeoutExpired:
+        return {"available": False, "error": "nvidia-smi timed out"}
+
+    if result.returncode != 0:
+        return {
+            "available": False,
+            "error": result.stderr.strip() or result.stdout.strip(),
+        }
+
+    gpus = []
+    for line in result.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) >= 5:
+            gpus.append(
+                {
+                    "index": parts[0],
+                    "name": parts[1],
+                    "uuid": parts[2],
+                    "memory_total_mib": parts[3],
+                    "driver_version": parts[4],
+                }
+            )
+
+    return {"available": bool(gpus), "gpus": gpus}
+
+
+def collect_run_metadata(
+    rapl_entries: list[Path],
+    num_iterations: int,
+    workload_duration: float,
+    output_path: Path,
+    use_sudo: bool,
+) -> dict[str, Any]:
+    memtotal_kib = _read_memtotal_kib()
+    return {
+        "timestamp_unix": time.time(),
+        "hostname": socket.gethostname(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python_version": platform.python_version(),
+        "cpu": {
+            "model": _read_first_matching_cpuinfo_value("model name"),
+            "vendor": _read_first_matching_cpuinfo_value("vendor_id"),
+            "family": _read_first_matching_cpuinfo_value("cpu family"),
+            "stepping": _read_first_matching_cpuinfo_value("stepping"),
+            "logical_cpus": os.cpu_count(),
+        },
+        "memory": {
+            "total_kib": memtotal_kib,
+            "total_gib": (
+                round(memtotal_kib / 1024 / 1024, 2)
+                if memtotal_kib is not None
+                else None
+            ),
+        },
+        "rapl": {
+            "root": str(RAPL_ROOT),
+            "zones": [entry.name for entry in rapl_entries],
+        },
+        "nvidia": _probe_nvidia_smi(),
+        "verification": {
+            "iterations": num_iterations,
+            "duration_seconds": workload_duration,
+            "output_path": str(output_path),
+            "rust_cli_uses_sudo": use_sudo,
+        },
+    }
+
+
+def print_metadata_summary(metadata: dict[str, Any]) -> None:
+    cpu = metadata["cpu"]
+    memory = metadata["memory"]
+    nvidia = metadata["nvidia"]
+
+    print(f"CPU: {cpu['model'] or 'unknown'}")
+    print(f"Logical CPUs: {cpu['logical_cpus']}")
+    print(f"Memory: {memory['total_gib']} GiB")
+    if nvidia.get("available"):
+        gpu_names = ", ".join(gpu["name"] for gpu in nvidia.get("gpus", []))
+        print(f"NVIDIA: available ({gpu_names})")
+    else:
+        print(f"NVIDIA: unavailable ({nvidia.get('error', 'no GPUs reported')})")
+
+
 # ── Method 1: Python EMT ────────────────────────────────────────────────────
 
 
 def measure_python_emt(workload_duration: float, iteration: int) -> Result:
     """
-    Run workload.py as a subprocess, monitored by Python EMT.
+    Run verification_workload.py as a subprocess, monitored by Python EMT.
     EMT tracks the current process tree (this script + workload child).
     """
     # Import here so the module is only loaded when needed
@@ -157,9 +290,13 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
 # ── Method 2: Rust CLI ──────────────────────────────────────────────────────
 
 
-def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
+def measure_rust_cli(
+    workload_duration: float,
+    iteration: int,
+    use_sudo: bool = False,
+) -> Result:
     """
-    Launch workload.py, then point the Rust binary at its PID.
+    Launch verification_workload.py, then point the Rust binary at its PID.
     The Rust collector expands the PID to include children.
     """
     if not RUST_BINARY.exists():
@@ -167,7 +304,7 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
             f"Rust binary not found at {RUST_BINARY}. Run: cargo build --release"
         )
 
-    output_file = f"/tmp/rust_verify_{iteration}_{os.getpid()}.json"
+    output_file = Path(f"/tmp/rust_verify_{iteration}_{os.getpid()}.json")
     rust_duration = int(workload_duration) + 2
 
     start = time.perf_counter()
@@ -181,7 +318,6 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
     time.sleep(0.3)  # let it spin up
 
     rust_cmd = [
-        "sudo",
         str(RUST_BINARY),
         "--pid",
         str(workload.pid),
@@ -190,9 +326,11 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
         "--rate",
         "10.0",
         "--output",
-        output_file,
+        str(output_file),
         "--quiet",
     ]
+    if use_sudo:
+        rust_cmd.insert(0, "sudo")
 
     rust = subprocess.Popen(
         rust_cmd,
@@ -210,6 +348,12 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
 
     elapsed = time.perf_counter() - start
 
+    if rust.returncode != 0:
+        message = rust_stderr.strip() or rust_stdout.strip() or "no output"
+        raise RuntimeError(
+            f"Rust CLI failed with exit code {rust.returncode}: {message}"
+        )
+
     # Parse result — prefer output file, fall back to stdout
     data = _parse_rust_output(output_file, rust_stdout)
 
@@ -222,7 +366,7 @@ def measure_rust_cli(workload_duration: float, iteration: int) -> Result:
     )
 
 
-def _parse_rust_output(output_file: str, stdout: str) -> dict:
+def _parse_rust_output(output_file: Path, stdout: str) -> dict[str, Any]:
     """Try to read JSON from the output file, then from stdout."""
     for source in [_read_json_file(output_file), _parse_json_str(stdout)]:
         if source:
@@ -230,46 +374,65 @@ def _parse_rust_output(output_file: str, stdout: str) -> dict:
     return {}
 
 
-def _read_json_file(path: str) -> dict | None:
+def _read_json_file(path: Path) -> dict[str, Any] | None:
     try:
-        with open(path) as f:
-            data = json.load(f)
-        os.unlink(path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.unlink()
         return data
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return None
 
 
-def _parse_json_str(s: str) -> dict | None:
+def _parse_json_str(s: str) -> dict[str, Any] | None:
     try:
         return json.loads(s)
-    except Exception:
+    except json.JSONDecodeError:
         return None
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
-METHODS = [
-    ("Python EMT", measure_python_emt),
-    ("Rust CLI", measure_rust_cli),
-]
-
 SETTLE_SECONDS = 3  # pause between phases to let system idle
 
 
-def run_verification(num_iterations: int, workload_duration: float):
+def run_verification(
+    num_iterations: int,
+    workload_duration: float,
+    output_path: Path = DEFAULT_OUTPUT_PATH,
+    use_sudo: bool = False,
+) -> None:
     rapl_entries = assert_rapl_available()
+    metadata = collect_run_metadata(
+        rapl_entries,
+        num_iterations,
+        workload_duration,
+        output_path,
+        use_sudo,
+    )
+    methods: list[tuple[str, Callable[[float, int], Result]]] = [
+        ("Python EMT", measure_python_emt),
+        (
+            "Rust CLI",
+            lambda duration, iteration: measure_rust_cli(
+                duration,
+                iteration,
+                use_sudo=use_sudo,
+            ),
+        ),
+    ]
 
     print("=" * 70)
     print("Energy Monitoring Tool — Verification")
-    print(f"Methods: {', '.join(n for n, _ in METHODS)}")
+    print(f"Methods: {', '.join(n for n, _ in methods)}")
     print(f"Iterations: {num_iterations}  |  Workload duration: {workload_duration}s")
     print("RAPL zones: " + ", ".join(entry.name for entry in rapl_entries))
+    print(f"Rust CLI sudo: {'enabled' if use_sudo else 'disabled'}")
+    print_metadata_summary(metadata)
     print("=" * 70)
 
-    all_results: dict[str, List[Result]] = {name: [] for name, _ in METHODS}
+    all_results: dict[str, list[Result]] = {name: [] for name, _ in methods}
 
-    for name, fn in METHODS:
+    for name, fn in methods:
         print(f"\n{'─'*70}")
         print(f"Phase: {name}")
         print(f"{'─'*70}")
@@ -280,8 +443,13 @@ def run_verification(num_iterations: int, workload_duration: float):
                 r = fn(workload_duration, i)
                 all_results[name].append(r)
                 print(f"    → {r.total_energy_j:.2f} J  (duration {r.duration:.1f}s)")
-            except Exception as e:
-                print(f"    ✗ Error: {e}")
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                subprocess.SubprocessError,
+            ) as error:
+                print(f"    ✗ Error: {error}")
 
             # pause between iterations
             time.sleep(1)
@@ -358,13 +526,16 @@ def run_verification(num_iterations: int, workload_duration: float):
         )
 
     # Save JSON
-    output_path = Path(__file__).parent / "verification_results.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_payload = {
+        "metadata": metadata,
         "analysis": analysis,
         **{name: [asdict(r) for r in results] for name, results in all_results.items()},
     }
-    with open(output_path, "w") as f:
-        json.dump(output_payload, f, indent=2, default=str)
+    output_path.write_text(
+        json.dumps(output_payload, indent=2, default=str),
+        encoding="utf-8",
+    )
     print(f"\n  Results saved to {output_path}")
 
 
@@ -376,5 +547,17 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Verify EMT energy measurements")
     p.add_argument("-n", "--iterations", type=int, default=5)
     p.add_argument("-d", "--duration", type=float, default=10.0)
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT_PATH,
+        help=f"Path for result JSON output. Default: {DEFAULT_OUTPUT_PATH}",
+    )
+    p.add_argument(
+        "--sudo",
+        action="store_true",
+        help="Run the Rust CLI through sudo. Default is direct execution.",
+    )
     args = p.parse_args()
-    run_verification(args.iterations, args.duration)
+    run_verification(args.iterations, args.duration, args.output, args.sudo)

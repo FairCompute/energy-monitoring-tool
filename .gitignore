@@ -8,6 +8,8 @@ _version.py
 *.coverage
 build/
 data/
+.artifacts/
+.venv/
 
 # Rust artifacts
 emt/collector/target/
@@ -26,11 +28,8 @@ emt/collector/debug
 # Ignore all Rust target directories
 target/
 **/target/
-
-
 # Ignore site folder
 site/
 .site/
-
 
 emt/_rust*.so

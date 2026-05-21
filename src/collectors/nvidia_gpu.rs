@@ -32,11 +32,16 @@ impl NvidiaGpu {
 
     async fn run_nvidia_smi(args: &[&str]) -> Result<String, String> {
         let args_vec: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        let task_result = task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let output = Command::new("nvidia-smi")
                 .args(&args_vec)
                 .output()
-                .map_err(|e| format!("Failed to execute nvidia-smi with args {:?}: {}", args_vec, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Failed to execute nvidia-smi with args {:?}: {}",
+                        args_vec, e
+                    )
+                })?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -50,9 +55,7 @@ impl NvidiaGpu {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         })
         .await
-        .map_err(|e| format!("Failed to join nvidia-smi task with args {:?}: {}", args, e))?;
-
-        task_result
+        .map_err(|e| format!("Failed to join nvidia-smi task with args {:?}: {}", args, e))?
     }
 
     fn parse_gpu_snapshot_line(line: &str) -> Option<GpuSnapshot> {
@@ -85,7 +88,10 @@ impl NvidiaGpu {
         Some((fields[0].to_string(), pid, used_memory_mib))
     }
 
-    fn compute_delta_joules(previous_total_energy_mj: Option<f64>, current_total_energy_mj: f64) -> f64 {
+    fn compute_delta_joules(
+        previous_total_energy_mj: Option<f64>,
+        current_total_energy_mj: f64,
+    ) -> f64 {
         previous_total_energy_mj
             .map(|prev| ((current_total_energy_mj - prev) / 1000.0).max(0.0))
             .unwrap_or(0.0)
@@ -220,7 +226,10 @@ impl EnergyCollector for NvidiaGpu {
             ));
         }
 
-        debug!("NVIDIA GPU energy trace collected: {} records", records.len());
+        debug!(
+            "NVIDIA GPU energy trace collected: {} records",
+            records.len()
+        );
         Ok(records)
     }
 

@@ -59,11 +59,11 @@ The `asyncio` event loop gathers all `PowerGroup` coroutines so CPU and GPU meas
 
 ---
 
-## Planned Architecture (Rust Collector via PyO3)
+## Transition Architecture (Rust Collector via PyO3)
 
-A Rust collector is in active development (`src/` in the repository). Once verified, it will replace the Python `PowerGroup` implementations. The Python context manager API (`with EnergyMonitor(…) as monitor:`) and the energy attribution formulas **remain unchanged**. Only the internal data-collection layer changes.
+A Rust collector is in active development (`src/` in the repository). It now exposes PyO3 bindings as `emt._rust`; once the remaining integration work is complete, Python `EnergyMonitor` will delegate to those bindings instead of the Python `PowerGroup` implementations. The Python context manager API (`with EnergyMonitor(…) as monitor:`) and the energy attribution formulas **remain unchanged**. Only the internal data-collection layer changes.
 
-The Rust collector is exposed to Python via [PyO3](https://pyo3.rs/) — a zero-overhead Rust↔Python FFI bridge. This means the Python `EnergyMonitor` context manager calls into native Rust code without spawning a subprocess or using sockets.
+The Rust collector is exposed to Python via [PyO3](https://pyo3.rs/) — a zero-overhead Rust↔Python FFI bridge. The next integration step is for the Python `EnergyMonitor` context manager to call into native Rust code without spawning a subprocess or using sockets.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -128,10 +128,9 @@ The Rust implementation consolidates several concerns that are spread across mul
 
 ### PyO3 Integration Points
 
-The planned integration exposes the following Rust symbols to Python:
+The compiled `emt._rust` extension exposes the following Rust symbols to Python:
 
 ```python
-# Future import — surface provided by the compiled emt._rust extension module
 from emt._rust import EnergyGroup, RaplCollector, NvidiaGpuCollector
 
 # EnergyMonitor.__enter__ will internally call:

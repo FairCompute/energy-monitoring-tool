@@ -57,7 +57,7 @@ impl DeltaReader {
         // If all retries failed, log warning and return 0
         warn!("Energy counter overflow detected for: {:?}", &energy_file);
         *prev = Some(value);
-        return Ok(0.0);
+        Ok(0.0)
     }
 }
 
@@ -65,10 +65,12 @@ impl DeltaReader {
 #[derive(Clone)]
 struct SocketReaders {
     socket_id: u32,
-    package_reader: Option<DeltaReader>,   // PKG: Total socket energy
-    core_reader: Option<DeltaReader>,      // PP0: Cores + L1/L2 caches
-    uncore_reader: Option<DeltaReader>,    // PP1: iGPU, L3, memory controller
+    package_reader: Option<DeltaReader>, // PKG: Total socket energy
+    core_reader: Option<DeltaReader>,    // PP0: Cores + L1/L2 caches
+    uncore_reader: Option<DeltaReader>,  // PP1: iGPU, L3, memory controller
 }
+
+type UtilizationSeries = Vec<(u32, f64)>;
 
 /// Tracks CPU times for a process to calculate CPU percentage accurately
 /// Similar to how psutil tracks cpu_percent internally
@@ -88,13 +90,13 @@ impl ProcessCpuTracker {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0);
-        
+
         // Read /proc/<pid>/stat
         let stat_path = format!("/proc/{}/stat", pid);
         let Ok(stat_content) = fs::read_to_string(&stat_path) else {
             return (0.0, false);
         };
-        
+
         // Parse utime and stime from stat file
         // Format: pid (comm) state ppid ... utime stime ...
         // Fields are space-separated, but comm can contain spaces, so find closing )
@@ -105,34 +107,33 @@ impl ProcessCpuTracker {
         if fields.len() < 13 {
             return (0.0, false);
         }
-        
+
         // utime is field 11 (index 11 after the closing parenthesis)
         // stime is field 12
         let utime: u64 = fields[11].parse().unwrap_or(0);
         let stime: u64 = fields[12].parse().unwrap_or(0);
         let cpu_time = utime + stime;
-        
+
         // Calculate CPU percentage
         let cpu_percent = if self.last_timestamp_us > 0 && now_us > self.last_timestamp_us {
             let time_delta_us = now_us - self.last_timestamp_us;
             let cpu_delta = cpu_time.saturating_sub(self.last_cpu_time);
-            
+
             // Convert clock ticks to microseconds (USER_HZ is typically 100)
             // cpu_delta is in clock ticks, time_delta_us is in microseconds
             // cpu% = (cpu_delta_ticks / USER_HZ) / (time_delta_us / 1_000_000) * 100
             //      = (cpu_delta_ticks * 1_000_000 / USER_HZ) / time_delta_us * 100
             let user_hz = 100.0; // Standard Linux USER_HZ
             let cpu_time_us = (cpu_delta as f64 / user_hz) * 1_000_000.0;
-            let percent = (cpu_time_us / time_delta_us as f64) * 100.0;
-            percent
+            (cpu_time_us / time_delta_us as f64) * 100.0
         } else {
             0.0
         };
-        
+
         let is_first_call = self.last_timestamp_us == 0;
         self.last_cpu_time = cpu_time;
         self.last_timestamp_us = now_us;
-        
+
         (cpu_percent, !is_first_call)
     }
 }
@@ -170,21 +171,21 @@ impl SystemCpuTracker {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0);
-        
+
         let Ok(stat_content) = fs::read_to_string("/proc/stat") else {
             return (0.0, false);
         };
-        
+
         // First line is "cpu  user nice system idle iowait irq softirq ..."
         let Some(cpu_line) = stat_content.lines().next() else {
             return (0.0, false);
         };
-        
+
         let fields: Vec<&str> = cpu_line.split_whitespace().collect();
         if fields.len() < 5 || fields[0] != "cpu" {
             return (0.0, false);
         }
-        
+
         let user: u64 = fields[1].parse().unwrap_or(0);
         let nice: u64 = fields[2].parse().unwrap_or(0);
         let system: u64 = fields[3].parse().unwrap_or(0);
@@ -192,9 +193,9 @@ impl SystemCpuTracker {
         let iowait: u64 = fields.get(5).and_then(|s| s.parse().ok()).unwrap_or(0);
         let irq: u64 = fields.get(6).and_then(|s| s.parse().ok()).unwrap_or(0);
         let softirq: u64 = fields.get(7).and_then(|s| s.parse().ok()).unwrap_or(0);
-        
+
         let total = user + nice + system + idle + iowait + irq + softirq;
-        
+
         let cpu_percent = if self.last_timestamp_us > 0 && total > self.last_total {
             let total_delta = total - self.last_total;
             let idle_delta = idle - self.last_idle;
@@ -203,12 +204,12 @@ impl SystemCpuTracker {
         } else {
             0.0
         };
-        
+
         let is_first_call = self.last_timestamp_us == 0;
         self.last_total = total;
         self.last_idle = idle;
         self.last_timestamp_us = now_us;
-        
+
         (cpu_percent, !is_first_call)
     }
 }
@@ -220,7 +221,7 @@ impl Rapl {
 
         // Initialize System for memory tracking (CPU tracking now uses /proc/stat directly)
         let system = System::new_all();
-        
+
         // Initialize CPU trackers with a warmup call
         let mut system_cpu_tracker = SystemCpuTracker::default();
         system_cpu_tracker.update(); // First call establishes baseline
@@ -238,7 +239,9 @@ impl Rapl {
 
     /// Discovers all RAPL sockets and their energy components in a single pass
     /// Returns socket readers and system-level DRAM/PSYS readers
-    fn scan_powercap_entries(rapl_dir: &str) -> (Vec<SocketReaders>, Option<DeltaReader>, Option<DeltaReader>) {
+    fn scan_powercap_entries(
+        rapl_dir: &str,
+    ) -> (Vec<SocketReaders>, Option<DeltaReader>, Option<DeltaReader>) {
         let mut socket_map: BTreeMap<u32, SocketReaders> = BTreeMap::new();
         let mut dram_reader: Option<DeltaReader> = None;
         let mut psys_reader: Option<DeltaReader> = None;
@@ -268,7 +271,7 @@ impl Rapl {
             }
 
             let colon_count = name.matches(':').count();
-            
+
             match colon_count {
                 // Socket-level entry: rapl:N (package energy at root level)
                 1 => {
@@ -276,16 +279,19 @@ impl Rapl {
                         // Check if this socket has energy_uj (package energy)
                         if fs::metadata(path.join("energy_uj")).is_ok() {
                             let package_reader = DeltaReader::new(path.clone());
-                            
+
                             // Insert or update socket with package reader
-                            socket_map.entry(socket_id).and_modify(|socket| {
-                                socket.package_reader = Some(package_reader.clone());
-                            }).or_insert(SocketReaders {
-                                socket_id,
-                                package_reader: Some(package_reader),
-                                core_reader: None,
-                                uncore_reader: None,
-                            });
+                            socket_map
+                                .entry(socket_id)
+                                .and_modify(|socket| {
+                                    socket.package_reader = Some(package_reader.clone());
+                                })
+                                .or_insert(SocketReaders {
+                                    socket_id,
+                                    package_reader: Some(package_reader),
+                                    core_reader: None,
+                                    uncore_reader: None,
+                                });
                         }
                     }
                 }
@@ -295,12 +301,14 @@ impl Rapl {
                         if let Some(socket_id) = Self::parse_socket_id(name) {
                             // Ensure socket exists before assigning component
                             // Use or_insert_with to avoid overwriting existing entry
-                            socket_map.entry(socket_id).or_insert_with(|| SocketReaders {
-                                socket_id,
-                                package_reader: None,
-                                core_reader: None,
-                                uncore_reader: None,
-                            });
+                            socket_map
+                                .entry(socket_id)
+                                .or_insert_with(|| SocketReaders {
+                                    socket_id,
+                                    package_reader: None,
+                                    core_reader: None,
+                                    uncore_reader: None,
+                                });
                             // Now get mutable reference and assign
                             if let Some(socket) = socket_map.get_mut(&socket_id) {
                                 Self::assign_socket_component(socket, reader, &path);
@@ -341,7 +349,11 @@ impl Rapl {
         };
 
         let comp_name = component_name.trim().to_lowercase();
-        log::debug!("Assigning component '{}' to socket {}", comp_name, socket.socket_id);
+        log::debug!(
+            "Assigning component '{}' to socket {}",
+            comp_name,
+            socket.socket_id
+        );
 
         // Match RAPL domain names for socket sub-components (core, uncore)
         // Note: package energy is at the socket root level, not here
@@ -362,7 +374,11 @@ impl Rapl {
     }
 
     /// Assigns a component reader to the system-level DRAM field based on component name
-    fn assign_system_component(dram_reader: &mut Option<DeltaReader>, reader: DeltaReader, path: &Path) {
+    fn assign_system_component(
+        dram_reader: &mut Option<DeltaReader>,
+        reader: DeltaReader,
+        path: &Path,
+    ) {
         let Ok(component_name) = fs::read_to_string(path.join("name")) else {
             return;
         };
@@ -383,45 +399,63 @@ impl Rapl {
     /// Returns a tuple of (cpu_utilization, memory_utilization) for each tracked PID
     /// CPU utilization is normalized relative to system usage (matching Python EMT formula)
     /// Memory utilization is normalized relative to total process memory usage
-    fn get_utilization(&self, pids: &[u32]) -> Result<(Vec<(u32, f64)>, Vec<(u32, f64)>), String> {
+    fn get_utilization(
+        &self,
+        pids: &[u32],
+    ) -> Result<(UtilizationSeries, UtilizationSeries), String> {
         use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
-        
+
         // Get system CPU using our custom tracker (reads from /proc/stat)
         let (system_cpu, sys_valid) = {
-            let mut tracker = self.system_cpu_tracker.lock()
+            let mut tracker = self
+                .system_cpu_tracker
+                .lock()
                 .map_err(|e| format!("Failed to lock system CPU tracker: {}", e))?;
             tracker.update()
         };
-        
+
         // Get per-process CPU using custom trackers (reads from /proc/<pid>/stat)
         let mut process_cpus: Vec<(u32, f64)> = Vec::new();
         {
-            let mut trackers = self.cpu_trackers.lock()
+            let mut trackers = self
+                .cpu_trackers
+                .lock()
                 .map_err(|e| format!("Failed to lock CPU trackers: {}", e))?;
-            
+
             for &pid in pids {
-                let tracker = trackers.entry(pid).or_insert_with(ProcessCpuTracker::default);
+                let tracker = trackers
+                    .entry(pid)
+                    .or_insert_with(ProcessCpuTracker::default);
                 let (cpu_percent, is_valid) = tracker.update(pid);
                 // Only use valid readings (not the first call which establishes baseline)
                 let effective_cpu = if is_valid { cpu_percent } else { 0.0 };
-                log::trace!("PID {} CPU: {:.2}% (valid: {})", pid, effective_cpu, is_valid);
+                log::trace!(
+                    "PID {} CPU: {:.2}% (valid: {})",
+                    pid,
+                    effective_cpu,
+                    is_valid
+                );
                 process_cpus.push((pid, effective_cpu));
             }
-            
+
             // Clean up trackers for PIDs no longer being tracked
             let tracked_set: std::collections::HashSet<u32> = pids.iter().cloned().collect();
             trackers.retain(|pid, _| tracked_set.contains(pid));
         }
-        
+
         log::trace!(
             "System CPU: {:.2}% (valid: {}), tracking {} processes",
-            system_cpu, sys_valid, pids.len()
+            system_cpu,
+            sys_valid,
+            pids.len()
         );
-        
+
         // Use sysinfo only for memory tracking
-        let mut system = self.system.lock()
+        let mut system = self
+            .system
+            .lock()
             .map_err(|e| format!("Failed to lock system: {}", e))?;
-        
+
         // Refresh memory info for tracked processes
         let pids_to_update: Vec<Pid> = pids.iter().map(|&p| Pid::from(p as usize)).collect();
         let refresh_kind = ProcessRefreshKind::nothing().with_memory();
@@ -430,7 +464,7 @@ impl Rapl {
             true,
             refresh_kind,
         );
-        
+
         let cpu_count = system.cpus().len().max(1) as f64;
         let total_memory = system.total_memory();
 
@@ -457,7 +491,7 @@ impl Rapl {
         // Formula (matching Python EMT):
         //   ps_util = process_cpu_percent / cpu_count  (normalize to 0-100% range)
         //   norm_ps_util = ps_util / system_cpu_percent
-        // 
+        //
         // This gives the fraction of system energy attributable to the process.
         let normalized_cpus: Vec<(u32, f64)> = process_cpus
             .into_iter()
@@ -541,7 +575,10 @@ impl EnergyCollector for Rapl {
             // Read package energy for this socket (total socket energy)
             let package_energy = if let Some(reader) = &socket.package_reader {
                 reader.read_delta().unwrap_or_else(|e| {
-                    warn!("Failed to read package energy for socket {}: {}", socket_id, e);
+                    warn!(
+                        "Failed to read package energy for socket {}: {}",
+                        socket_id, e
+                    );
                     0.0
                 })
             } else {
@@ -563,7 +600,10 @@ impl EnergyCollector for Rapl {
             // Currently unused but read for debugging purposes
             let _uncore_energy = if let Some(reader) = &socket.uncore_reader {
                 reader.read_delta().unwrap_or_else(|e| {
-                    warn!("Failed to read uncore energy for socket {}: {}", socket_id, e);
+                    warn!(
+                        "Failed to read uncore energy for socket {}: {}",
+                        socket_id, e
+                    );
                     0.0
                 })
             } else {
@@ -587,7 +627,11 @@ impl EnergyCollector for Rapl {
                     let package_attribution = package_energy * normalized_cpu;
                     log::trace!(
                         "PID {} socket {}: package_energy={:.4}J × normalized_cpu={:.4} = {:.4}J",
-                        pid, socket_id, package_energy, normalized_cpu, package_attribution
+                        pid,
+                        socket_id,
+                        package_energy,
+                        normalized_cpu,
+                        package_attribution
                     );
                     records.push(EnergyRecord {
                         pid,
@@ -670,16 +714,16 @@ impl EnergyCollector for Rapl {
         Path::new("/sys/class/powercap").exists()
             && fs::read_dir("/sys/class/powercap")
                 .ok()
-                .and_then(|entries| {
+                .map(|entries| {
                     for entry in entries.flatten() {
                         if let Some(name) = entry.file_name().to_str() {
                             // Check for RAPL interface (Intel or AMD)
                             if name.contains("rapl") {
-                                return Some(true);
+                                return true;
                             }
                         }
                     }
-                    Some(false)
+                    false
                 })
                 .unwrap_or(false)
     }
@@ -713,8 +757,12 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir()
-            .join(format!("emt-rapl-{}-{}-{}", name, std::process::id(), unique));
+        let dir = std::env::temp_dir().join(format!(
+            "emt-rapl-{}-{}-{}",
+            name,
+            std::process::id(),
+            unique
+        ));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

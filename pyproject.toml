@@ -55,9 +55,11 @@ emt_cfgup = "emt.cfgup:main"
 
 [tool.black]
 line-length = 88
+target-version = ["py310", "py311", "py312"]
 exclude = '''
 /(
     \.git
+  | \.venv
   | build
   | dist
   | __pycache__
