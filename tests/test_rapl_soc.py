@@ -280,6 +280,26 @@ def test_rapl_soc_initialization(rapl_soc):
     assert len(rapl_soc.zone_readers) == 2
 
 
+def test_rapl_soc_is_available_requires_readable_zone_files():
+    """RAPL exists only when top-level zone metadata and energy are readable."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.listdir", return_value=["intel-rapl:0"]),
+        patch("builtins.open", side_effect=PermissionError),
+    ):
+        assert RAPLSoC.is_available() is False
+
+
+def test_rapl_soc_is_available_accepts_readable_top_level_zone():
+    """Readable top-level package zones make the RAPL power group available."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.listdir", return_value=["intel-rapl:0", "intel-rapl:0:0"]),
+        patch("builtins.open", mock_open(read_data="package-0")),
+    ):
+        assert RAPLSoC.is_available() is True
+
+
 def test_rapl_soc_read_energy(rapl_soc):
     """Test _read_energy in RAPLSoC."""
     with (

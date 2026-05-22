@@ -37,7 +37,9 @@ python scripts/verify.py --iterations 3 --duration 30
 ```
 
 The harness now fails fast when the host has no readable RAPL counters instead
-of running indefinitely on an unsupported environment.
+of running indefinitely on an unsupported environment. Both Python EMT and the
+Rust CLI monitor the workload subprocess PID directly, which keeps verifier and
+monitor overhead out of the parity comparison.
 
 ## How to read the output
 

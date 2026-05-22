@@ -24,7 +24,9 @@ the active verification runner is `scripts/verify.py`.
 | python emt | `scripts/verification_workload.py` | active |
 | rust cli | `scripts/verification_workload.py` | active |
 
-both methods run in isolated phases with settling time between phases.
+both methods run in isolated phases with settling time between phases. Each
+method monitors the `scripts/verification_workload.py` subprocess PID directly
+so verifier-process overhead is not charged to only one side of the comparison.
 
 ## output
 

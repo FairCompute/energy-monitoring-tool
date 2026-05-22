@@ -165,10 +165,12 @@ class EnergyMonitor:
         name: str = "unnamed_context",
         trace_recorders: Optional[Collection[TraceRecorder] | TraceRecorder] = None,
         startup_delay_s: float = 1.0,
+        pid: Optional[int] = None,
     ):
         self.context_name = name
         setup_logger(logger)
         self._startup_delay_s = max(0.0, float(startup_delay_s))
+        self._pid = pid
 
         self._trace_recorders = self._normalize_trace_recorders(trace_recorders)
 
@@ -196,7 +198,8 @@ class EnergyMonitor:
         logger.info(f"EMT context manager invoked - {self.context_name} ...")
         self.start_time = time.time()
         # get available powergroups
-        self.pg_objs = get_available_pgs()
+        pg_kwargs = {"pid": self._pid} if self._pid is not None else {}
+        self.pg_objs = get_available_pgs(**pg_kwargs)
         # log powergroup info in a tabular format
         logger.info("\n" + get_pg_table())
 

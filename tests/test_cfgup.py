@@ -2,6 +2,7 @@ import pytest
 from click.testing import CliRunner
 from unittest.mock import patch
 import re
+from pathlib import Path
 from emt.cfgup import main, setup
 
 
@@ -30,6 +31,7 @@ def test_setup_service_not_enabled(runner):
         ) as mock_is_enabled,
         patch("emt.cfgup._is_service_loaded_properly", side_effect=[False, True]),
         patch("emt.cfgup._is_service_active", side_effect=[False, True]),
+        patch("emt.cfgup._installed_unit_matches_package", return_value=True),
         patch("emt.cfgup._ensure_group") as mock_ensure_group,
         patch("emt.cfgup._advertise_group_membership") as mock_advertise,
         patch("emt.cfgup._install_systemd_unit") as mock_install_unit,
@@ -57,6 +59,7 @@ def test_setup_service_already_enabled(runner):
         patch("emt.cfgup._is_service_enabled", return_value=True) as mock_is_enabled,
         patch("emt.cfgup._is_service_loaded_properly", return_value=True),
         patch("emt.cfgup._is_service_active", return_value=True),
+        patch("emt.cfgup._installed_unit_matches_package", return_value=True),
         patch("emt.cfgup.logger") as mock_logger,
     ):
 
@@ -70,6 +73,41 @@ def test_setup_service_already_enabled(runner):
         assert any(
             re.search(r"already properly configured", msg) for msg in log_messages
         )
+
+
+def test_setup_reinstalls_stale_unit(runner):
+    with (
+        patch("emt.cfgup._is_service_enabled", side_effect=[True, True]),
+        patch("emt.cfgup._is_service_loaded_properly", side_effect=[True, True]),
+        patch("emt.cfgup._is_service_active", side_effect=[True, True]),
+        patch("emt.cfgup._installed_unit_matches_package", side_effect=[False, True]),
+        patch("emt.cfgup._ensure_group") as mock_ensure_group,
+        patch("emt.cfgup._advertise_group_membership") as mock_advertise,
+        patch("emt.cfgup._install_systemd_unit") as mock_install_unit,
+        patch("emt.cfgup.subprocess.run") as mock_run,
+    ):
+        result = runner.invoke(setup)
+
+    assert result.exit_code == 0
+    mock_ensure_group.assert_called_once()
+    mock_advertise.assert_called_once()
+    mock_install_unit.assert_called_once()
+    mock_run.assert_called_once()
+
+
+def test_energy_access_unit_does_not_wait_for_own_target():
+    unit = Path("assets/energy_access.service").read_text()
+
+    assert "WantedBy=multi-user.target" in unit
+    assert "After=multi-user.target" not in unit
+
+
+def test_energy_access_unit_grants_required_rapl_reads():
+    unit = Path("assets/energy_access.service").read_text()
+
+    assert "-name energy_uj" in unit
+    assert "-name name" in unit
+    assert "/usr/bin/chmod g+r" in unit
 
 
 if __name__ == "__main__":

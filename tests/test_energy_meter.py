@@ -185,6 +185,10 @@ def test_energy_monitor_initialization():
     monitor = EnergyMonitor(name="test_context", trace_recorders=[mock_trace_recorder])
     assert monitor.context_name == "test_context"
     assert monitor._trace_recorders == [mock_trace_recorder]
+    assert monitor._pid is None
+
+    pid_monitor = EnergyMonitor(name="pid_context", pid=4321)
+    assert pid_monitor._pid == 4321
 
     with (patch("logging.getLogger") as mock_logger,):
         mock_logger.return_value.hasHandlers.return_value = True
@@ -228,11 +232,16 @@ def test_enter_method(mock_trace_recorders):
     )
     with (
         patch("emt.energy_monitor.logger", return_value=MagicMock()) as mock_logger,
+        patch(
+            "emt.energy_monitor.get_available_pgs", return_value=[]
+        ) as mock_get_available_pgs,
+        patch("emt.energy_monitor.get_pg_table", return_value=""),
         patch("threading.Thread", return_value=MagicMock()) as mock_thread,
         patch("time.sleep", return_value=None),
     ):
         energy_meter = energy_monitor.__enter__()
 
+    mock_get_available_pgs.assert_called_once_with()
     # 1. Verify logging to ensure proper context
     mock_logger.info.assert_any_call(ANY)
     for trace_emitter in mock_trace_recorders:
@@ -242,6 +251,26 @@ def test_enter_method(mock_trace_recorders):
         name="EnergyMonitoringThread", target=energy_meter.run
     )
     assert energy_meter is not None
+
+
+def test_enter_method_passes_pid_to_power_groups():
+    """EnergyMonitor can scope power groups to an explicit PID."""
+    energy_monitor = EnergyMonitor(
+        name="TestContext",
+        pid=4321,
+        startup_delay_s=0.0,
+    )
+    with (
+        patch("emt.energy_monitor.logger", return_value=MagicMock()),
+        patch(
+            "emt.energy_monitor.get_available_pgs", return_value=[]
+        ) as mock_get_available_pgs,
+        patch("emt.energy_monitor.get_pg_table", return_value=""),
+        patch("threading.Thread", return_value=MagicMock()),
+    ):
+        energy_monitor.__enter__()
+
+    mock_get_available_pgs.assert_called_once_with(pid=4321)
 
 
 def test_exit_method(mock_trace_recorders):

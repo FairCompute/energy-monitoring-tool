@@ -25,6 +25,11 @@ def add_stdout_handler():
 add_stdout_handler()
 
 _GROUP_NAME = "powercap"
+SYSTEMD_UNIT_DESTINATION = f"/etc/systemd/system/{SYSTEMD_ENERGY_ACCESS_UNIT}"
+
+
+def _packaged_systemd_unit_path() -> Path:
+    return Path(__file__).parent.parent / "assets" / SYSTEMD_ENERGY_ACCESS_UNIT
 
 
 def _ensure_group(group_name=_GROUP_NAME):
@@ -47,16 +52,17 @@ def _advertise_group_membership(group_name=_GROUP_NAME):
     )
 
 
-def _install_systemd_unit(
-    destination=f"/etc/systemd/system/{SYSTEMD_ENERGY_ACCESS_UNIT}",
-):
-    service_src = Path(__file__).parent.parent / "assets" / SYSTEMD_ENERGY_ACCESS_UNIT
+def _install_systemd_unit(destination=SYSTEMD_UNIT_DESTINATION):
+    service_src = _packaged_systemd_unit_path()
     service_dst = Path(destination)
     logger.info(f"Installing systemd unit to {service_dst}...")
     subprocess.run(["sudo", "cp", str(service_src), str(service_dst)], check=True)
-    subprocess.run(["sudo", "systemctl", "daemon-reexec"], check=True)
+    subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
     subprocess.run(
-        ["sudo", "systemctl", "enable", "--now", SYSTEMD_ENERGY_ACCESS_UNIT], check=True
+        ["sudo", "systemctl", "enable", SYSTEMD_ENERGY_ACCESS_UNIT], check=True
+    )
+    subprocess.run(
+        ["sudo", "systemctl", "restart", SYSTEMD_ENERGY_ACCESS_UNIT], check=True
     )
 
 
@@ -90,31 +96,42 @@ def _is_service_loaded_properly(service=SYSTEMD_ENERGY_ACCESS_UNIT):
     return "LoadState=loaded" in result.stdout
 
 
+def _installed_unit_matches_package(
+    destination=SYSTEMD_UNIT_DESTINATION,
+) -> bool:
+    service_dst = Path(destination)
+    try:
+        return service_dst.read_text() == _packaged_systemd_unit_path().read_text()
+    except OSError:
+        return False
+
+
 @click.command()
 def setup() -> bool:
     # Check if service exists and is properly loaded
     service_loaded = _is_service_loaded_properly()
     service_enabled = _is_service_enabled()
     service_active = _is_service_active()
+    unit_current = _installed_unit_matches_package()
 
     logger.info(
-        f"Service status - Loaded: {service_loaded}, Enabled: {service_enabled}, Active: {service_active}"
+        f"Service status - Loaded: {service_loaded}, Enabled: {service_enabled}, Active: {service_active}, Unit current: {unit_current}"
     )
 
-    if not service_loaded or not service_enabled or not service_active:
+    if (
+        not service_loaded
+        or not service_enabled
+        or not service_active
+        or not unit_current
+    ):
         _ensure_group()
         _advertise_group_membership()
         try:
             # Stop and disable existing service if it exists but has issues
-            if not service_loaded:
-                logger.info("Service has loading issues, reinstalling...")
+            if not service_loaded or not unit_current:
+                logger.info("Service unit needs reinstalling...")
                 subprocess.run(
                     ["sudo", "systemctl", "stop", SYSTEMD_ENERGY_ACCESS_UNIT],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                subprocess.run(
-                    ["sudo", "systemctl", "disable", SYSTEMD_ENERGY_ACCESS_UNIT],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -126,6 +143,7 @@ def setup() -> bool:
                 _is_service_loaded_properly()
                 and _is_service_enabled()
                 and _is_service_active()
+                and _installed_unit_matches_package()
             ):
                 logger.info("Service installed and enabled successfully.")
             else:

@@ -1,12 +1,11 @@
 [Unit]
-After=multi-user.target
-Wants=network.target
-After=network.target
+Description=Grant non-root access to RAPL powercap counters
 
 [Service]
 Type=oneshot
-ExecStartPre=+/usr/bin/find /sys/devices/virtual/powercap -type d -exec chmod g+rx {} + -exec chown root:powercap {} +
-ExecStartPre=+/usr/bin/find /sys/devices/virtual/powercap -name energy_uj -exec chmod g+r {} + -exec chown root:powercap {} +
+ExecStartPre=+/usr/bin/find /sys/devices/virtual/powercap -type d -exec /usr/bin/chown root:powercap {} + -exec /usr/bin/chmod g+rx {} +
+ExecStartPre=+/usr/bin/find /sys/devices/virtual/powercap -name energy_uj -exec /usr/bin/chown root:powercap {} + -exec /usr/bin/chmod g+r {} +
+ExecStartPre=+/usr/bin/find /sys/devices/virtual/powercap -name name -exec /usr/bin/chown root:powercap {} + -exec /usr/bin/chmod g+r {} +
 RemainAfterExit=yes
 ExecStart=/bin/true
 Group=powercap

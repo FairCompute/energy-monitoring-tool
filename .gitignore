@@ -10,6 +10,7 @@ build/
 data/
 .artifacts/
 .venv/
+.claude/
 
 # Rust artifacts
 emt/collector/target/

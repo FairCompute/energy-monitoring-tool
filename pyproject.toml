@@ -60,6 +60,8 @@ exclude = '''
 /(
     \.git
   | \.venv
+  | \.artifacts
+  | \.claude
   | build
   | dist
   | __pycache__

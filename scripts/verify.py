@@ -3,12 +3,14 @@
 Energy Monitoring Tool — Verification Script
 
 Compares energy measurements from two independent methods, each run in ISOLATION:
-    1. Python EMT (emt.EnergyMonitor) — runs verification_workload.py as a subprocess
-    2. Rust CLI   (energy-monitoring-tool) — runs verification_workload.py as a subprocess
+    1. Python EMT (emt.EnergyMonitor) — monitors verification_workload.py by PID
+    2. Rust CLI   (energy-monitoring-tool) — monitors verification_workload.py by PID
 
 Isolation is critical: because idle energy is attributed proportionally to all
 active processes, each method runs the workload alone so that the workload is
-the dominant consumer and attribution is meaningful.
+the dominant consumer and attribution is meaningful. The methods use the same
+workload PID scope to avoid charging verifier or monitor overhead to only one
+side of the comparison.
 """
 
 import os
@@ -33,6 +35,7 @@ DEFAULT_OUTPUT_PATH = PROJECT_ROOT / ".artifacts" / "verification_results.json"
 PYTHON = sys.executable
 RAPL_ROOT = Path("/sys/class/powercap")
 ACCURACY_TOLERANCE_PERCENT = 2.0
+WORKLOAD_MONITOR_START_DELAY_SECONDS = 0.3
 
 
 @dataclass
@@ -46,6 +49,15 @@ class Result:
     details: dict = field(default_factory=dict)
 
 
+def _can_read(path: Path) -> bool:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            file.read(1)
+        return True
+    except OSError:
+        return False
+
+
 def rapl_energy_entries(root: Path = RAPL_ROOT) -> list[Path]:
     """Return readable RAPL counter directories under *root*."""
     if not root.exists():
@@ -54,9 +66,9 @@ def rapl_energy_entries(root: Path = RAPL_ROOT) -> list[Path]:
     return sorted(
         entry
         for entry in root.iterdir()
-        if entry.is_dir()
-        and entry.name.startswith(("intel-rapl", "amd-rapl"))
-        and (entry / "energy_uj").exists()
+        if entry.name.startswith(("intel-rapl", "amd-rapl"))
+        and _can_read(entry / "name")
+        and _can_read(entry / "energy_uj")
     )
 
 
@@ -69,7 +81,7 @@ def assert_rapl_available(root: Path = RAPL_ROOT) -> list[Path]:
     raise RuntimeError(
         f"No readable RAPL energy counters were found under {root}. "
         "Run this verification on a physical host with populated "
-        "/sys/class/powercap entries."
+        "/sys/class/powercap entries and readable powercap permissions."
     )
 
 
@@ -221,6 +233,9 @@ def collect_run_metadata(
             "duration_seconds": workload_duration,
             "output_path": str(output_path),
             "rust_cli_uses_sudo": use_sudo,
+            "monitor_start_delay_seconds": WORKLOAD_MONITOR_START_DELAY_SECONDS,
+            "python_monitoring_scope": "workload_pid",
+            "rust_monitoring_scope": "workload_pid",
         },
     }
 
@@ -246,7 +261,10 @@ def print_metadata_summary(metadata: dict[str, Any]) -> None:
 def measure_python_emt(workload_duration: float, iteration: int) -> Result:
     """
     Run verification_workload.py as a subprocess, monitored by Python EMT.
-    EMT tracks the current process tree (this script + workload child).
+
+    The monitor is scoped to the workload subprocess PID so this path matches
+    the Rust CLI path, which also monitors the workload from outside instead of
+    charging the verifier process tree.
     """
     # Import here so the module is only loaded when needed
     os.environ["EMT_RELOAD_PROCS"] = "1"
@@ -254,13 +272,27 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
 
     start = time.perf_counter()
 
-    with EnergyMonitor(name=f"verify_{iteration}") as monitor:
-        proc = subprocess.Popen(
-            [PYTHON, str(WORKLOAD_SCRIPT), str(workload_duration)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        proc.wait()
+    proc = subprocess.Popen(
+        [PYTHON, str(WORKLOAD_SCRIPT), str(workload_duration)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(WORKLOAD_MONITOR_START_DELAY_SECONDS)
+        with EnergyMonitor(
+            name=f"verify_{iteration}",
+            pid=proc.pid,
+            startup_delay_s=0.0,
+        ) as monitor:
+            proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
     elapsed = time.perf_counter() - start
 
@@ -283,7 +315,11 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
         iteration=iteration,
         duration=elapsed,
         total_energy_j=total_energy,
-        details={"devices": devices},
+        details={
+            "devices": devices,
+            "workload_pid": proc.pid,
+            "monitor_start_delay_s": WORKLOAD_MONITOR_START_DELAY_SECONDS,
+        },
     )
 
 
@@ -315,7 +351,7 @@ def measure_rust_cli(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(0.3)  # let it spin up
+    time.sleep(WORKLOAD_MONITOR_START_DELAY_SECONDS)  # let it spin up
 
     rust_cmd = [
         str(RUST_BINARY),
@@ -362,7 +398,11 @@ def measure_rust_cli(
         iteration=iteration,
         duration=elapsed,
         total_energy_j=data.get("total_energy", 0.0),
-        details={"devices": data.get("devices", {}), "workload_pid": workload.pid},
+        details={
+            "devices": data.get("devices", {}),
+            "workload_pid": workload.pid,
+            "monitor_start_delay_s": WORKLOAD_MONITOR_START_DELAY_SECONDS,
+        },
     )
 
 

@@ -230,9 +230,20 @@ class RAPLSoC(PowerGroup):
 
     @classmethod
     def is_available(cls):
-        """A check for availability of RAPL interface"""
+        """A check for availability of a readable RAPL interface."""
         try:
-            return bool(os.path.exists(cls.RAPL_DIR) and bool(os.listdir(cls.RAPL_DIR)))
+            if not os.path.exists(cls.RAPL_DIR):
+                return False
+            for zone in os.listdir(cls.RAPL_DIR):
+                if "rapl" not in zone or zone.count(":") != 1:
+                    continue
+                zone_path = Path(cls.RAPL_DIR, zone)
+                with open(Path(zone_path, "name"), "r"):
+                    pass
+                with open(Path(zone_path, "energy_uj"), "r"):
+                    pass
+                return True
+            return False
         except OSError:
             return False
 
