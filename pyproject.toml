@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel", "setuptools_scm"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.13.1,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "emt"
@@ -43,13 +43,10 @@ docs = [
     "mkdocs-git-revision-date-localized-plugin",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["emt", "emt.*"] # Include all sub-packages under 'emt'
-
-[tool.setuptools_scm]
-# Ensure _version.py exists and is correctly configured
-version_file = "_version.py"
+[tool.maturin]
+module-name = "emt._rust"
+python-source = "."
+features = ["pyo3"]
 
 
 [project.scripts]
@@ -58,9 +55,13 @@ emt_cfgup = "emt.cfgup:main"
 
 [tool.black]
 line-length = 88
+target-version = ["py310", "py311", "py312"]
 exclude = '''
 /(
     \.git
+  | \.venv
+  | \.artifacts
+  | \.claude
   | build
   | dist
   | __pycache__

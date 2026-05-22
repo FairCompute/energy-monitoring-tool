@@ -2,9 +2,183 @@ import pytest
 from unittest.mock import patch, mock_open, MagicMock
 from pathlib import Path
 from emt.power_groups import RAPLSoC
-from emt.power_groups.rapl import DeltaReader
+from emt.power_groups.rapl import DeltaReader, extract_components
 
 TOLERANCE = 1e-9
+
+RAPL_DIR = "/sys/class/powercap"
+
+
+# ---------------------------------------------------------------------------
+# Tests for extract_components
+# ---------------------------------------------------------------------------
+
+
+def _p(name: str) -> Path:
+    """Helper: build a Path inside RAPL_DIR from a zone name."""
+    return Path(RAPL_DIR, name)
+
+
+class TestExtractComponents:
+    """Unit tests for the extract_components helper function."""
+
+    # ------------------------------------------------------------------
+    # Basic threshold tests
+    # ------------------------------------------------------------------
+
+    def test_unrelated_zone_name_returns_empty(self):
+        """A zone path whose name does not prefix any entry in all_zones returns empty.
+
+        Note: 'other-domain' does not start with 'intel-rapl:', so none of the
+        intel-rapl entries will match and the result is empty.
+        """
+        zone = _p("other-domain")
+        all_zones = [_p("intel-rapl:0"), _p("intel-rapl:0:0")]
+        result = extract_components(zone, all_zones)
+        assert result == []
+
+    def test_one_colon_zone_name_is_top_level_not_a_subcomponent(self):
+        """A zone with exactly one colon (e.g., intel-rapl:0) is a top-level package,
+        not a sub-component, and should not appear in its own component list."""
+        zone = _p("intel-rapl:0")
+        all_zones = [_p("intel-rapl:0"), _p("intel-rapl:1")]
+        result = extract_components(zone, all_zones)
+        assert result == []
+
+    def test_more_than_one_colon_is_a_subcomponent(self):
+        """A zone with more than one colon (e.g., intel-rapl:0:0) is a sub-component."""
+        zone = _p("intel-rapl:0")
+        all_zones = [
+            _p("intel-rapl:0"),
+            _p("intel-rapl:0:0"),
+        ]
+        result = extract_components(zone, all_zones)
+        assert result == [_p("intel-rapl:0:0")]
+
+    # ------------------------------------------------------------------
+    # Regression: flat sysfs layout and rglob traversal of RAPL zones
+    # ------------------------------------------------------------------
+
+    def test_flat_layout_sibling_subcomponents_are_discovered(self):
+        """Regression: a previous implementation relied on rglob() directory traversal
+        and expected sub-components to be nested under their parent zone directory.
+        On systems where zones and their sub-components are siblings in a flat sysfs
+        layout, that traversal only saw top-level zones and missed valid sub-components.
+        The new extract_components function works correctly for the flat layout."""
+        zone = _p("intel-rapl:0")
+        # intel-rapl:0:0 has exactly 2 colons; it is a valid sub-component
+        all_zones = [_p("intel-rapl:0"), _p("intel-rapl:0:0"), _p("intel-rapl:0:1")]
+        result = extract_components(zone, all_zones)
+        assert _p("intel-rapl:0:0") in result
+        assert _p("intel-rapl:0:1") in result
+
+    # ------------------------------------------------------------------
+    # Multiple zones and correct assignment
+    # ------------------------------------------------------------------
+
+    def test_subcomponents_correctly_assigned_to_parent_zone(self):
+        """Sub-components are matched to the correct parent zone only."""
+        zone0 = _p("intel-rapl:0")
+        zone1 = _p("intel-rapl:1")
+        all_zones = [
+            _p("intel-rapl:0"),
+            _p("intel-rapl:0:0"),  # cores for socket 0
+            _p("intel-rapl:0:1"),  # uncore for socket 0
+            _p("intel-rapl:1"),
+            _p("intel-rapl:1:0"),  # cores for socket 1
+        ]
+        comps0 = extract_components(zone0, all_zones)
+        comps1 = extract_components(zone1, all_zones)
+
+        assert _p("intel-rapl:0:0") in comps0
+        assert _p("intel-rapl:0:1") in comps0
+        assert _p("intel-rapl:1:0") not in comps0
+
+        assert _p("intel-rapl:1:0") in comps1
+        assert _p("intel-rapl:0:0") not in comps1
+        assert _p("intel-rapl:0:1") not in comps1
+
+    def test_no_subcomponents_returns_empty_list(self):
+        """When all_zones contains only top-level zones, components should be empty."""
+        zone = _p("intel-rapl:0")
+        all_zones = [_p("intel-rapl:0"), _p("intel-rapl:1")]
+        result = extract_components(zone, all_zones)
+        assert result == []
+
+    # ------------------------------------------------------------------
+    # Edge cases / malformed inputs
+    # ------------------------------------------------------------------
+
+    def test_empty_all_zones_returns_empty(self):
+        """Empty input list always produces empty output."""
+        zone = _p("intel-rapl:0")
+        assert extract_components(zone, []) == []
+
+    def test_subcomponent_does_not_match_similar_but_different_zone(self):
+        """intel-rapl:0:0 must NOT appear as sub-component of intel-rapl:00."""
+        zone = _p("intel-rapl:00")
+        all_zones = [_p("intel-rapl:0:0"), _p("intel-rapl:00")]
+        result = extract_components(zone, all_zones)
+        # intel-rapl:0:0 starts with "intel-rapl:0:" not "intel-rapl:00:"
+        assert result == []
+
+    def test_all_prefix_matching_descendants_are_returned(self):
+        """Sub-sub-components (three colons) are still returned because they start
+        with the parent prefix; they are valid deep sub-domains."""
+        zone = _p("intel-rapl:0")
+        all_zones = [
+            _p("intel-rapl:0"),
+            _p("intel-rapl:0:0"),
+            _p("intel-rapl:0:0:0"),  # hypothetical deep sub-domain
+        ]
+        result = extract_components(zone, all_zones)
+        # both are prefixed by "intel-rapl:0:"
+        assert _p("intel-rapl:0:0") in result
+        assert _p("intel-rapl:0:0:0") in result
+
+
+# ---------------------------------------------------------------------------
+# Tests for RAPLSoC that exercise component wiring via extract_components
+# ---------------------------------------------------------------------------
+
+
+def test_rapl_soc_with_subcomponents_wires_readers_correctly():
+    """RAPLSoC should discover sub-components from the flat powercap listing and
+    populate _components correctly without relying on rglob."""
+    listdir_entries = [
+        "intel-rapl:0",
+        "intel-rapl:0:0",  # sub-domain for socket 0
+        "intel-rapl:0:1",  # sub-domain for socket 0
+        "intel-rapl:1",
+    ]
+
+    def fake_open(path, *args, **kwargs):
+        name_map = {
+            "/sys/class/powercap/intel-rapl:0/name": "package-0",
+            "/sys/class/powercap/intel-rapl:1/name": "package-1",
+        }
+        path_str = str(path)
+        read_data = name_map.get(path_str, "unknown")
+        return mock_open(read_data=read_data)()
+
+    with (
+        patch("os.listdir", return_value=listdir_entries),
+        patch("builtins.open", side_effect=fake_open),
+        patch(
+            "emt.utils.config.load_config",
+            return_value={"measurement_units": {"energy": "Joules", "power": "Watts"}},
+        ),
+        patch("psutil.Process"),
+    ):
+        soc = RAPLSoC()
+
+    assert soc.zones_count == 2
+    # Two zone_readers for the two package zones
+    assert len(soc.zone_readers) == 2
+    # Sub-components for socket 0: intel-rapl:0:0 and intel-rapl:0:1
+    assert len(soc._components[0]) == 2
+    # Socket 1 has no sub-components in this listing
+    assert len(soc._components[1]) == 0
 
 
 # Test for DeltaReader
@@ -104,6 +278,26 @@ def test_rapl_soc_initialization(rapl_soc):
     assert rapl_soc.zones_count == 2
     assert len(rapl_soc._zones) == 2
     assert len(rapl_soc.zone_readers) == 2
+
+
+def test_rapl_soc_is_available_requires_readable_zone_files():
+    """RAPL exists only when top-level zone metadata and energy are readable."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.listdir", return_value=["intel-rapl:0"]),
+        patch("builtins.open", side_effect=PermissionError),
+    ):
+        assert RAPLSoC.is_available() is False
+
+
+def test_rapl_soc_is_available_accepts_readable_top_level_zone():
+    """Readable top-level package zones make the RAPL power group available."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.listdir", return_value=["intel-rapl:0", "intel-rapl:0:0"]),
+        patch("builtins.open", mock_open(read_data="package-0")),
+    ):
+        assert RAPLSoC.is_available() is True
 
 
 def test_rapl_soc_read_energy(rapl_soc):

@@ -1,7 +1,7 @@
 import logging
 import os
 import psutil
-from typing import Optional
+from typing import Optional, Dict
 from collections import defaultdict
 from functools import cached_property
 from copy import deepcopy
@@ -28,6 +28,9 @@ class PowerGroup:
         self._consumed_energy = 0.0
         self._rate = rate
         self._energy_trace = defaultdict(list)
+        # Cache for Process objects when using EMT_RELOAD_PROCS
+        # Key: PID, Value: psutil.Process object (reused for cpu_percent tracking)
+        self._process_cache: Dict[int, psutil.Process] = {}
 
         # Load configuration to get target energy unit (lazy import to avoid circular dependency)
         self._config = None
@@ -92,12 +95,54 @@ class PowerGroup:
 
     def get_processes(self):
         """
-        Get all processes under the current one
+        Get all processes under the current one.
+        When EMT_RELOAD_PROCS is set, this returns fresh process list each time.
+        Process objects are cached and reused so that psutil.cpu_percent() works
+        correctly (it needs same object instance to compute delta between calls).
         """
-        return [self.tracked_process] + self.tracked_process.children(recursive=True)
+        if not os.getenv("EMT_RELOAD_PROCS"):
+            # Standard behavior - return simple list
+            return [self.tracked_process] + self.tracked_process.children(
+                recursive=True
+            )
+
+        # EMT_RELOAD_PROCS mode - discover new children but reuse cached Process objects
+        current_pids = {self.tracked_process.pid}
+        try:
+            for child in self.tracked_process.children(recursive=True):
+                current_pids.add(child.pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+        # Update cache: add new processes, remove dead ones
+        # Remove PIDs that are no longer children
+        dead_pids = [pid for pid in self._process_cache if pid not in current_pids]
+        for pid in dead_pids:
+            del self._process_cache[pid]
+
+        # Add new PIDs to cache (this is where cpu_percent warmup starts)
+        for pid in current_pids:
+            if pid not in self._process_cache:
+                try:
+                    proc = psutil.Process(pid)
+                    # Warmup cpu_percent - first call establishes baseline
+                    proc.cpu_percent(interval=None)
+                    self._process_cache[pid] = proc
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+        # Return cached Process objects in order (tracked first, then children)
+        result = []
+        if self.tracked_process.pid in self._process_cache:
+            result.append(self._process_cache[self.tracked_process.pid])
+        for pid in current_pids:
+            if pid != self.tracked_process.pid and pid in self._process_cache:
+                result.append(self._process_cache[pid])
+
+        return result
 
     if os.getenv("EMT_RELOAD_PROCS"):
-        # Also account for new child processes
+        # Also account for new child processes (using caching for cpu_percent accuracy)
         processes = property(get_processes)
     else:
         processes = cached_property(get_processes)

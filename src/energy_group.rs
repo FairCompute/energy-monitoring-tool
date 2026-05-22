@@ -1,0 +1,392 @@
+use crate::utils::errors::MonitoringError;
+use crate::utils::psutils::collect_process_groups;
+use crate::utils::trace_rotation::RotatingTrace;
+use async_trait::async_trait;
+use itertools::multiunzip;
+use polars::prelude::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+#[derive(Debug)]
+pub enum EnergyCollectorType {
+    Rapl,
+    NvidiaGpu,
+    Dummy,
+}
+
+#[derive(Debug)]
+pub struct ProcessGroup {
+    pub user: String,
+    pub task: String,
+    pub pids: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnergyRecord {
+    pub pid: u32,
+    pub timestamp: i64,
+    pub device: String,
+    pub energy: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct UtilizationRecord {
+    pub pid: u32,
+    pub timestamp: i64,
+    pub device: String,
+    pub utilization: f64,
+}
+
+/// Generic Energy Monitor
+/// # Type Parameters
+/// * `T` - An energy collector type that implements `EnergyCollector`
+pub struct EnergyGroup<T: EnergyCollector> {
+    /// Collection rate in Hz
+    rate: f64,
+    /// Number of iterations to batch before sending data back from the collector
+    batch_size: usize,
+    /// DataFrame: user | task | pid
+    tracked_processes: DataFrame,
+    /// Rotating trace: pid | timestamp | device | energy
+    energy_trace: RotatingTrace,
+    /// Underlying collector instance
+    energy_collector: Arc<T>,
+    /// Flag indicating if the collector is running
+    is_running: Arc<AtomicBool>,
+    /// Handle to the background monitoring task
+    task_handle: Option<JoinHandle<()>>,
+    /// Receiver for collected energy data from the background task
+    data_receiver: Option<mpsc::Receiver<Vec<EnergyRecord>>>,
+}
+
+impl<T: EnergyCollector> EnergyGroup<T> {
+    /// Create a new PowerGroup with explicit collector instance
+    pub fn create_with_collector(
+        mut collector: T,
+        rate: f64,
+        pids: Option<Vec<usize>>,
+        batch_size: Option<usize>,
+    ) -> Result<Self, MonitoringError> {
+        let process_groups: Vec<ProcessGroup> = collect_process_groups(pids)?;
+        if process_groups.is_empty() {
+            return Err(MonitoringError::ProcessDiscoveryError(
+                "No processes found".to_string(),
+            ));
+        }
+
+        // Concise conversion to Polars DataFrame: user | task | pid
+        let (users, tasks, pids_col): (Vec<String>, Vec<String>, Vec<u32>) =
+            multiunzip(process_groups.iter().flat_map(|group| {
+                group
+                    .pids
+                    .iter()
+                    .map(move |&pid| (group.user.clone(), group.task.clone(), pid as u32))
+            }));
+
+        // Set tracked PIDs in the collector for per-process energy attribution
+        collector.set_tracked_pids(pids_col.clone());
+
+        let tracked_processes: DataFrame = df![
+            "user" => users,
+            "task" => tasks,
+            "pid" => pids_col,
+        ]
+        .map_err(|e| MonitoringError::Other(format!("Failed to create DataFrame: {}", e)))?;
+
+        // Create rotating trace with 1 hour default retention
+        let energy_trace = RotatingTrace::new(3600);
+
+        Ok(Self {
+            rate,
+            batch_size: batch_size.unwrap_or(1000),
+            tracked_processes,
+            energy_trace,
+            energy_collector: Arc::new(collector),
+            is_running: Arc::new(AtomicBool::new(false)),
+            task_handle: None,
+            data_receiver: None,
+        })
+    }
+
+    /// Convenience constructor: only rate and pids. A default collector instance is created.
+    /// for the collector type `T`, it must implement `Default`.
+    pub fn new(rate: f64, pids: Option<Vec<usize>>) -> Result<Self, MonitoringError>
+    where
+        T: Default,
+    {
+        Self::create_with_collector(T::default(), rate, pids, None)
+    }
+
+    /// Get a reference to the tracked process DataFrame
+    pub fn processes(&self) -> &DataFrame {
+        &self.tracked_processes
+    }
+
+    /// Get a reference to the energy trace data (as DataFrame)
+    pub fn energy_trace(&self) -> &DataFrame {
+        self.energy_trace.data()
+    }
+
+    /// Get a mutable reference to the energy trace for advanced operations
+    pub fn energy_trace_mut(&mut self) -> &mut RotatingTrace {
+        &mut self.energy_trace
+    }
+
+    /// Set the retention window for all traces (in seconds)
+    /// This affects both energy and utilization traces
+    pub fn set_trace_retention(&mut self, retention_seconds: i64) {
+        self.energy_trace.set_retention_seconds(retention_seconds);
+    }
+
+    /// Get memory usage statistics for energy trace
+    pub fn trace_stats(&self) -> TraceMemoryStats {
+        TraceMemoryStats {
+            energy_trace_rows: self.energy_trace.row_count(),
+            energy_trace_stats: self.energy_trace.stats(),
+        }
+    }
+
+    /// Add energy records to the energy trace
+    pub fn append_energy_records(
+        &mut self,
+        records: Vec<EnergyRecord>,
+    ) -> Result<(), MonitoringError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        let data = DataFrame::new(vec![
+            Column::new(
+                "pid".into(),
+                records.iter().map(|r| r.pid).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "device".into(),
+                records.iter().map(|r| r.device.clone()).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "energy".into(),
+                records.iter().map(|r| r.energy).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "timestamp".into(),
+                records.iter().map(|r| r.timestamp).collect::<Vec<_>>(),
+            ),
+        ])
+        .map_err(|err| MonitoringError::Other(err.to_string()))?;
+
+        self.energy_trace.append(&data)?;
+
+        Ok(())
+    }
+
+    /// Check if the underlying collector is available on the system
+    pub fn is_available() -> bool {
+        T::is_available()
+    }
+
+    /// Check if the collector is currently running
+    pub fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::SeqCst)
+    }
+
+    /// Background monitoring task that collects data at a specified rate and sends batches
+    async fn run_monitoring_loop<C: EnergyCollector>(
+        collector: Arc<C>,
+        tx: mpsc::Sender<Vec<EnergyRecord>>,
+        is_monitoring_active: Arc<AtomicBool>,
+        rate: f64,
+        batch_size: usize,
+    ) {
+        let interval = tokio::time::Duration::from_secs_f64(1.0 / rate);
+        let mut iteration = 0;
+        let mut collected_energy_records = Vec::new();
+
+        while is_monitoring_active.load(Ordering::SeqCst) {
+            iteration += 1;
+            log::trace!("Background monitoring iteration {}", iteration);
+
+            match collector.get_energy_trace().await {
+                Ok(energy_records) => {
+                    log::debug!("Collected {} energy records", energy_records.len(),);
+
+                    // Add to batch
+                    collected_energy_records.extend(energy_records);
+
+                    // Send batch when it reaches the batch size
+                    if iteration % batch_size == 0 {
+                        log::debug!(
+                            "Sending batch of {} energy records",
+                            collected_energy_records.len(),
+                        );
+
+                        // Use send().await for bounded channel (provides backpressure)
+                        // This will wait if the channel is full, slowing down collection
+                        let send_start = std::time::Instant::now();
+                        match tx.send(collected_energy_records.clone()).await {
+                            Ok(_) => {
+                                let send_duration = send_start.elapsed();
+                                if send_duration.as_millis() > 100 {
+                                    log::warn!(
+                                        "Channel send blocked for {:?} - receiver may be slow!",
+                                        send_duration
+                                    );
+                                }
+                            }
+                            Err(_) => {
+                                log::error!("Failed to send data - receiver dropped");
+                                break;
+                            }
+                        }
+
+                        // Clear the batch
+                        collected_energy_records.clear();
+                    }
+                }
+                Err(e) => {
+                    log::error!("Error collecting data: {}", e);
+                }
+            }
+
+            tokio::time::sleep(interval).await;
+        }
+
+        // Send any remaining records in the batch before stopping
+        if !collected_energy_records.is_empty() {
+            log::debug!(
+                "Sending final batch of {} energy records",
+                collected_energy_records.len(),
+            );
+            let _ = tx.send(collected_energy_records).await;
+        }
+
+        log::debug!(
+            "Background monitoring stopped after {} iterations",
+            iteration
+        );
+    }
+
+    pub async fn commence(&mut self) -> Result<(), MonitoringError> {
+        // Check if collector is already running
+        if self.is_running() {
+            eprintln!("Warning: Energy collector is already running. Ignoring commence request.");
+            return Ok(());
+        }
+
+        if !T::is_available() {
+            return Err(MonitoringError::Other(
+                "Collector type is not available on this system".to_string(),
+            ));
+        }
+
+        // Set running state before starting
+        self.is_running.store(true, Ordering::SeqCst);
+
+        // Collect initial energy data
+        let energy_records = self
+            .energy_collector
+            .get_energy_trace()
+            .await
+            .map_err(|e| MonitoringError::Other(format!("Failed to get energy trace: {}", e)))?;
+
+        // Append initial data
+        self.append_energy_records(energy_records)?;
+
+        // Create bounded channel for background task to send data back
+        // Channel capacity: allow a reasonable buffer (e.g., 10 batches)
+        // This provides backpressure if receiver is slow
+        let channel_capacity = 10;
+        let (tx, rx) = mpsc::channel(channel_capacity);
+        self.data_receiver = Some(rx);
+
+        // Spawn background task for continuous monitoring
+        let rate = self.rate;
+        let batch_size = self.batch_size;
+        let is_running = Arc::clone(&self.is_running);
+        let collector = Arc::clone(&self.energy_collector);
+
+        let handle = tokio::spawn(Self::run_monitoring_loop(
+            collector, tx, is_running, rate, batch_size,
+        ));
+
+        // Store the task handle
+        self.task_handle = Some(handle);
+
+        log::info!("Monitoring started in background at {} Hz", rate);
+        Ok(())
+    }
+
+    /// Poll the channel and append any received data to the energy trace
+    /// Call this periodically to receive and process data from the background task
+    pub fn poll_data(&mut self) -> Result<(), MonitoringError> {
+        // Collect all available messages first
+        let mut all_energy_records = Vec::new();
+
+        if let Some(rx) = &mut self.data_receiver {
+            while let Ok(energy_records) = rx.try_recv() {
+                all_energy_records.extend(energy_records);
+            }
+        }
+
+        // Now append all collected records
+        if !all_energy_records.is_empty() {
+            self.append_energy_records(all_energy_records)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn shutdown(&mut self) -> Result<(), MonitoringError> {
+        log::info!("Shutdown requested");
+
+        // if not running, nothing to do
+        if !self.is_running() {
+            log::info!("Collector is not running, nothing to shut down");
+            return Ok(());
+        }
+
+        // Signal the background task to stop
+        self.is_running.store(false, Ordering::SeqCst);
+
+        // Give the background task time to send its final batch
+        // This is necessary because the task may be in the middle of collecting data
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Poll any remaining data from the channel
+        self.poll_data()?;
+
+        // Now abort the background task (it should already be stopped)
+        if let Some(handle) = self.task_handle.take() {
+            handle.abort();
+        }
+
+        // Drop the receiver to signal completion
+        self.data_receiver = None;
+        Ok(())
+    }
+}
+
+#[async_trait]
+pub trait EnergyCollector: Send + Sync + 'static {
+    /// Set the list of tracked process PIDs for energy attribution
+    fn set_tracked_pids(&mut self, pids: Vec<u32>);
+
+    /// Get energy trace data
+    async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String>;
+
+    /// Check if this collector type is available on the system
+    fn is_available() -> bool {
+        unimplemented!()
+    }
+}
+
+/// Statistics about trace memory usage
+#[derive(Debug, Clone)]
+pub struct TraceMemoryStats {
+    /// Number of rows in energy trace
+    pub energy_trace_rows: usize,
+    /// Energy trace statistics
+    pub energy_trace_stats: crate::utils::trace_rotation::TraceStats,
+}
