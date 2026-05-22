@@ -231,6 +231,12 @@ class RAPLSoC(PowerGroup):
     @classmethod
     def is_available(cls):
         """A check for availability of a readable RAPL interface."""
+
+        def can_read(path: Path) -> bool:
+            with open(path, "r") as file:
+                file.read(1)
+            return True
+
         try:
             if not os.path.exists(cls.RAPL_DIR):
                 return False
@@ -238,11 +244,9 @@ class RAPLSoC(PowerGroup):
                 if "rapl" not in zone or zone.count(":") != 1:
                     continue
                 zone_path = Path(cls.RAPL_DIR, zone)
-                with open(Path(zone_path, "name"), "r"):
-                    pass
-                with open(Path(zone_path, "energy_uj"), "r"):
-                    pass
-                return True
+                return can_read(Path(zone_path, "name")) and can_read(
+                    Path(zone_path, "energy_uj")
+                )
             return False
         except OSError:
             return False

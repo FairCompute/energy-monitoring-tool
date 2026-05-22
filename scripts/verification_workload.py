@@ -9,29 +9,40 @@ import time
 import os
 
 
+def deterministic_value(row: int, col: int, iteration: int) -> float:
+    """Return a stable pseudo-varying value without using a PRNG."""
+    return ((row * 31 + col * 17 + iteration * 13) % 1000) / 1000.0
+
+
 def cpu_intensive_work(duration_seconds: float = 10.0):
     """Perform CPU-intensive matrix operations for a fixed duration."""
-    import random
-
     print(f"PID: {os.getpid()}", flush=True)
     print(f"Starting CPU workload for {duration_seconds} seconds...", flush=True)
 
     start = time.perf_counter()
     iterations = 0
+    checksum = 0.0
 
     # Matrix size - adjust for desired CPU load
     size = 200
 
     while time.perf_counter() - start < duration_seconds:
-        # Create random matrices
-        a = [[random.random() for _ in range(size)] for _ in range(size)]
-        b = [[random.random() for _ in range(size)] for _ in range(size)]
+        # Create deterministic matrices so verification is repeatable.
+        a = [
+            [deterministic_value(i, k, iterations) for k in range(size)]
+            for i in range(size)
+        ]
+        b = [
+            [deterministic_value(k, j, iterations + 1) for j in range(size)]
+            for k in range(size)
+        ]
 
         # Matrix multiplication (CPU intensive)
         result = [
             [sum(a[i][k] * b[k][j] for k in range(size)) for j in range(size)]
             for i in range(size)
         ]
+        checksum += sum(sum(row) for row in result)
 
         iterations += 1
 
@@ -44,7 +55,11 @@ def cpu_intensive_work(duration_seconds: float = 10.0):
             )
 
     elapsed = time.perf_counter() - start
-    print(f"Completed {iterations} iterations in {elapsed:.2f} seconds", flush=True)
+    print(
+        f"Completed {iterations} iterations in {elapsed:.2f} seconds "
+        f"(checksum {checksum:.2f})",
+        flush=True,
+    )
     return iterations
 
 

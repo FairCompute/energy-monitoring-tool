@@ -32,6 +32,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 WORKLOAD_SCRIPT = Path(__file__).parent / "verification_workload.py"
 RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / ".artifacts" / "verification_results.json"
+RUST_VERIFY_TMP_DIR = PROJECT_ROOT / ".artifacts" / "tmp"
 PYTHON = sys.executable
 RAPL_ROOT = Path("/sys/class/powercap")
 ACCURACY_TOLERANCE_PERCENT = 2.0
@@ -340,7 +341,8 @@ def measure_rust_cli(
             f"Rust binary not found at {RUST_BINARY}. Run: cargo build --release"
         )
 
-    output_file = Path(f"/tmp/rust_verify_{iteration}_{os.getpid()}.json")
+    RUST_VERIFY_TMP_DIR.mkdir(parents=True, exist_ok=True)
+    output_file = RUST_VERIFY_TMP_DIR / f"rust_verify_{iteration}_{os.getpid()}.json"
     rust_duration = int(workload_duration) + 2
 
     start = time.perf_counter()
@@ -433,23 +435,11 @@ def _parse_json_str(s: str) -> dict[str, Any] | None:
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 SETTLE_SECONDS = 3  # pause between phases to let system idle
+Method = tuple[str, Callable[[float, int], Result]]
 
 
-def run_verification(
-    num_iterations: int,
-    workload_duration: float,
-    output_path: Path = DEFAULT_OUTPUT_PATH,
-    use_sudo: bool = False,
-) -> None:
-    rapl_entries = assert_rapl_available()
-    metadata = collect_run_metadata(
-        rapl_entries,
-        num_iterations,
-        workload_duration,
-        output_path,
-        use_sudo,
-    )
-    methods: list[tuple[str, Callable[[float, int], Result]]] = [
+def build_verification_methods(use_sudo: bool) -> list[Method]:
+    return [
         ("Python EMT", measure_python_emt),
         (
             "Rust CLI",
@@ -461,6 +451,15 @@ def run_verification(
         ),
     ]
 
+
+def print_verification_header(
+    methods: list[Method],
+    num_iterations: int,
+    workload_duration: float,
+    rapl_entries: list[Path],
+    metadata: dict[str, Any],
+    use_sudo: bool,
+) -> None:
     print("=" * 70)
     print("Energy Monitoring Tool — Verification")
     print(f"Methods: {', '.join(n for n, _ in methods)}")
@@ -470,41 +469,60 @@ def run_verification(
     print_metadata_summary(metadata)
     print("=" * 70)
 
-    all_results: dict[str, list[Result]] = {name: [] for name, _ in methods}
 
-    for name, fn in methods:
-        print(f"\n{'─'*70}")
-        print(f"Phase: {name}")
-        print(f"{'─'*70}")
+def measure_method(
+    name: str,
+    fn: Callable[[float, int], Result],
+    num_iterations: int,
+    workload_duration: float,
+) -> list[Result]:
+    print(f"\n{'─'*70}")
+    print(f"Phase: {name}")
+    print(f"{'─'*70}")
 
-        for i in range(1, num_iterations + 1):
-            print(f"\n  [{name}] Iteration {i}/{num_iterations} …")
-            try:
-                r = fn(workload_duration, i)
-                all_results[name].append(r)
-                print(f"    → {r.total_energy_j:.2f} J  (duration {r.duration:.1f}s)")
-            except (
-                OSError,
-                RuntimeError,
-                ValueError,
-                subprocess.SubprocessError,
-            ) as error:
-                print(f"    ✗ Error: {error}")
+    results = []
+    for iteration in range(1, num_iterations + 1):
+        print(f"\n  [{name}] Iteration {iteration}/{num_iterations} …")
+        try:
+            result = fn(workload_duration, iteration)
+            results.append(result)
+            print(
+                f"    → {result.total_energy_j:.2f} J  "
+                f"(duration {result.duration:.1f}s)"
+            )
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+            subprocess.SubprocessError,
+        ) as error:
+            print(f"    ✗ Error: {error}")
 
-            # pause between iterations
-            time.sleep(1)
+        time.sleep(1)
 
-        # pause between phases
-        print(f"\n  Settling for {SETTLE_SECONDS}s …")
-        time.sleep(SETTLE_SECONDS)
+    print(f"\n  Settling for {SETTLE_SECONDS}s …")
+    time.sleep(SETTLE_SECONDS)
+    return results
 
-    # ── Summary ──────────────────────────────────────────────────────────
+
+def run_methods(
+    methods: list[Method],
+    num_iterations: int,
+    workload_duration: float,
+) -> dict[str, list[Result]]:
+    return {
+        name: measure_method(name, fn, num_iterations, workload_duration)
+        for name, fn in methods
+    }
+
+
+def print_method_statistics(all_results: dict[str, list[Result]]) -> dict[str, float]:
     print()
     print("=" * 70)
     print("RESULTS")
     print("=" * 70)
 
-    means = {}
+    means: dict[str, float] = {}
     for name, results in all_results.items():
         if not results:
             continue
@@ -516,22 +534,27 @@ def run_verification(
         print(f"    Mean:  {mean_e:>10.2f} J")
         print(f"    Stdev: {std_e:>10.2f} J")
         print(f"    Range: [{min(energies):.2f} – {max(energies):.2f}] J")
+    return means
 
-    # Pairwise comparison
+
+def print_pairwise_comparison(means: dict[str, float]) -> None:
     names = list(means.keys())
-    if len(names) >= 2:
-        print(f"\n  {'─'*50}")
-        print(f"  Pairwise comparison:")
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a, b = names[i], names[j]
-                ref = means[a]
-                if ref > 0:
-                    diff = ((means[b] - ref) / ref) * 100
-                    status = "✅" if abs(diff) < 20 else "⚠️"
-                    print(f"    {status} {a} vs {b}: {diff:+.1f}%")
+    if len(names) < 2:
+        return
 
-    # Per-iteration table
+    print("\n  " + "─" * 50)
+    print("  Pairwise comparison:")
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = names[i], names[j]
+            ref = means[a]
+            if ref > 0:
+                diff = ((means[b] - ref) / ref) * 100
+                status = "✅" if abs(diff) < 20 else "⚠️"
+                print(f"    {status} {a} vs {b}: {diff:+.1f}%")
+
+
+def print_iteration_table(all_results: dict[str, list[Result]]) -> None:
     print(f"\n  {'Iter':<5}", end="")
     for name in all_results:
         print(f"  {name:>15}", end="")
@@ -552,20 +575,29 @@ def run_verification(
                 print(f"  {'—':>15}", end="")
         print()
 
-    analysis = build_acceptance_analysis(all_results)
-    python_vs_rust = analysis.get("python_vs_rust")
-    if python_vs_rust is not None:
-        status = "✅ PASS" if python_vs_rust["within_tolerance"] else "⚠️ FAIL"
-        relative_diff = python_vs_rust["relative_diff_percent"]
-        rel_text = f"{relative_diff:.2f}%" if relative_diff is not None else "n/a"
-        print(f"\n  {'─'*50}")
-        print("  Acceptance criterion — Python EMT vs Rust CLI:")
-        print(
-            f"    {status} relative difference {rel_text} "
-            f"(tolerance ±{analysis['tolerance_percent']:.2f}%)"
-        )
 
-    # Save JSON
+def print_acceptance_summary(analysis: dict[str, Any]) -> None:
+    python_vs_rust = analysis.get("python_vs_rust")
+    if python_vs_rust is None:
+        return
+
+    status = "✅ PASS" if python_vs_rust["within_tolerance"] else "⚠️ FAIL"
+    relative_diff = python_vs_rust["relative_diff_percent"]
+    rel_text = f"{relative_diff:.2f}%" if relative_diff is not None else "n/a"
+    print("\n  " + "─" * 50)
+    print("  Acceptance criterion — Python EMT vs Rust CLI:")
+    print(
+        f"    {status} relative difference {rel_text} "
+        f"(tolerance ±{analysis['tolerance_percent']:.2f}%)"
+    )
+
+
+def write_results(
+    output_path: Path,
+    metadata: dict[str, Any],
+    analysis: dict[str, Any],
+    all_results: dict[str, list[Result]],
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_payload = {
         "metadata": metadata,
@@ -577,6 +609,43 @@ def run_verification(
         encoding="utf-8",
     )
     print(f"\n  Results saved to {output_path}")
+
+
+def print_results(all_results: dict[str, list[Result]]) -> dict[str, Any]:
+    means = print_method_statistics(all_results)
+    print_pairwise_comparison(means)
+    print_iteration_table(all_results)
+    analysis = build_acceptance_analysis(all_results)
+    print_acceptance_summary(analysis)
+    return analysis
+
+
+def run_verification(
+    num_iterations: int,
+    workload_duration: float,
+    output_path: Path = DEFAULT_OUTPUT_PATH,
+    use_sudo: bool = False,
+) -> None:
+    rapl_entries = assert_rapl_available()
+    metadata = collect_run_metadata(
+        rapl_entries,
+        num_iterations,
+        workload_duration,
+        output_path,
+        use_sudo,
+    )
+    methods = build_verification_methods(use_sudo)
+    print_verification_header(
+        methods,
+        num_iterations,
+        workload_duration,
+        rapl_entries,
+        metadata,
+        use_sudo,
+    )
+    all_results = run_methods(methods, num_iterations, workload_duration)
+    analysis = print_results(all_results)
+    write_results(output_path, metadata, analysis, all_results)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
