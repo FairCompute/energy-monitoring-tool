@@ -177,7 +177,7 @@ impl Default for NvidiaGpu {
 
 #[async_trait]
 impl EnergyCollector for NvidiaGpu {
-    fn set_tracked_pids(&mut self, pids: Vec<u32>) {
+    fn set_tracked_pids(&self, pids: Vec<u32>) {
         *self.tracked_pids.lock().unwrap() = pids;
     }
 

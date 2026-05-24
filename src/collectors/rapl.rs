@@ -534,8 +534,8 @@ impl Default for Rapl {
 
 #[async_trait]
 impl EnergyCollector for Rapl {
-    fn set_tracked_pids(&mut self, pids: Vec<u32>) {
-        self.tracked_pids = Arc::new(Mutex::new(pids));
+    fn set_tracked_pids(&self, pids: Vec<u32>) {
+        *self.tracked_pids.lock().unwrap() = pids;
     }
 
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {

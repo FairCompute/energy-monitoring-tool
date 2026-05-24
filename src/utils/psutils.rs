@@ -1,8 +1,15 @@
-use crate::energy_group::ProcessGroup;
 use crate::utils::errors::MonitoringError;
 use std::collections::HashMap;
 use sysinfo::System;
 use users::{Users, UsersCache};
+
+/// A group of processes belonging to the same user and application
+#[derive(Debug)]
+pub struct ProcessGroup {
+    pub user: String,
+    pub task: String,
+    pub pids: Vec<usize>,
+}
 
 pub fn resolve_username(uid: u32, users_cache: &UsersCache) -> String {
     users_cache

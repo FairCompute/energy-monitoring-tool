@@ -48,26 +48,22 @@ async fn main() {
         info!("Energy Monitoring Tool started");
     }
 
-    // Convert PID to the format expected by EnergyGroup
-    let pids: Option<Vec<usize>> = args.pid.map(|p| vec![p as usize]);
+    // Determine PIDs to track
+    let tracked_pids: Vec<u32> = match args.pid {
+        Some(pid) => vec![pid],
+        None => vec![std::process::id()],
+    };
 
     // Create a RAPL energy group collector with small batch size for CLI
     // Batch size of 10 means data is sent every 10 iterations (1 second at 10 Hz)
-    let mut energy_group: EnergyGroup<Rapl> = match EnergyGroup::create_with_collector(
-        Rapl::default(),
-        args.rate,
-        pids,
-        Some(10), // Small batch size for responsive CLI output
-    ) {
-        Ok(group) => group,
-        Err(e) => {
-            eprintln!("Failed to create energy group: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let mut energy_group: EnergyGroup<Rapl> =
+        EnergyGroup::new(Rapl::default(), args.rate, Some(10));
+
+    // Set the PIDs to track
+    energy_group.set_tracked_pids(tracked_pids.clone());
 
     if !args.quiet {
-        info!("Tracked processes: {:?}", energy_group.processes());
+        info!("Tracked PIDs: {:?}", tracked_pids);
         info!(
             "Monitoring for {} seconds at {} Hz...",
             args.duration, args.rate
@@ -86,33 +82,23 @@ async fn main() {
 
     while start.elapsed().as_secs() < args.duration {
         tokio::time::sleep(poll_interval).await;
-        if let Err(e) = energy_group.poll_data() {
-            eprintln!("Warning: Failed to poll data: {}", e);
-        }
+        energy_group.poll_data();
     }
-
-    // Polling complete
 
     // Shutdown and get final data
     if let Err(e) = energy_group.shutdown() {
         eprintln!("Warning: Shutdown error: {}", e);
     }
 
-    // Calculate total energy from trace
-    let trace = energy_group.energy_trace();
+    // Calculate total energy from the accumulator
     let actual_duration = start.elapsed().as_secs_f64();
+    let total_energy = energy_group.total_consumed_energy();
 
-    let mut total_energy = 0.0;
+    // Group energy by device from trace
+    let trace = energy_group.energy_trace();
     let mut device_energy: std::collections::HashMap<String, f64> =
         std::collections::HashMap::new();
 
-    if let Ok(energy_col) = trace.column("energy") {
-        if let Ok(values) = energy_col.f64() {
-            total_energy = values.iter().flatten().sum();
-        }
-    }
-
-    // Group energy by device
     if let (Ok(device_col), Ok(energy_col)) = (trace.column("device"), trace.column("energy")) {
         if let (Ok(devices), Ok(energies)) = (device_col.str(), energy_col.f64()) {
             for (device, energy) in devices.iter().zip(energies.iter()) {

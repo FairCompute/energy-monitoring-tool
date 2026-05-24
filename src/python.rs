@@ -66,6 +66,13 @@ enum PyEnergyGroupInner {
 }
 
 impl PyEnergyGroupInner {
+    fn set_tracked_pids(&self, pids: Vec<u32>) {
+        match self {
+            Self::Rapl(group) => group.set_tracked_pids(pids),
+            Self::NvidiaGpu(group) => group.set_tracked_pids(pids),
+        }
+    }
+
     fn commence(&mut self, runtime: &Runtime) -> Result<(), MonitoringError> {
         match self {
             Self::Rapl(group) => runtime.block_on(group.commence()),
@@ -73,10 +80,14 @@ impl PyEnergyGroupInner {
         }
     }
 
-    fn poll_data(&mut self) -> Result<(), MonitoringError> {
+    fn poll_data(&mut self) {
         match self {
-            Self::Rapl(group) => group.poll_data(),
-            Self::NvidiaGpu(group) => group.poll_data(),
+            Self::Rapl(group) => {
+                group.poll_data();
+            }
+            Self::NvidiaGpu(group) => {
+                group.poll_data();
+            }
         }
     }
 
@@ -101,22 +112,11 @@ impl PyEnergyGroupInner {
         }
     }
 
-    fn total_energy(&self) -> Result<f64, MonitoringError> {
-        let trace = self.energy_trace();
-        if !trace
-            .get_column_names()
-            .iter()
-            .any(|column_name| column_name.as_str() == "energy")
-        {
-            return Ok(0.0);
+    fn total_consumed_energy(&self) -> f64 {
+        match self {
+            Self::Rapl(group) => group.total_consumed_energy(),
+            Self::NvidiaGpu(group) => group.total_consumed_energy(),
         }
-
-        trace
-            .column("energy")
-            .map_err(|err| MonitoringError::Other(err.to_string()))?
-            .f64()
-            .map_err(|err| MonitoringError::Other(err.to_string()))
-            .map(|values| values.iter().flatten().sum())
     }
 }
 
@@ -195,34 +195,42 @@ impl PyEnergyGroup {
         _cls: &Bound<'_, PyType>,
         collector: &Bound<'_, PyAny>,
         rate: f64,
-        pids: Option<Vec<usize>>,
+        pids: Option<Vec<u32>>,
         batch_size: Option<usize>,
     ) -> PyResult<Self> {
-        if let Ok(collector) = collector.extract::<PyRef<'_, PyRaplCollector>>() {
-            let group = EnergyGroup::create_with_collector(
-                Rapl::new(collector.rapl_path.clone()),
+        if let Ok(collector_ref) = collector.extract::<PyRef<'_, PyRaplCollector>>() {
+            let group = EnergyGroup::new(
+                Rapl::new(collector_ref.rapl_path.clone()),
                 rate,
-                pids,
                 batch_size,
-            )
-            .map_err(to_py_err)?;
-            return Self::with_inner(PyEnergyGroupInner::Rapl(group));
+            );
+            let result = Self::with_inner(PyEnergyGroupInner::Rapl(group))?;
+            if let Some(pids) = pids {
+                result.inner.set_tracked_pids(pids);
+            }
+            return Ok(result);
         }
 
-        if let Ok(collector) = collector.extract::<PyRef<'_, PyNvidiaGpuCollector>>() {
-            let group = EnergyGroup::create_with_collector(
-                NvidiaGpu::new(collector.device_ids.clone()),
+        if let Ok(collector_ref) = collector.extract::<PyRef<'_, PyNvidiaGpuCollector>>() {
+            let group = EnergyGroup::new(
+                NvidiaGpu::new(collector_ref.device_ids.clone()),
                 rate,
-                pids,
                 batch_size,
-            )
-            .map_err(to_py_err)?;
-            return Self::with_inner(PyEnergyGroupInner::NvidiaGpu(group));
+            );
+            let result = Self::with_inner(PyEnergyGroupInner::NvidiaGpu(group))?;
+            if let Some(pids) = pids {
+                result.inner.set_tracked_pids(pids);
+            }
+            return Ok(result);
         }
 
         Err(PyTypeError::new_err(
             "collector must be an instance of RaplCollector or NvidiaGpuCollector",
         ))
+    }
+
+    fn set_tracked_pids(&self, pids: Vec<u32>) {
+        self.inner.set_tracked_pids(pids);
     }
 
     fn commence(&mut self, py: Python<'_>) -> PyResult<()> {
@@ -231,7 +239,10 @@ impl PyEnergyGroup {
     }
 
     fn poll_data(&mut self, py: Python<'_>) -> PyResult<()> {
-        py.detach(|| self.inner.poll_data().map_err(to_py_err))
+        py.detach(|| {
+            self.inner.poll_data();
+            Ok(())
+        })
     }
 
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
@@ -242,8 +253,8 @@ impl PyEnergyGroup {
         self.inner.is_running()
     }
 
-    fn total_energy(&self) -> PyResult<f64> {
-        self.inner.total_energy().map_err(to_py_err)
+    fn total_energy(&self) -> f64 {
+        self.inner.total_consumed_energy()
     }
 
     fn energy_trace(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
