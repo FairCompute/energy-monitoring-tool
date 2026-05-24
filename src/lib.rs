@@ -1,6 +1,7 @@
 pub mod collectors;
 pub mod config;
 pub mod energy_group;
+pub mod monitor;
 
 pub mod utils {
     pub mod errors;
