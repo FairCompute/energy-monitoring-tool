@@ -50,7 +50,7 @@ impl PyNvidiaGpuCollector {
     #[pyo3(signature = (device_ids=None))]
     fn new(device_ids: Option<Vec<u32>>) -> Self {
         Self {
-            device_ids: device_ids.unwrap_or_else(|| vec![0]),
+            device_ids: device_ids.unwrap_or_default(),
         }
     }
 
@@ -212,11 +212,14 @@ impl PyEnergyGroup {
         }
 
         if let Ok(collector_ref) = collector.extract::<PyRef<'_, PyNvidiaGpuCollector>>() {
-            let group = EnergyGroup::new(
-                NvidiaGpu::new(collector_ref.device_ids.clone()),
-                rate,
-                batch_size,
-            );
+            let nvidia_collector = if collector_ref.device_ids.is_empty() {
+                NvidiaGpu::new()
+                    .map_err(|e| PyRuntimeError::new_err(format!("NVML init failed: {}", e)))?
+            } else {
+                NvidiaGpu::with_device_filter(collector_ref.device_ids.clone())
+                    .map_err(|e| PyRuntimeError::new_err(format!("NVML init failed: {}", e)))?
+            };
+            let group = EnergyGroup::new(nvidia_collector, rate, batch_size);
             let result = Self::with_inner(PyEnergyGroupInner::NvidiaGpu(group))?;
             if let Some(pids) = pids {
                 result.inner.set_tracked_pids(pids);
