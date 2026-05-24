@@ -1,3 +1,4 @@
+use crate::trace_recorder::TraceRecorder;
 use crate::utils::errors::MonitoringError;
 use crate::utils::trace_rotation::RotatingTrace;
 use async_trait::async_trait;
@@ -51,6 +52,8 @@ pub struct EnergyGroup<T: EnergyCollector> {
     data_receiver: Option<mpsc::Receiver<Vec<EnergyRecord>>>,
     /// Per-PID cumulative energy accumulator
     consumed_energy: HashMap<u32, f64>,
+    /// Registered trace recorders for persistent storage
+    recorders: Vec<Box<dyn TraceRecorder>>,
 }
 
 impl<T: EnergyCollector> EnergyGroup<T> {
@@ -68,12 +71,18 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             task_handle: None,
             data_receiver: None,
             consumed_energy: HashMap::new(),
+            recorders: Vec::new(),
         }
     }
 
     /// Set the tracked PIDs by delegating to the collector
     pub fn set_tracked_pids(&self, pids: Vec<u32>) {
         self.energy_collector.set_tracked_pids(pids);
+    }
+
+    /// Register a trace recorder for persistent storage of energy data.
+    pub fn add_recorder(&mut self, recorder: Box<dyn TraceRecorder>) {
+        self.recorders.push(recorder);
     }
 
     /// Get a reference to the energy trace data (as DataFrame)
@@ -328,6 +337,11 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
         // Poll any remaining data from the channel
         self.poll_data();
+
+        // Final flush to all registered recorders
+        for recorder in &mut self.recorders {
+            recorder.flush(&self.energy_trace);
+        }
 
         // Now abort the background task (it should already be stopped)
         if let Some(handle) = self.task_handle.take() {
