@@ -1,4 +1,5 @@
 pub mod collectors;
+pub mod config;
 pub mod energy_group;
 
 pub mod utils {
