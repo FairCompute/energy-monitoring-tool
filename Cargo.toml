@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "energy-monitoring-tool"
+name = "emt"
 path = "src/main.rs"
 
 [features]

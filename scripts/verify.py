@@ -4,7 +4,7 @@ Energy Monitoring Tool — Verification Script
 
 Compares energy measurements from two independent methods, each run in ISOLATION:
     1. Python EMT (emt.EnergyMonitor) — monitors verification_workload.py by PID
-    2. Rust CLI   (energy-monitoring-tool) — monitors verification_workload.py by PID
+    2. Rust CLI   (emt) — monitors verification_workload.py by PID
 
 Isolation is critical: because idle energy is attributed proportionally to all
 active processes, each method runs the workload alone so that the workload is
@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 WORKLOAD_SCRIPT = Path(__file__).parent / "verification_workload.py"
-RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
+RUST_BINARY = PROJECT_ROOT / "target" / "release" / "emt"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / ".artifacts" / "verification_results.json"
 RUST_VERIFY_TMP_DIR = PROJECT_ROOT / ".artifacts" / "tmp"
 PYTHON = sys.executable

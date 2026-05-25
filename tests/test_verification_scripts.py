@@ -74,7 +74,7 @@ def test_build_verification_methods_forwards_sudo_to_rust(monkeypatch):
 
 
 def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatch):
-    rust_binary = tmp_path / "energy-monitoring-tool"
+    rust_binary = tmp_path / "emt"
     rust_binary.write_text("#!/bin/sh\n", encoding="utf-8")
     output_dir = tmp_path / "rust-output"
     popen_calls = []

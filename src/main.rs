@@ -1,15 +1,15 @@
 use clap::Parser;
-use emt::{collectors::Rapl, energy_group::EnergyGroup, utils};
-use log::info;
+use emt::config::EmtConfig;
+use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor};
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
 
 #[derive(Parser, Debug)]
-#[command(name = "energy-monitoring-tool")]
-#[command(about = "Monitor energy consumption of processes using RAPL")]
+#[command(name = "emt")]
+#[command(about = "Monitor energy consumption of processes")]
 struct Args {
-    /// Process ID to monitor (if not specified, monitors current process tree)
+    /// Process ID to monitor (if not specified, monitors all root processes)
     #[arg(short, long)]
     pid: Option<u32>,
 
@@ -17,9 +17,9 @@ struct Args {
     #[arg(short, long, default_value = "10")]
     duration: u64,
 
-    /// Collection rate in Hz
-    #[arg(short, long, default_value = "10.0")]
-    rate: f64,
+    /// Collection rate in Hz (overrides config file)
+    #[arg(short, long)]
+    rate: Option<f64>,
 
     /// Output file for JSON results (optional)
     #[arg(short, long)]
@@ -31,12 +31,97 @@ struct Args {
 }
 
 #[derive(Serialize)]
-struct EnergyResult {
+struct CliOutput {
     pid: Option<u32>,
     duration_seconds: f64,
-    total_energy: f64,
-    energy_unit: String,
-    devices: std::collections::HashMap<String, f64>,
+    total_energy_joules: f64,
+    power_watts: f64,
+    devices: DeviceBreakdown,
+    workloads: Vec<WorkloadOutput>,
+}
+
+#[derive(Serialize)]
+struct DeviceBreakdown {
+    cpu_joules: f64,
+    dram_joules: f64,
+    gpu_joules: f64,
+}
+
+#[derive(Serialize)]
+struct WorkloadOutput {
+    root_pid: u32,
+    name: String,
+    user: String,
+    energy_joules: f64,
+    power_watts: f64,
+}
+
+impl From<&DeviceEnergy> for DeviceBreakdown {
+    fn from(de: &DeviceEnergy) -> Self {
+        Self {
+            cpu_joules: de.cpu_joules,
+            dram_joules: de.dram_joules,
+            gpu_joules: de.gpu_joules,
+        }
+    }
+}
+
+fn build_cli_output(args: &Args, duration: f64, snapshot: &MetricsSnapshot) -> CliOutput {
+    let total_energy = snapshot.system_total.total();
+    let power_watts = if duration > 0.0 {
+        total_energy / duration
+    } else {
+        0.0
+    };
+
+    let workloads: Vec<WorkloadOutput> = snapshot
+        .workloads
+        .iter()
+        .map(|wl| WorkloadOutput {
+            root_pid: wl.root_pid,
+            name: wl.name.clone(),
+            user: wl.user.clone(),
+            energy_joules: wl.energy.total(),
+            power_watts: wl.power_watts,
+        })
+        .collect();
+
+    CliOutput {
+        pid: args.pid,
+        duration_seconds: duration,
+        total_energy_joules: total_energy,
+        power_watts,
+        devices: DeviceBreakdown::from(&snapshot.system_total),
+        workloads,
+    }
+}
+
+fn print_human_readable(output: &CliOutput) {
+    println!("\n=== Energy Consumption Results ===");
+    println!(
+        "PID: {}",
+        output
+            .pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "all".to_string())
+    );
+    println!("Duration: {:.2} s", output.duration_seconds);
+    println!("Total Energy: {:.4} J", output.total_energy_joules);
+    println!("Average Power: {:.2} W", output.power_watts);
+    println!("Device breakdown:");
+    println!("  CPU: {:.4} J", output.devices.cpu_joules);
+    println!("  DRAM: {:.4} J", output.devices.dram_joules);
+    println!("  GPU: {:.4} J", output.devices.gpu_joules);
+
+    if !output.workloads.is_empty() {
+        println!("Workloads:");
+        for wl in &output.workloads {
+            println!(
+                "  PID {} ({}, {}): {:.4} J, {:.2} W",
+                wl.root_pid, wl.name, wl.user, wl.energy_joules, wl.power_watts
+            );
+        }
+    }
 }
 
 #[tokio::main]
@@ -44,106 +129,58 @@ async fn main() {
     let args = Args::parse();
 
     if !args.quiet {
-        utils::logger::setup_logger();
-        info!("Energy Monitoring Tool started");
+        emt::utils::logger::setup_logger();
     }
 
-    // Determine PIDs to track
-    let tracked_pids: Vec<u32> = match args.pid {
-        Some(pid) => vec![pid],
-        None => vec![std::process::id()],
-    };
-
-    // Create a RAPL energy group collector with small batch size for CLI
-    // Batch size of 10 means data is sent every 10 iterations (1 second at 10 Hz)
-    let mut energy_group: EnergyGroup<Rapl> =
-        EnergyGroup::new(Rapl::default(), args.rate, Some(10));
-
-    // Set the PIDs to track
-    energy_group.set_tracked_pids(tracked_pids.clone());
-
-    if !args.quiet {
-        info!("Tracked PIDs: {:?}", tracked_pids);
-        info!(
-            "Monitoring for {} seconds at {} Hz...",
-            args.duration, args.rate
-        );
+    // Load config and apply CLI rate override
+    let mut config = EmtConfig::load();
+    if let Some(rate) = args.rate {
+        config.collection.rate_hz = rate;
     }
+
+    // Create Monitor with optional root PIDs
+    let root_pids = args.pid.map(|p| vec![p]);
+    let mut monitor = Monitor::new(config, root_pids);
 
     // Start monitoring
-    if let Err(e) = energy_group.commence().await {
-        eprintln!("Failed to start monitoring: {}", e);
-        std::process::exit(1);
-    }
-
-    // Monitor for the specified duration, polling data periodically
-    let start = std::time::Instant::now();
-    let poll_interval = tokio::time::Duration::from_millis(500);
-
-    while start.elapsed().as_secs() < args.duration {
-        tokio::time::sleep(poll_interval).await;
-        energy_group.poll_data();
-    }
-
-    // Shutdown and get final data
-    if let Err(e) = energy_group.shutdown() {
-        eprintln!("Warning: Shutdown error: {}", e);
-    }
-
-    // Calculate total energy from the accumulator
-    let actual_duration = start.elapsed().as_secs_f64();
-    let total_energy = energy_group.total_consumed_energy();
-
-    // Group energy by device from trace
-    let trace = energy_group.energy_trace();
-    let mut device_energy: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-
-    if let (Ok(device_col), Ok(energy_col)) = (trace.column("device"), trace.column("energy")) {
-        if let (Ok(devices), Ok(energies)) = (device_col.str(), energy_col.f64()) {
-            for (device, energy) in devices.iter().zip(energies.iter()) {
-                if let (Some(d), Some(e)) = (device, energy) {
-                    *device_energy.entry(d.to_string()).or_insert(0.0) += e;
-                }
-            }
+    let handle = match monitor.commence().await {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to start monitoring: {e}");
+            std::process::exit(1);
         }
-    }
-
-    let result = EnergyResult {
-        pid: args.pid,
-        duration_seconds: actual_duration,
-        total_energy,
-        energy_unit: "Joules".to_string(),
-        devices: device_energy,
     };
 
-    // Output results
-    let json_output = serde_json::to_string_pretty(&result).unwrap();
+    // Sleep for the requested duration
+    tokio::time::sleep(tokio::time::Duration::from_secs(args.duration)).await;
 
+    // Capture final snapshot
+    let snapshot = handle.snapshot();
+    let duration = args.duration as f64;
+
+    // Shutdown monitor
+    if let Err(e) = monitor.shutdown().await {
+        eprintln!("Warning: Shutdown error: {e}");
+    }
+
+    // Build output
+    let output = build_cli_output(&args, duration, &snapshot);
+    let json_output = serde_json::to_string_pretty(&output).expect("Failed to serialize output");
+
+    // Write to file if requested
     if let Some(output_path) = &args.output {
         let mut file = File::create(output_path).expect("Failed to create output file");
         file.write_all(json_output.as_bytes())
             .expect("Failed to write output");
         if !args.quiet {
-            info!("Results written to: {}", output_path);
+            eprintln!("Results written to: {output_path}");
         }
     }
 
+    // Print output
     if args.quiet {
-        println!("{}", json_output);
+        println!("{json_output}");
     } else {
-        info!("Monitoring complete");
-        println!("\n=== Energy Consumption Results ===");
-        println!(
-            "PID: {:?}",
-            args.pid.map(|p| p.to_string()).unwrap_or("all".to_string())
-        );
-        println!("Duration: {:.2} s", actual_duration);
-        println!("Total Energy: {:.4} J", total_energy);
-        println!("Average Power: {:.2} W", total_energy / actual_duration);
-        println!("\nPer-device breakdown:");
-        for (device, energy) in &result.devices {
-            println!("  {}: {:.4} J", device, energy);
-        }
+        print_human_readable(&output);
     }
 }
