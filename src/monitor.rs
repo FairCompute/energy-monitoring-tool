@@ -143,11 +143,20 @@ impl MonitorHandle {
 
 // ─── Internal state for power computation ───────────────────────────────────
 
-/// Tracks previous tick state for computing power (watts).
-#[derive(Debug, Clone, Default)]
-struct PreviousTickState {
-    timestamp: i64,
+/// Tracks cumulative state for computing power (watts).
+#[derive(Debug, Clone)]
+struct TickState {
+    start_timestamp: i64,
     workload_energy: HashMap<u32, DeviceEnergy>,
+}
+
+impl Default for TickState {
+    fn default() -> Self {
+        Self {
+            start_timestamp: 0,
+            workload_energy: HashMap::new(),
+        }
+    }
 }
 
 // ─── Monitor ────────────────────────────────────────────────────────────────
@@ -273,19 +282,43 @@ impl Monitor {
         let is_running = Arc::clone(&self.is_running);
 
         self.tick_handle = Some(tokio::spawn(async move {
-            let mut prev_state = PreviousTickState::default();
+            let mut tick_state = TickState::default();
 
             while is_running.load(Ordering::SeqCst) {
                 // 1. Determine current root PIDs and metadata
                 let roots_with_metadata: Vec<ProcessRoot> = if let Some(ref pids) = root_pids {
-                    // When explicit PIDs are given, create minimal ProcessRoot entries
-                    pids.iter()
-                        .map(|&pid| ProcessRoot {
-                            pid,
-                            user: String::new(),
-                            name: String::new(),
-                        })
-                        .collect()
+                    // Resolve process metadata for user-supplied PIDs
+                    let pids_clone = pids.clone();
+                    tokio::task::spawn_blocking(move || {
+                        use sysinfo::System;
+                        use users::{Users, UsersCache};
+                        let system = System::new_all();
+                        let users_cache = UsersCache::new();
+                        pids_clone
+                            .iter()
+                            .map(|&pid| {
+                                let (name, user) = system
+                                    .process(sysinfo::Pid::from_u32(pid))
+                                    .map(|p| {
+                                        let n = p.name().to_string_lossy().to_string();
+                                        let u = p
+                                            .user_id()
+                                            .map(|uid| {
+                                                users_cache
+                                                    .get_user_by_uid(**uid)
+                                                    .map(|u| u.name().to_string_lossy().to_string())
+                                                    .unwrap_or_else(|| uid.to_string())
+                                            })
+                                            .unwrap_or_else(|| "unknown".to_string());
+                                        (n, u)
+                                    })
+                                    .unwrap_or_else(|| (String::new(), String::new()));
+                                ProcessRoot { pid, user, name }
+                            })
+                            .collect()
+                    })
+                    .await
+                    .unwrap_or_default()
                 } else {
                     discovered_roots.read().unwrap().clone()
                 };
@@ -344,112 +377,88 @@ impl Monitor {
 
                 // Build workload snapshots with power computation
                 let current_timestamp = chrono::Utc::now().timestamp_millis();
-                let time_delta_s = if prev_state.timestamp > 0 {
-                    (current_timestamp - prev_state.timestamp) as f64 / 1000.0
-                } else {
-                    0.0
-                };
+                if tick_state.start_timestamp == 0 {
+                    tick_state.start_timestamp = current_timestamp;
+                }
+                let elapsed_s =
+                    (current_timestamp - tick_state.start_timestamp) as f64 / 1000.0;
 
                 let mut workloads: Vec<WorkloadSnapshot> = Vec::new();
                 let mut workloads_sum = DeviceEnergy::default();
 
                 for root_info in &roots_with_metadata {
-                    let energy = workload_energy_map
+                    let tick_energy = workload_energy_map
                         .get(&root_info.pid)
                         .cloned()
                         .unwrap_or_default();
 
-                    // Compute power from energy delta between ticks
-                    let power_watts = if time_delta_s > 0.0 {
-                        let prev_energy = prev_state
-                            .workload_energy
-                            .get(&root_info.pid)
-                            .map(|de| de.total())
-                            .unwrap_or(0.0);
-                        let energy_delta = energy.total() - prev_energy;
-                        (energy_delta / time_delta_s).max(0.0)
+                    // Compute cumulative energy for this workload
+                    let prev_cumulative_energy = tick_state
+                        .workload_energy
+                        .get(&root_info.pid)
+                        .cloned()
+                        .unwrap_or_default();
+                    let cumulative_energy = DeviceEnergy {
+                        cpu_joules: prev_cumulative_energy.cpu_joules + tick_energy.cpu_joules,
+                        dram_joules: prev_cumulative_energy.dram_joules + tick_energy.dram_joules,
+                        gpu_joules: prev_cumulative_energy.gpu_joules + tick_energy.gpu_joules,
+                    };
+
+                    // Average power = cumulative energy / total elapsed time
+                    let power_watts = if elapsed_s > 0.0 {
+                        cumulative_energy.total() / elapsed_s
                     } else {
                         0.0
                     };
 
-                    workloads_sum.cpu_joules += energy.cpu_joules;
-                    workloads_sum.dram_joules += energy.dram_joules;
-                    workloads_sum.gpu_joules += energy.gpu_joules;
+                    workloads_sum.cpu_joules += tick_energy.cpu_joules;
+                    workloads_sum.dram_joules += tick_energy.dram_joules;
+                    workloads_sum.gpu_joules += tick_energy.gpu_joules;
 
                     workloads.push(WorkloadSnapshot {
                         root_pid: root_info.pid,
                         name: root_info.name.clone(),
                         user: root_info.user.clone(),
-                        energy,
+                        energy: cumulative_energy,
                         power_watts,
                     });
                 }
 
-                // Unattributed = system_total - sum(workloads), clamped >= 0
-                let unattributed = system_total.saturating_sub(&workloads_sum);
+                // Unattributed this tick = system_total - sum(workloads), clamped >= 0
+                let tick_unattributed = system_total.saturating_sub(&workloads_sum);
 
-                // Read previous snapshot to accumulate total energy
-                let prev_snap = snapshot.read().unwrap().clone();
-
-                // The system_total should be cumulative (add this tick's delta)
-                let cumulative_total = DeviceEnergy {
-                    cpu_joules: prev_snap.system_total.cpu_joules + system_total.cpu_joules,
-                    dram_joules: prev_snap.system_total.dram_joules + system_total.dram_joules,
-                    gpu_joules: prev_snap.system_total.gpu_joules + system_total.gpu_joules,
+                // Accumulate unattributed energy
+                let prev_unattributed = {
+                    snapshot.read().unwrap().unattributed.clone()
                 };
-
-                // Accumulate workload energy cumulatively
-                let cumulative_workloads: Vec<WorkloadSnapshot> = workloads
-                    .into_iter()
-                    .map(|wl| {
-                        // Find previous workload energy
-                        let prev_wl_energy = prev_snap
-                            .workloads
-                            .iter()
-                            .find(|pw| pw.root_pid == wl.root_pid)
-                            .map(|pw| &pw.energy);
-
-                        let cumulative_energy = if let Some(prev_e) = prev_wl_energy {
-                            DeviceEnergy {
-                                cpu_joules: prev_e.cpu_joules + wl.energy.cpu_joules,
-                                dram_joules: prev_e.dram_joules + wl.energy.dram_joules,
-                                gpu_joules: prev_e.gpu_joules + wl.energy.gpu_joules,
-                            }
-                        } else {
-                            wl.energy
-                        };
-
-                        WorkloadSnapshot {
-                            root_pid: wl.root_pid,
-                            name: wl.name,
-                            user: wl.user,
-                            energy: cumulative_energy,
-                            power_watts: wl.power_watts,
-                        }
-                    })
-                    .collect();
-
                 let cumulative_unattributed = DeviceEnergy {
-                    cpu_joules: prev_snap.unattributed.cpu_joules + unattributed.cpu_joules,
-                    dram_joules: prev_snap.unattributed.dram_joules + unattributed.dram_joules,
-                    gpu_joules: prev_snap.unattributed.gpu_joules + unattributed.gpu_joules,
+                    cpu_joules: prev_unattributed.cpu_joules + tick_unattributed.cpu_joules,
+                    dram_joules: prev_unattributed.dram_joules + tick_unattributed.dram_joules,
+                    gpu_joules: prev_unattributed.gpu_joules + tick_unattributed.gpu_joules,
                 };
 
-                // Update previous tick state for power computation
-                prev_state = PreviousTickState {
-                    timestamp: current_timestamp,
-                    workload_energy: cumulative_workloads
-                        .iter()
-                        .map(|wl| (wl.root_pid, wl.energy.clone()))
-                        .collect(),
+                // system_total = sum(workload cumulative energies) + cumulative unattributed
+                let cumulative_system_total = DeviceEnergy {
+                    cpu_joules: workloads.iter().map(|w| w.energy.cpu_joules).sum::<f64>()
+                        + cumulative_unattributed.cpu_joules,
+                    dram_joules: workloads.iter().map(|w| w.energy.dram_joules).sum::<f64>()
+                        + cumulative_unattributed.dram_joules,
+                    gpu_joules: workloads.iter().map(|w| w.energy.gpu_joules).sum::<f64>()
+                        + cumulative_unattributed.gpu_joules,
                 };
+
+                // Update tick state with cumulative energies for next iteration
+                tick_state.workload_energy = workloads
+                    .iter()
+                    .map(|wl| (wl.root_pid, wl.energy.clone()))
+                    .collect();
 
                 // Write updated snapshot
                 {
                     let mut snap = snapshot.write().unwrap();
                     snap.timestamp = current_timestamp;
-                    snap.system_total = cumulative_total;
-                    snap.workloads = cumulative_workloads;
+                    snap.system_total = cumulative_system_total;
+                    snap.workloads = workloads;
                     snap.unattributed = cumulative_unattributed;
                     snap.tracked_pids = expanded_pids;
                 }
