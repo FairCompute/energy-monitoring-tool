@@ -5,6 +5,8 @@ This module provides functional utilities for discovering, instantiating,
 and managing power groups in the Energy Monitoring Tool.
 """
 
+import os
+
 from emt import power_groups
 from emt.power_groups import PowerGroup
 from tabulate import tabulate
@@ -54,7 +56,17 @@ def get_available_pg_types() -> List[Type[PowerGroup]]:
         List of available PowerGroup subclass types.
     """
     all_pg_types = get_pg_types()
-    return [pg_type for pg_type in all_pg_types if pg_type.is_available()]
+    return [
+        pg_type
+        for pg_type in all_pg_types
+        if not _is_disabled_by_environment(pg_type) and pg_type.is_available()
+    ]
+
+
+def _is_disabled_by_environment(pg_type: Type[PowerGroup]) -> bool:
+    if pg_type.__name__ == "NvidiaGPU" and os.getenv("EMT_DISABLE_GPU"):
+        return True
+    return False
 
 
 def _get_pg_rate(pg_type: Type[PowerGroup], config: Dict[str, Any]) -> Optional[int]:
@@ -115,6 +127,10 @@ def get_pg_table() -> str:
     headers = ["Devices", "Available", "Tracked"]
 
     for pg_type in all_pg_types:
+        if _is_disabled_by_environment(pg_type):
+            table.append([pg_type.__name__, "No", "Disabled"])
+            continue
+
         is_available = pg_type.is_available()
         rate = _get_pg_rate(pg_type, config)
         tracked = "No"

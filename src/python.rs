@@ -199,11 +199,8 @@ impl PyEnergyGroup {
         batch_size: Option<usize>,
     ) -> PyResult<Self> {
         if let Ok(collector_ref) = collector.extract::<PyRef<'_, PyRaplCollector>>() {
-            let group = EnergyGroup::new(
-                Rapl::new(collector_ref.rapl_path.clone()),
-                rate,
-                batch_size,
-            );
+            let group =
+                EnergyGroup::new(Rapl::new(collector_ref.rapl_path.clone()), rate, batch_size);
             let result = Self::with_inner(PyEnergyGroupInner::Rapl(group))?;
             if let Some(pids) = pids {
                 result.inner.set_tracked_pids(pids);

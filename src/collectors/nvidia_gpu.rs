@@ -2,8 +2,8 @@ use crate::energy_group::{EnergyCollector, EnergyRecord};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::{debug, warn};
-use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::Nvml;
+use nvml_wrapper::enums::device::UsedGpuMemory;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tokio::task;
@@ -86,7 +86,8 @@ impl NvidiaGpu {
                 pid: *pid,
                 timestamp,
                 device: format!("nvidia:gpu:{}", gpu_index),
-                energy: delta_joules * (*process_memory_bytes as f64 / total_used_memory_bytes as f64),
+                energy: delta_joules
+                    * (*process_memory_bytes as f64 / total_used_memory_bytes as f64),
             })
             .collect()
     }
@@ -184,25 +185,24 @@ impl EnergyCollector for NvidiaGpu {
                 };
 
                 // Get per-process GPU memory for compute processes.
-                let process_memories: Vec<(u32, u64)> =
-                    match device.running_compute_processes() {
-                        Ok(procs) => procs
-                            .iter()
-                            .filter_map(|p| match p.used_gpu_memory {
-                                UsedGpuMemory::Used(bytes) => Some((p.pid, bytes)),
-                                UsedGpuMemory::Unavailable => None,
-                            })
-                            .collect(),
-                        Err(e) => {
-                            // No compute processes is a normal state; only warn
-                            // on unexpected errors.
-                            debug!(
-                                "No compute processes on GPU {} ({}), skipping attribution",
-                                idx, e
-                            );
-                            continue;
-                        }
-                    };
+                let process_memories: Vec<(u32, u64)> = match device.running_compute_processes() {
+                    Ok(procs) => procs
+                        .iter()
+                        .filter_map(|p| match p.used_gpu_memory {
+                            UsedGpuMemory::Used(bytes) => Some((p.pid, bytes)),
+                            UsedGpuMemory::Unavailable => None,
+                        })
+                        .collect(),
+                    Err(e) => {
+                        // No compute processes is a normal state; only warn
+                        // on unexpected errors.
+                        debug!(
+                            "No compute processes on GPU {} ({}), skipping attribution",
+                            idx, e
+                        );
+                        continue;
+                    }
+                };
 
                 if process_memories.is_empty() {
                     continue;

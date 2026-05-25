@@ -22,6 +22,12 @@ class MockPowerGroup2(PowerGroup):
         return False
 
 
+class NvidiaGPU(PowerGroup):
+    @classmethod
+    def is_available(cls):
+        return True
+
+
 def test_get_pg_types():
     # Mock the power_groups module
     with patch("emt.power_groups.utils.power_groups") as mock_module:
@@ -44,6 +50,18 @@ def test_get_available_pg_types():
         assert len(available_types) == 1  # only one class is available
         assert MockPowerGroup1 in available_types
         assert MockPowerGroup2 not in available_types
+
+
+def test_get_available_pg_types_can_disable_gpu(monkeypatch):
+    monkeypatch.setenv("EMT_DISABLE_GPU", "1")
+
+    with patch("emt.power_groups.utils.get_pg_types") as mock_get_pg_types:
+        mock_get_pg_types.return_value = [MockPowerGroup1, NvidiaGPU]
+
+        available_types = get_available_pg_types()
+
+        assert MockPowerGroup1 in available_types
+        assert NvidiaGPU not in available_types
 
 
 def test_get_available_pgs():
@@ -69,3 +87,15 @@ def test_get_pg_table():
         assert "Yes" in table_output
         assert "Tracked" in table_output
         assert "No" in table_output
+
+
+def test_get_pg_table_marks_disabled_gpu(monkeypatch):
+    monkeypatch.setenv("EMT_DISABLE_GPU", "1")
+
+    with patch("emt.power_groups.utils.get_pg_types") as mock_get_pg_types:
+        mock_get_pg_types.return_value = [NvidiaGPU]
+
+        table_output = get_pg_table()
+
+        assert "NvidiaGPU" in table_output
+        assert "Disabled" in table_output

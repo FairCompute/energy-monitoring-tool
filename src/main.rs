@@ -1,5 +1,5 @@
 use clap::Parser;
-use emt::config::EmtConfig;
+use emt::config::{EmtConfig, MeasurementUnitsConfig};
 use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor};
 use serde::Serialize;
 use std::fs::File;
@@ -30,21 +30,76 @@ struct Args {
     quiet: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emt::monitor::WorkloadSnapshot;
+
+    #[test]
+    fn cli_output_uses_configured_units_and_unit_neutral_fields() {
+        let args = Args {
+            pid: Some(123),
+            duration: 10,
+            rate: None,
+            output: None,
+            quiet: true,
+        };
+        let units = MeasurementUnitsConfig {
+            energy: "kWh".to_string(),
+            power: "mW".to_string(),
+        };
+        let snapshot = MetricsSnapshot {
+            timestamp: 0,
+            system_total: DeviceEnergy {
+                cpu_joules: 2_700.0,
+                dram_joules: 900.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 123,
+                name: "work".to_string(),
+                user: "user".to_string(),
+                energy: DeviceEnergy {
+                    cpu_joules: 2_700.0,
+                    dram_joules: 900.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 360.0,
+            }],
+            unattributed: DeviceEnergy::default(),
+            tracked_pids: vec![123],
+        };
+
+        let output = build_cli_output(&args, 10.0, &snapshot, &units);
+
+        assert_eq!(output.energy_unit, "kWh");
+        assert_eq!(output.power_unit, "mW");
+        assert!((output.total_energy - 0.001).abs() < 1e-9);
+        assert!((output.power - 360_000.0).abs() < 1e-9);
+        assert!((output.devices.cpu - 0.00075).abs() < 1e-9);
+        assert!((output.devices.dram - 0.00025).abs() < 1e-9);
+        assert!((output.workloads[0].energy - 0.001).abs() < 1e-9);
+        assert!((output.workloads[0].power - 360_000.0).abs() < 1e-9);
+    }
+}
+
 #[derive(Serialize)]
 struct CliOutput {
     pid: Option<u32>,
     duration_seconds: f64,
-    total_energy_joules: f64,
-    power_watts: f64,
+    total_energy: f64,
+    energy_unit: String,
+    power: f64,
+    power_unit: String,
     devices: DeviceBreakdown,
     workloads: Vec<WorkloadOutput>,
 }
 
 #[derive(Serialize)]
 struct DeviceBreakdown {
-    cpu_joules: f64,
-    dram_joules: f64,
-    gpu_joules: f64,
+    cpu: f64,
+    dram: f64,
+    gpu: f64,
 }
 
 #[derive(Serialize)]
@@ -52,24 +107,29 @@ struct WorkloadOutput {
     root_pid: u32,
     name: String,
     user: String,
-    energy_joules: f64,
-    power_watts: f64,
+    energy: f64,
+    power: f64,
 }
 
-impl From<&DeviceEnergy> for DeviceBreakdown {
-    fn from(de: &DeviceEnergy) -> Self {
+impl DeviceBreakdown {
+    fn from_energy(de: &DeviceEnergy, units: &MeasurementUnitsConfig) -> Self {
         Self {
-            cpu_joules: de.cpu_joules,
-            dram_joules: de.dram_joules,
-            gpu_joules: de.gpu_joules,
+            cpu: units.convert_energy_from_joules(de.cpu_joules),
+            dram: units.convert_energy_from_joules(de.dram_joules),
+            gpu: units.convert_energy_from_joules(de.gpu_joules),
         }
     }
 }
 
-fn build_cli_output(args: &Args, duration: f64, snapshot: &MetricsSnapshot) -> CliOutput {
-    let total_energy = snapshot.system_total.total();
+fn build_cli_output(
+    args: &Args,
+    duration: f64,
+    snapshot: &MetricsSnapshot,
+    units: &MeasurementUnitsConfig,
+) -> CliOutput {
+    let total_energy_joules = snapshot.system_total.total();
     let power_watts = if duration > 0.0 {
-        total_energy / duration
+        total_energy_joules / duration
     } else {
         0.0
     };
@@ -81,17 +141,23 @@ fn build_cli_output(args: &Args, duration: f64, snapshot: &MetricsSnapshot) -> C
             root_pid: wl.root_pid,
             name: wl.name.clone(),
             user: wl.user.clone(),
-            energy_joules: wl.energy.total(),
-            power_watts: wl.power_watts,
+            energy: units.convert_energy_from_joules(wl.energy.total()),
+            power: units.convert_power_from_watts(if duration > 0.0 {
+                wl.energy.total() / duration
+            } else {
+                wl.power_watts
+            }),
         })
         .collect();
 
     CliOutput {
         pid: args.pid,
         duration_seconds: duration,
-        total_energy_joules: total_energy,
-        power_watts,
-        devices: DeviceBreakdown::from(&snapshot.system_total),
+        total_energy: units.convert_energy_from_joules(total_energy_joules),
+        energy_unit: units.energy.clone(),
+        power: units.convert_power_from_watts(power_watts),
+        power_unit: units.power.clone(),
+        devices: DeviceBreakdown::from_energy(&snapshot.system_total, units),
         workloads,
     }
 }
@@ -106,19 +172,28 @@ fn print_human_readable(output: &CliOutput) {
             .unwrap_or_else(|| "all".to_string())
     );
     println!("Duration: {:.2} s", output.duration_seconds);
-    println!("Total Energy: {:.4} J", output.total_energy_joules);
-    println!("Average Power: {:.2} W", output.power_watts);
+    println!(
+        "Total Energy: {:.4} {}",
+        output.total_energy, output.energy_unit
+    );
+    println!("Average Power: {:.2} {}", output.power, output.power_unit);
     println!("Device breakdown:");
-    println!("  CPU: {:.4} J", output.devices.cpu_joules);
-    println!("  DRAM: {:.4} J", output.devices.dram_joules);
-    println!("  GPU: {:.4} J", output.devices.gpu_joules);
+    println!("  CPU: {:.4} {}", output.devices.cpu, output.energy_unit);
+    println!("  DRAM: {:.4} {}", output.devices.dram, output.energy_unit);
+    println!("  GPU: {:.4} {}", output.devices.gpu, output.energy_unit);
 
     if !output.workloads.is_empty() {
         println!("Workloads:");
         for wl in &output.workloads {
             println!(
-                "  PID {} ({}, {}): {:.4} J, {:.2} W",
-                wl.root_pid, wl.name, wl.user, wl.energy_joules, wl.power_watts
+                "  PID {} ({}, {}): {:.4} {}, {:.2} {}",
+                wl.root_pid,
+                wl.name,
+                wl.user,
+                wl.energy,
+                output.energy_unit,
+                wl.power,
+                output.power_unit
             );
         }
     }
@@ -137,6 +212,7 @@ async fn main() {
     if let Some(rate) = args.rate {
         config.collection.rate_hz = rate;
     }
+    let measurement_units = config.measurement_units.clone();
 
     // Create Monitor with optional root PIDs
     let root_pids = args.pid.map(|p| vec![p]);
@@ -154,17 +230,17 @@ async fn main() {
     // Sleep for the requested duration
     tokio::time::sleep(tokio::time::Duration::from_secs(args.duration)).await;
 
-    // Capture final snapshot
-    let snapshot = handle.snapshot();
-    let duration = args.duration as f64;
-
     // Shutdown monitor
     if let Err(e) = monitor.shutdown().await {
         eprintln!("Warning: Shutdown error: {e}");
     }
 
+    // Capture final snapshot after shutdown drains collector buffers.
+    let snapshot = handle.snapshot();
+    let duration = args.duration as f64;
+
     // Build output
-    let output = build_cli_output(&args, duration, &snapshot);
+    let output = build_cli_output(&args, duration, &snapshot, &measurement_units);
     let json_output = serde_json::to_string_pretty(&output).expect("Failed to serialize output");
 
     // Write to file if requested

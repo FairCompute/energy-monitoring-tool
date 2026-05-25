@@ -249,7 +249,7 @@ EMT uses a **sliding window trace** (see [Trace Rotation](trace_rotation.md)) th
 | Node type | RAPL availability | GPU availability | Recommended PowerGroup |
 |---|---|---|---|
 | Intel CPU, no GPU | ✅ intel-rapl | ❌ | `RAPLSoC` |
-| AMD CPU, no GPU | ✅ amd_energy driver | ❌ | `AMDEnergy` (roadmap) |
+| AMD CPU, no GPU | ✅ amd_energy driver | ❌ | Future `AMDEnergy` collector |
 | Intel CPU + NVIDIA GPU | ✅ intel-rapl | ✅ nvml | `RAPLSoC` + `NvidiaGPU` |
 | ARM / Graviton | ❌ RAPL | ❌ | `CPUEstimator` (model-based) |
 

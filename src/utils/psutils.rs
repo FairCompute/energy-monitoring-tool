@@ -23,6 +23,46 @@ pub fn walk_child_pids(roots: &[u32]) -> Vec<u32> {
         return Vec::new();
     }
 
+    match walk_child_pids_from_children_files(roots) {
+        Ok(pids) => return pids,
+        Err(_) => return walk_child_pids_by_scanning_proc(roots),
+    }
+}
+
+fn walk_child_pids_from_children_files(roots: &[u32]) -> Result<Vec<u32>, std::io::Error> {
+    let mut result: Vec<u32> = Vec::new();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut queue: VecDeque<u32> = VecDeque::new();
+
+    for &root in roots {
+        if visited.insert(root) {
+            result.push(root);
+            queue.push_back(root);
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        let proc_path = format!("/proc/{}", current);
+        if fs::metadata(&proc_path).is_err() {
+            continue;
+        }
+
+        let children_path = format!("/proc/{}/task/{}/children", current, current);
+        let children = fs::read_to_string(children_path)?;
+        for child in children.split_whitespace() {
+            if let Ok(child_pid) = child.parse::<u32>() {
+                if visited.insert(child_pid) {
+                    result.push(child_pid);
+                    queue.push_back(child_pid);
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn walk_child_pids_by_scanning_proc(roots: &[u32]) -> Vec<u32> {
     let mut parent_to_children: HashMap<u32, Vec<u32>> = HashMap::new();
 
     let proc_dir = match fs::read_dir("/proc") {
@@ -123,7 +163,6 @@ pub struct ProcessGroup {
     pub task: String,
     pub pids: Vec<usize>,
 }
-
 
 pub fn resolve_username(uid: u32, users_cache: &UsersCache) -> String {
     users_cache
@@ -306,7 +345,11 @@ mod tests {
         let roots = scan_roots();
         // All roots should have non-empty names
         for root in &roots {
-            assert!(!root.name.is_empty(), "Root PID {} has empty name", root.pid);
+            assert!(
+                !root.name.is_empty(),
+                "Root PID {} has empty name",
+                root.pid
+            );
         }
     }
 }

@@ -17,6 +17,18 @@ pub struct CollectionConfig {
     pub rate_hz: f64,
     /// Maximum trace retention in seconds before rotation.
     pub trace_retention_secs: u64,
+    /// Interval in seconds between trace recorder flushes.
+    pub trace_flush_interval_secs: f64,
+}
+
+/// Configuration for user-facing measurement units.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MeasurementUnitsConfig {
+    /// Unit used when reporting energy at output boundaries.
+    pub energy: String,
+    /// Unit used when reporting power at output boundaries.
+    pub power: String,
 }
 
 /// Top-level EMT configuration with layered resolution.
@@ -32,6 +44,7 @@ pub struct CollectionConfig {
 pub struct EmtConfig {
     pub discovery: DiscoveryConfig,
     pub collection: CollectionConfig,
+    pub measurement_units: MeasurementUnitsConfig,
 }
 
 /// Errors that can occur while loading configuration.
@@ -56,7 +69,55 @@ impl Default for CollectionConfig {
         Self {
             rate_hz: 10.0,
             trace_retention_secs: 3600,
+            trace_flush_interval_secs: 5.0,
         }
+    }
+}
+
+impl Default for MeasurementUnitsConfig {
+    fn default() -> Self {
+        Self {
+            energy: "Joules".to_string(),
+            power: "Watts".to_string(),
+        }
+    }
+}
+
+impl MeasurementUnitsConfig {
+    /// Convert canonical Joules to the configured energy unit.
+    pub fn convert_energy_from_joules(&self, joules: f64) -> f64 {
+        joules / energy_unit_factor_to_joules(&self.energy).unwrap_or(1.0)
+    }
+
+    /// Convert canonical Watts to the configured power unit.
+    pub fn convert_power_from_watts(&self, watts: f64) -> f64 {
+        watts / power_unit_factor_to_watts(&self.power).unwrap_or(1.0)
+    }
+
+    /// Convert a value in the configured energy unit back to Joules.
+    pub fn convert_energy_to_joules(&self, value: f64) -> f64 {
+        value * energy_unit_factor_to_joules(&self.energy).unwrap_or(1.0)
+    }
+}
+
+fn energy_unit_factor_to_joules(unit: &str) -> Option<f64> {
+    match unit {
+        "Joules" => Some(1.0),
+        "kJ" => Some(1_000.0),
+        "\u{03bc}J" | "uJ" => Some(1e-6),
+        "mJ" => Some(1e-3),
+        "Wh" => Some(3_600.0),
+        "kWh" => Some(3_600_000.0),
+        _ => None,
+    }
+}
+
+fn power_unit_factor_to_watts(unit: &str) -> Option<f64> {
+    match unit {
+        "Watts" => Some(1.0),
+        "kW" => Some(1_000.0),
+        "mW" => Some(1e-3),
+        _ => None,
     }
 }
 
@@ -133,6 +194,9 @@ mod tests {
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
         assert_eq!(config.collection.rate_hz, 10.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
+        assert_eq!(config.measurement_units.energy, "Joules");
+        assert_eq!(config.measurement_units.power, "Watts");
     }
 
     #[test]
@@ -141,7 +205,9 @@ mod tests {
         let config: EmtConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.collection.rate_hz, 20.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
+        assert_eq!(config.measurement_units.energy, "Joules");
     }
 
     #[test]
@@ -150,6 +216,7 @@ mod tests {
         let config: EmtConfig = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.collection.rate_hz, 10.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
     }
 
@@ -168,6 +235,7 @@ mod tests {
         assert_eq!(config.discovery.scan_interval_secs, 5.0);
         assert_eq!(config.collection.rate_hz, 25.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
     }
 
     #[test]
@@ -202,6 +270,7 @@ mod tests {
 
         assert_eq!(config.collection.rate_hz, 50.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
     }
 
@@ -224,6 +293,7 @@ mod tests {
         assert_eq!(config.discovery.scan_interval_secs, 5.0);
         // defaults fill trace_retention_secs (neither user nor local set it)
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
     }
 
     #[test]
@@ -232,6 +302,7 @@ mod tests {
         let config = EmtConfig::load();
         assert_eq!(config.collection.rate_hz, 10.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
+        assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
     }
 
@@ -240,5 +311,26 @@ mod tests {
         if let Some(path) = EmtConfig::user_config_path() {
             assert!(path.ends_with("emt/config.yaml"));
         }
+    }
+
+    #[test]
+    fn measurement_units_convert_from_canonical_values() {
+        let units = MeasurementUnitsConfig {
+            energy: "kWh".to_string(),
+            power: "mW".to_string(),
+        };
+
+        assert!((units.convert_energy_from_joules(3_600_000.0) - 1.0).abs() < 1e-9);
+        assert!((units.convert_power_from_watts(2.5) - 2_500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn measurement_units_support_python_microjoule_spelling() {
+        let units = MeasurementUnitsConfig {
+            energy: "\u{03bc}J".to_string(),
+            power: "Watts".to_string(),
+        };
+
+        assert!((units.convert_energy_from_joules(1.0) - 1_000_000.0).abs() < 1e-9);
     }
 }

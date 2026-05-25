@@ -399,11 +399,7 @@ mod tests {
         let csv_files: Vec<_> = fs::read_dir(tmp_dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "csv")
-            })
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "csv"))
             .collect();
 
         assert!(
@@ -436,11 +432,7 @@ mod tests {
         let csv_files: Vec<_> = fs::read_dir(tmp_dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "csv")
-            })
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "csv"))
             .collect();
 
         assert!(
