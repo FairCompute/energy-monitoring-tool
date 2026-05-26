@@ -3,6 +3,7 @@ pub mod config;
 pub mod energy_group;
 pub mod monitor;
 pub mod trace_recorder;
+pub mod tui;
 
 pub mod utils {
     pub mod errors;

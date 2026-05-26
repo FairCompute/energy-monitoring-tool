@@ -1,6 +1,7 @@
 use clap::Parser;
 use emt::config::{EmtConfig, MeasurementUnitsConfig};
 use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor};
+use emt::tui::{self, App};
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
@@ -13,7 +14,7 @@ struct Args {
     #[arg(short, long)]
     pid: Option<u32>,
 
-    /// Duration to monitor in seconds
+    /// Duration to monitor in seconds (headless mode only)
     #[arg(short, long, default_value = "10")]
     duration: u64,
 
@@ -21,13 +22,21 @@ struct Args {
     #[arg(short, long)]
     rate: Option<f64>,
 
-    /// Output file for JSON results (optional)
+    /// Output file for JSON results (optional, implies headless)
     #[arg(short, long)]
     output: Option<String>,
 
-    /// Quiet mode - only output JSON result
+    /// Quiet mode - only output JSON result (implies headless)
     #[arg(short, long)]
     quiet: bool,
+
+    /// Launch interactive TUI (default when no --output or --quiet)
+    #[arg(long)]
+    tui: bool,
+
+    /// Run in headless mode (print results after duration)
+    #[arg(long)]
+    headless: bool,
 }
 
 #[cfg(test)]
@@ -43,6 +52,8 @@ mod tests {
             rate: None,
             output: None,
             quiet: true,
+            tui: false,
+            headless: false,
         };
         let units = MeasurementUnitsConfig {
             energy: "kWh".to_string(),
@@ -90,6 +101,8 @@ mod tests {
             rate: Some(5.0),
             output: None,
             quiet: true,
+            tui: false,
+            headless: false,
         };
         let mut config = EmtConfig::default();
         config.collection.rate_hz = 0.0;
@@ -227,7 +240,10 @@ fn print_human_readable(output: &CliOutput) {
 async fn main() {
     let args = Args::parse();
 
-    if !args.quiet {
+    // Determine mode: TUI vs headless
+    let use_tui = args.tui || (!args.headless && !args.quiet && args.output.is_none());
+
+    if !args.quiet && !use_tui {
         emt::utils::logger::setup_logger();
     }
 
@@ -238,13 +254,18 @@ async fn main() {
         eprintln!("Invalid configuration: {e}");
         std::process::exit(2);
     }
-    let measurement_units = config.measurement_units.clone();
 
-    // Create Monitor with optional root PIDs
-    let root_pids = args.pid.map(|p| vec![p]);
+    if use_tui {
+        run_tui(config, args.pid).await;
+    } else {
+        run_headless(config, &args).await;
+    }
+}
+
+async fn run_tui(config: EmtConfig, pid: Option<u32>) {
+    let root_pids = pid.map(|p| vec![p]);
     let mut monitor = Monitor::new(config, root_pids);
 
-    // Start monitoring
     let handle = match monitor.commence().await {
         Ok(h) => h,
         Err(e) => {
@@ -253,23 +274,79 @@ async fn main() {
         }
     };
 
-    // Sleep for the requested duration
+    // Install panic hook that restores terminal
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen
+        );
+        original_hook(info);
+    }));
+
+    // Enter TUI
+    crossterm::terminal::enable_raw_mode().expect("Failed to enable raw mode");
+    let mut stdout = std::io::stdout();
+    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)
+        .expect("Failed to enter alternate screen");
+    let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    let mut terminal = ratatui::Terminal::new(backend).expect("Failed to create terminal");
+
+    let mut app = App::new(handle);
+    let tick_rate = std::time::Duration::from_millis(500);
+
+    while !app.should_quit {
+        terminal
+            .draw(|frame| tui::ui::render(frame, &app))
+            .expect("Failed to draw");
+
+        if let Some(event) = tui::event::poll(tick_rate) {
+            match event {
+                tui::event::AppEvent::Quit => app.quit(),
+                tui::event::AppEvent::Tick => {}
+            }
+        }
+    }
+
+    // Restore terminal
+    crossterm::terminal::disable_raw_mode().expect("Failed to disable raw mode");
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::LeaveAlternateScreen
+    )
+    .expect("Failed to leave alternate screen");
+
+    if let Err(e) = monitor.shutdown().await {
+        eprintln!("Warning: Shutdown error: {e}");
+    }
+}
+
+async fn run_headless(config: EmtConfig, args: &Args) {
+    let measurement_units = config.measurement_units.clone();
+    let root_pids = args.pid.map(|p| vec![p]);
+    let mut monitor = Monitor::new(config, root_pids);
+
+    let handle = match monitor.commence().await {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to start monitoring: {e}");
+            std::process::exit(1);
+        }
+    };
+
     tokio::time::sleep(tokio::time::Duration::from_secs(args.duration)).await;
 
-    // Shutdown monitor
     if let Err(e) = monitor.shutdown().await {
         eprintln!("Warning: Shutdown error: {e}");
     }
 
-    // Capture final snapshot after shutdown drains collector buffers.
     let snapshot = handle.snapshot();
     let duration = args.duration as f64;
 
-    // Build output
-    let output = build_cli_output(&args, duration, &snapshot, &measurement_units);
+    let output = build_cli_output(args, duration, &snapshot, &measurement_units);
     let json_output = serde_json::to_string_pretty(&output).expect("Failed to serialize output");
 
-    // Write to file if requested
     if let Some(output_path) = &args.output {
         let mut file = File::create(output_path).expect("Failed to create output file");
         file.write_all(json_output.as_bytes())
@@ -279,7 +356,6 @@ async fn main() {
         }
     }
 
-    // Print output
     if args.quiet {
         println!("{json_output}");
     } else {
