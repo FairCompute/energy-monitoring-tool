@@ -74,7 +74,7 @@ def test_build_verification_methods_forwards_sudo_to_rust(monkeypatch):
 
 
 def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatch):
-    rust_binary = tmp_path / "energy-monitoring-tool"
+    rust_binary = tmp_path / "emt"
     rust_binary.write_text("#!/bin/sh\n", encoding="utf-8")
     output_dir = tmp_path / "rust-output"
     popen_calls = []
@@ -85,12 +85,18 @@ def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatc
             self.kwargs = kwargs
             self.pid = 12345
             self.returncode = 0
-            popen_calls.append(cmd)
+            popen_calls.append((cmd, kwargs))
 
             if str(rust_binary) in cmd:
                 output_file = Path(cmd[cmd.index("--output") + 1])
                 output_file.write_text(
-                    json.dumps({"total_energy": 42.5, "devices": {"cpu": 42.5}}),
+                    json.dumps(
+                        {
+                            "total_energy": 42.5,
+                            "energy_unit": "Joules",
+                            "devices": {"cpu": 42.5},
+                        }
+                    ),
                     encoding="utf-8",
                 )
 
@@ -112,8 +118,29 @@ def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatc
     assert result.details["devices"] == {"cpu": 42.5}
     assert output_dir.is_dir()
     assert list(output_dir.iterdir()) == []
-    rust_cmd = popen_calls[1]
+    rust_cmd, rust_kwargs = popen_calls[1]
     assert rust_cmd[rust_cmd.index("--output") + 1].startswith(str(output_dir))
+    assert rust_kwargs["env"]["EMT_DISABLE_GPU"] == "1"
+
+
+def test_rust_output_parser_normalizes_configured_energy_units():
+    data = {
+        "total_energy": 0.001,
+        "energy_unit": "kWh",
+        "devices": {"cpu": 0.00075, "dram": 0.00025},
+    }
+
+    assert verify.rust_total_energy_joules(data) == pytest.approx(3600.0)
+    assert verify.rust_devices_joules(data) == {
+        "cpu": pytest.approx(2700.0),
+        "dram": pytest.approx(900.0),
+    }
+
+
+def test_rust_output_parser_keeps_legacy_total_energy_joules_fallback():
+    assert verify.rust_total_energy_joules(
+        {"total_energy_joules": 12.5}
+    ) == pytest.approx(12.5)
 
 
 def test_measure_method_keeps_successes_and_reports_expected_errors(
@@ -142,20 +169,31 @@ def test_measure_method_keeps_successes_and_reports_expected_errors(
 def test_run_methods_invokes_each_named_method(monkeypatch):
     calls = []
 
-    def fake_measure_method(name, fn, num_iterations, workload_duration):
-        calls.append((name, fn(workload_duration, 1), num_iterations))
-        return [verify.Result(name, 1, workload_duration, 1.0)]
+    def method(name):
+        def fake(duration, iteration):
+            calls.append((name, duration, iteration))
+            return verify.Result(name, iteration, duration, float(iteration))
 
-    monkeypatch.setattr(verify, "measure_method", fake_measure_method)
+        return fake
+
+    monkeypatch.setattr(verify.time, "sleep", lambda _seconds: None)
 
     results = verify.run_methods(
-        [("A", lambda duration, iteration: duration + iteration)],
+        [("A", method("A")), ("B", method("B"))],
         num_iterations=3,
         workload_duration=2.0,
     )
 
-    assert calls == [("A", 3.0, 3)]
-    assert results["A"][0].duration == pytest.approx(2.0)
+    assert calls == [
+        ("A", 2.0, 1),
+        ("B", 2.0, 1),
+        ("B", 2.0, 2),
+        ("A", 2.0, 2),
+        ("A", 2.0, 3),
+        ("B", 2.0, 3),
+    ]
+    assert [result.iteration for result in results["A"]] == [1, 2, 3]
+    assert [result.iteration for result in results["B"]] == [1, 2, 3]
 
 
 def test_printing_results_builds_statistics_tables_and_acceptance(capsys):

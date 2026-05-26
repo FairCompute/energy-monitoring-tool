@@ -1,5 +1,8 @@
 pub mod collectors;
+pub mod config;
 pub mod energy_group;
+pub mod monitor;
+pub mod trace_recorder;
 
 pub mod utils {
     pub mod errors;

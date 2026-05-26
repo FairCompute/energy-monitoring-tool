@@ -1,11 +1,12 @@
+use crate::trace_recorder::TraceRecorder;
 use crate::utils::errors::MonitoringError;
-use crate::utils::psutils::collect_process_groups;
 use crate::utils::trace_rotation::RotatingTrace;
 use async_trait::async_trait;
-use itertools::multiunzip;
 use polars::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -14,13 +15,6 @@ pub enum EnergyCollectorType {
     Rapl,
     NvidiaGpu,
     Dummy,
-}
-
-#[derive(Debug)]
-pub struct ProcessGroup {
-    pub user: String,
-    pub task: String,
-    pub pids: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,8 +41,6 @@ pub struct EnergyGroup<T: EnergyCollector> {
     rate: f64,
     /// Number of iterations to batch before sending data back from the collector
     batch_size: usize,
-    /// DataFrame: user | task | pid
-    tracked_processes: DataFrame,
     /// Rotating trace: pid | timestamp | device | energy
     energy_trace: RotatingTrace,
     /// Underlying collector instance
@@ -59,69 +51,50 @@ pub struct EnergyGroup<T: EnergyCollector> {
     task_handle: Option<JoinHandle<()>>,
     /// Receiver for collected energy data from the background task
     data_receiver: Option<mpsc::Receiver<Vec<EnergyRecord>>>,
+    /// Per-PID cumulative energy accumulator
+    consumed_energy: HashMap<u32, f64>,
+    /// Registered trace recorders for persistent storage
+    recorders: Vec<Box<dyn TraceRecorder>>,
+    /// Cadence for periodic trace recorder flushes.
+    recorder_flush_interval: Duration,
+    /// Last time registered trace recorders were flushed.
+    last_recorder_flush: Instant,
 }
 
 impl<T: EnergyCollector> EnergyGroup<T> {
-    /// Create a new PowerGroup with explicit collector instance
-    pub fn create_with_collector(
-        mut collector: T,
-        rate: f64,
-        pids: Option<Vec<usize>>,
-        batch_size: Option<usize>,
-    ) -> Result<Self, MonitoringError> {
-        let process_groups: Vec<ProcessGroup> = collect_process_groups(pids)?;
-        if process_groups.is_empty() {
-            return Err(MonitoringError::ProcessDiscoveryError(
-                "No processes found".to_string(),
-            ));
-        }
-
-        // Concise conversion to Polars DataFrame: user | task | pid
-        let (users, tasks, pids_col): (Vec<String>, Vec<String>, Vec<u32>) =
-            multiunzip(process_groups.iter().flat_map(|group| {
-                group
-                    .pids
-                    .iter()
-                    .map(move |&pid| (group.user.clone(), group.task.clone(), pid as u32))
-            }));
-
-        // Set tracked PIDs in the collector for per-process energy attribution
-        collector.set_tracked_pids(pids_col.clone());
-
-        let tracked_processes: DataFrame = df![
-            "user" => users,
-            "task" => tasks,
-            "pid" => pids_col,
-        ]
-        .map_err(|e| MonitoringError::Other(format!("Failed to create DataFrame: {}", e)))?;
-
+    /// Create a new EnergyGroup with an explicit collector instance
+    pub fn new(collector: T, rate: f64, batch_size: Option<usize>) -> Self {
         // Create rotating trace with 1 hour default retention
         let energy_trace = RotatingTrace::new(3600);
 
-        Ok(Self {
+        Self {
             rate,
             batch_size: batch_size.unwrap_or(1000),
-            tracked_processes,
             energy_trace,
             energy_collector: Arc::new(collector),
             is_running: Arc::new(AtomicBool::new(false)),
             task_handle: None,
             data_receiver: None,
-        })
+            consumed_energy: HashMap::new(),
+            recorders: Vec::new(),
+            recorder_flush_interval: Duration::from_secs(5),
+            last_recorder_flush: Instant::now(),
+        }
     }
 
-    /// Convenience constructor: only rate and pids. A default collector instance is created.
-    /// for the collector type `T`, it must implement `Default`.
-    pub fn new(rate: f64, pids: Option<Vec<usize>>) -> Result<Self, MonitoringError>
-    where
-        T: Default,
-    {
-        Self::create_with_collector(T::default(), rate, pids, None)
+    /// Set the tracked PIDs by delegating to the collector
+    pub fn set_tracked_pids(&self, pids: Vec<u32>) {
+        self.energy_collector.set_tracked_pids(pids);
     }
 
-    /// Get a reference to the tracked process DataFrame
-    pub fn processes(&self) -> &DataFrame {
-        &self.tracked_processes
+    /// Register a trace recorder for persistent storage of energy data.
+    pub fn add_recorder(&mut self, recorder: Box<dyn TraceRecorder>) {
+        self.recorders.push(recorder);
+    }
+
+    /// Set the cadence for periodic trace recorder flushes.
+    pub fn set_recorder_flush_interval(&mut self, interval: Duration) {
+        self.recorder_flush_interval = interval;
     }
 
     /// Get a reference to the energy trace data (as DataFrame)
@@ -135,7 +108,6 @@ impl<T: EnergyCollector> EnergyGroup<T> {
     }
 
     /// Set the retention window for all traces (in seconds)
-    /// This affects both energy and utilization traces
     pub fn set_trace_retention(&mut self, retention_seconds: i64) {
         self.energy_trace.set_retention_seconds(retention_seconds);
     }
@@ -148,11 +120,18 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         }
     }
 
+    /// Get the per-PID cumulative energy accumulator
+    pub fn consumed_energy_by_pid(&self) -> &HashMap<u32, f64> {
+        &self.consumed_energy
+    }
+
+    /// Get total consumed energy across all tracked PIDs
+    pub fn total_consumed_energy(&self) -> f64 {
+        self.consumed_energy.values().sum()
+    }
+
     /// Add energy records to the energy trace
-    pub fn append_energy_records(
-        &mut self,
-        records: Vec<EnergyRecord>,
-    ) -> Result<(), MonitoringError> {
+    fn append_energy_records(&mut self, records: &[EnergyRecord]) -> Result<(), MonitoringError> {
         if records.is_empty() {
             return Ok(());
         }
@@ -180,6 +159,30 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         self.energy_trace.append(&data)?;
 
         Ok(())
+    }
+
+    /// Accumulate energy records into the per-PID HashMap
+    fn accumulate_energy(&mut self, records: &[EnergyRecord]) {
+        for record in records {
+            *self.consumed_energy.entry(record.pid).or_insert(0.0) += record.energy;
+        }
+    }
+
+    fn flush_recorders(&mut self) {
+        for recorder in &mut self.recorders {
+            recorder.flush(&self.energy_trace);
+        }
+        self.last_recorder_flush = Instant::now();
+    }
+
+    fn flush_recorders_if_due(&mut self) {
+        if self.recorders.is_empty() {
+            return;
+        }
+
+        if self.last_recorder_flush.elapsed() >= self.recorder_flush_interval {
+            self.flush_recorders();
+        }
     }
 
     /// Check if the underlying collector is available on the system
@@ -291,8 +294,9 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             .await
             .map_err(|e| MonitoringError::Other(format!("Failed to get energy trace: {}", e)))?;
 
-        // Append initial data
-        self.append_energy_records(energy_records)?;
+        // Append and accumulate initial data
+        self.append_energy_records(&energy_records)?;
+        self.accumulate_energy(&energy_records);
 
         // Create bounded channel for background task to send data back
         // Channel capacity: allow a reasonable buffer (e.g., 10 batches)
@@ -318,9 +322,9 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         Ok(())
     }
 
-    /// Poll the channel and append any received data to the energy trace
-    /// Call this periodically to receive and process data from the background task
-    pub fn poll_data(&mut self) -> Result<(), MonitoringError> {
+    /// Poll the channel, append received data to the energy trace, and accumulate per-PID energy.
+    /// Returns all energy records drained from the channel.
+    pub fn poll_data(&mut self) -> Vec<EnergyRecord> {
         // Collect all available messages first
         let mut all_energy_records = Vec::new();
 
@@ -330,21 +334,30 @@ impl<T: EnergyCollector> EnergyGroup<T> {
             }
         }
 
-        // Now append all collected records
+        // Append to trace and accumulate
         if !all_energy_records.is_empty() {
-            self.append_energy_records(all_energy_records)?;
+            if let Err(e) = self.append_energy_records(&all_energy_records) {
+                log::error!("Failed to append energy records to trace: {}", e);
+            }
+            self.accumulate_energy(&all_energy_records);
+            self.flush_recorders_if_due();
         }
 
-        Ok(())
+        all_energy_records
     }
 
     pub fn shutdown(&mut self) -> Result<(), MonitoringError> {
+        self.shutdown_and_drain().map(|_| ())
+    }
+
+    /// Shut down the collector and return all final records drained from the channel.
+    pub fn shutdown_and_drain(&mut self) -> Result<Vec<EnergyRecord>, MonitoringError> {
         log::info!("Shutdown requested");
 
         // if not running, nothing to do
         if !self.is_running() {
             log::info!("Collector is not running, nothing to shut down");
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         // Signal the background task to stop
@@ -355,7 +368,10 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // Poll any remaining data from the channel
-        self.poll_data()?;
+        let final_records = self.poll_data();
+
+        // Final flush to all registered recorders
+        self.flush_recorders();
 
         // Now abort the background task (it should already be stopped)
         if let Some(handle) = self.task_handle.take() {
@@ -364,14 +380,14 @@ impl<T: EnergyCollector> EnergyGroup<T> {
 
         // Drop the receiver to signal completion
         self.data_receiver = None;
-        Ok(())
+        Ok(final_records)
     }
 }
 
 #[async_trait]
 pub trait EnergyCollector: Send + Sync + 'static {
     /// Set the list of tracked process PIDs for energy attribution
-    fn set_tracked_pids(&mut self, pids: Vec<u32>);
+    fn set_tracked_pids(&self, pids: Vec<u32>);
 
     /// Get energy trace data
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String>;
@@ -389,4 +405,96 @@ pub struct TraceMemoryStats {
     pub energy_trace_rows: usize,
     /// Energy trace statistics
     pub energy_trace_stats: crate::utils::trace_rotation::TraceStats,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::trace_rotation::RotatingTrace;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingRecorder {
+        flush_count: Arc<AtomicUsize>,
+    }
+
+    impl TraceRecorder for CountingRecorder {
+        fn flush(&mut self, _trace: &RotatingTrace) {
+            self.flush_count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct TestCollector {
+        pids: Mutex<Vec<u32>>,
+        sequence: AtomicUsize,
+    }
+
+    impl TestCollector {
+        fn new(pid: u32) -> Self {
+            Self {
+                pids: Mutex::new(vec![pid]),
+                sequence: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl EnergyCollector for TestCollector {
+        fn set_tracked_pids(&self, pids: Vec<u32>) {
+            *self.pids.lock().unwrap() = pids;
+        }
+
+        async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
+            let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) as f64;
+            let pids = self.pids.lock().unwrap().clone();
+            Ok(pids
+                .into_iter()
+                .map(|pid| EnergyRecord {
+                    pid,
+                    timestamp: sequence as i64,
+                    device: "test:device".to_string(),
+                    energy: 1.0 + sequence,
+                })
+                .collect())
+        }
+
+        fn is_available() -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn poll_data_flushes_recorders_when_cadence_is_due() {
+        let flush_count = Arc::new(AtomicUsize::new(0));
+        let mut group = EnergyGroup::new(TestCollector::new(123), 50.0, Some(1));
+        group.set_recorder_flush_interval(Duration::from_secs(0));
+        group.add_recorder(Box::new(CountingRecorder {
+            flush_count: Arc::clone(&flush_count),
+        }));
+
+        group.commence().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let records = group.poll_data();
+
+        assert!(!records.is_empty());
+        assert!(flush_count.load(Ordering::SeqCst) >= 1);
+
+        group.shutdown().unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_and_drain_returns_final_records_and_flushes() {
+        let flush_count = Arc::new(AtomicUsize::new(0));
+        let mut group = EnergyGroup::new(TestCollector::new(456), 50.0, Some(1));
+        group.add_recorder(Box::new(CountingRecorder {
+            flush_count: Arc::clone(&flush_count),
+        }));
+
+        group.commence().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let final_records = group.shutdown_and_drain().unwrap();
+
+        assert!(!final_records.is_empty());
+        assert_eq!(flush_count.load(Ordering::SeqCst), 1);
+    }
 }

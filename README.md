@@ -125,20 +125,6 @@ The EMT context manager spawns a separate thread to monitor energy usage for CPU
 ![EMT Energy Attribution](https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/energy_attribution.png)
 
 
-## 🤝 Contributions
-
-We welcome contributions to this project! To ensure a smooth review and merge process, please ensure your pull request meets the following requirements:
-
-**Code Formatting**: All code must be formatted using Black. Please run `black .` on your changes before committing.  
-**Test Coverage**: New features and bug fixes should include tests, achieving at least 80% test coverage for the added or modified code.  
-**Quality Gate**: Your pull request must pass all automated quality checks, including those enforced by SonarQube, which ensures our code meets predefined standards for reliability and maintainability.    
-
-Thank you for helping us maintain a high-quality codebase!   
-
-## 🚧 Work in Progress
-
-EMT Tool is an ongoing project, and we are actively working to enhance its features and usability. If you encounter any issues or have suggestions, please open an issue on the GitHub repository.
-
 ## 📧 Contact
 
 For any inquiries or discussions, feel free to reach out to us:  
@@ -155,4 +141,3 @@ This project was originally initiated at Philips and continues to be actively ma
 <div align="right">
   <img src="https://raw.githubusercontent.com/FairCompute/energy-monitoring-tool/main/assets/philips.png" alt="EMT Logo" width="60" />
 </div>
-

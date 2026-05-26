@@ -50,7 +50,9 @@ impl RotationConfig {
 /// A rotating trace buffer that maintains limited history
 ///
 /// Automatically removes entries older than the configured retention window.
-/// Works with any DataFrame containing a "timestamp" column.
+/// Works with any DataFrame containing a "timestamp" column. Collector records
+/// use Unix milliseconds, while some tests and callers may still use Unix
+/// seconds; cleanup accepts both units.
 pub struct RotatingTrace {
     /// The trace data DataFrame with columns: pid | timestamp | device | <metric>
     data: DataFrame,
@@ -153,7 +155,8 @@ impl RotatingTrace {
         }
 
         let now = Self::get_current_timestamp();
-        let cutoff_time = now - self.config.retention_seconds;
+        let cutoff_secs = now - self.config.retention_seconds;
+        let cutoff_millis = cutoff_secs.saturating_mul(1000);
 
         // Get timestamp column
         let timestamp_col = self.data.column("timestamp").map_err(|e| {
@@ -168,7 +171,11 @@ impl RotatingTrace {
         // Create filter mask for rows within retention window
         let mask = timestamps
             .iter()
-            .map(|opt_ts| opt_ts.map(|ts| ts > cutoff_time).unwrap_or(false))
+            .map(|opt_ts| {
+                opt_ts
+                    .map(|ts| timestamp_is_after_cutoff(ts, cutoff_secs, cutoff_millis))
+                    .unwrap_or(false)
+            })
             .collect::<Vec<_>>();
 
         // Convert mask to BooleanChunked
@@ -253,15 +260,36 @@ impl TraceStats {
     /// Get the age of the oldest entry in seconds
     pub fn oldest_age_seconds(&self) -> Option<i64> {
         let now = current_timestamp_secs();
-        self.oldest_timestamp.map(|ts| now - ts)
+        self.oldest_timestamp
+            .map(|ts| now - timestamp_to_seconds(ts))
     }
 
     /// Get the span of data in seconds (newest - oldest)
     pub fn data_span_seconds(&self) -> Option<i64> {
         match (self.oldest_timestamp, self.newest_timestamp) {
-            (Some(oldest), Some(newest)) => Some(newest - oldest),
+            (Some(oldest), Some(newest)) => {
+                Some(timestamp_to_seconds(newest) - timestamp_to_seconds(oldest))
+            }
             _ => None,
         }
+    }
+}
+
+const UNIX_MILLIS_THRESHOLD: i64 = 10_000_000_000;
+
+fn timestamp_is_after_cutoff(timestamp: i64, cutoff_secs: i64, cutoff_millis: i64) -> bool {
+    if timestamp.abs() >= UNIX_MILLIS_THRESHOLD {
+        timestamp > cutoff_millis
+    } else {
+        timestamp > cutoff_secs
+    }
+}
+
+fn timestamp_to_seconds(timestamp: i64) -> i64 {
+    if timestamp.abs() >= UNIX_MILLIS_THRESHOLD {
+        timestamp / 1000
+    } else {
+        timestamp
     }
 }
 
@@ -326,6 +354,27 @@ mod tests {
     }
 
     #[test]
+    fn test_cleanup_old_entries_with_millisecond_timestamps() {
+        let mut trace = RotatingTrace::new(100); // 100 second retention
+        let now_ms = current_timestamp_secs() * 1000;
+
+        let data = df![
+            "pid" => vec![1u32, 1u32, 1u32],
+            "timestamp" => vec![now_ms - 200_000, now_ms - 50_000, now_ms],
+            "device" => vec!["cpu".to_string(), "cpu".to_string(), "cpu".to_string()],
+            "energy" => vec![10.0, 20.0, 30.0],
+        ]
+        .unwrap();
+
+        trace.append(&data).unwrap();
+        assert_eq!(trace.row_count(), 3);
+
+        trace.force_cleanup().unwrap();
+
+        assert_eq!(trace.row_count(), 2);
+    }
+
+    #[test]
     fn test_stats() {
         let mut trace = RotatingTrace::new(3600);
         let now = current_timestamp_secs();
@@ -345,5 +394,25 @@ mod tests {
         assert!(stats.oldest_timestamp.is_some());
         assert!(stats.newest_timestamp.is_some());
         assert_eq!(stats.retention_seconds, 3600);
+    }
+
+    #[test]
+    fn test_stats_normalize_millisecond_timestamps() {
+        let mut trace = RotatingTrace::new(3600);
+        let now_ms = current_timestamp_secs() * 1000;
+
+        let data = df![
+            "pid" => vec![1u32, 1u32],
+            "timestamp" => vec![now_ms - 100_000, now_ms],
+            "device" => vec!["cpu".to_string(), "cpu".to_string()],
+            "energy" => vec![10.0, 20.0],
+        ]
+        .unwrap();
+
+        trace.append(&data).unwrap();
+        let stats = trace.stats();
+
+        assert_eq!(stats.data_span_seconds(), Some(100));
+        assert!(stats.oldest_age_seconds().unwrap() >= 100);
     }
 }

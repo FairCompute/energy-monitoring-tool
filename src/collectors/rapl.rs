@@ -4,6 +4,7 @@ use chrono::Utc;
 use log::warn;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use sysinfo::{Pid, System};
@@ -395,6 +396,21 @@ impl Rapl {
         }
     }
 
+    fn powercap_has_readable_rapl_counter(root: &Path) -> bool {
+        fs::read_dir(root)
+            .ok()
+            .map(|entries| {
+                entries.flatten().any(|entry| {
+                    let name_matches = entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.contains("rapl"));
+                    name_matches && energy_counter_is_readable(&entry.path().join("energy_uj"))
+                })
+            })
+            .unwrap_or(false)
+    }
+
     /// Calculate per-process utilization metrics (CPU and memory)
     /// Returns a tuple of (cpu_utilization, memory_utilization) for each tracked PID
     /// CPU utilization is normalized relative to system usage (matching Python EMT formula)
@@ -534,8 +550,8 @@ impl Default for Rapl {
 
 #[async_trait]
 impl EnergyCollector for Rapl {
-    fn set_tracked_pids(&mut self, pids: Vec<u32>) {
-        self.tracked_pids = Arc::new(Mutex::new(pids));
+    fn set_tracked_pids(&self, pids: Vec<u32>) {
+        *self.tracked_pids.lock().unwrap() = pids;
     }
 
     async fn get_energy_trace(&self) -> Result<Vec<EnergyRecord>, String> {
@@ -711,22 +727,17 @@ impl EnergyCollector for Rapl {
     }
 
     fn is_available() -> bool {
-        Path::new("/sys/class/powercap").exists()
-            && fs::read_dir("/sys/class/powercap")
-                .ok()
-                .map(|entries| {
-                    for entry in entries.flatten() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            // Check for RAPL interface (Intel or AMD)
-                            if name.contains("rapl") {
-                                return true;
-                            }
-                        }
-                    }
-                    false
-                })
-                .unwrap_or(false)
+        Rapl::powercap_has_readable_rapl_counter(Path::new("/sys/class/powercap"))
     }
+}
+
+fn energy_counter_is_readable(path: &Path) -> bool {
+    fs::File::open(path)
+        .and_then(|mut file| {
+            let mut buf = [0; 1];
+            file.read(&mut buf).map(|_| ())
+        })
+        .is_ok()
 }
 
 #[cfg(test)]
@@ -772,6 +783,22 @@ mod tests {
         fs::create_dir_all(&zone_dir).unwrap();
         fs::write(zone_dir.join("name"), zone_name).unwrap();
         fs::write(zone_dir.join("energy_uj"), "0").unwrap();
+    }
+
+    #[test]
+    fn availability_requires_readable_energy_counter() {
+        let rapl_dir = TempTestDir::new("availability");
+        write_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+
+        assert!(Rapl::powercap_has_readable_rapl_counter(&rapl_dir.path));
+    }
+
+    #[test]
+    fn availability_rejects_rapl_directory_without_energy_counter() {
+        let rapl_dir = TempTestDir::new("availability-empty");
+        fs::create_dir_all(rapl_dir.path.join("intel-rapl:0")).unwrap();
+
+        assert!(!Rapl::powercap_has_readable_rapl_counter(&rapl_dir.path));
     }
 
     #[test]

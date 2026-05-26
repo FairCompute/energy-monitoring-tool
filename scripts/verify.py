@@ -4,7 +4,7 @@ Energy Monitoring Tool — Verification Script
 
 Compares energy measurements from two independent methods, each run in ISOLATION:
     1. Python EMT (emt.EnergyMonitor) — monitors verification_workload.py by PID
-    2. Rust CLI   (energy-monitoring-tool) — monitors verification_workload.py by PID
+    2. Rust CLI   (emt) — monitors verification_workload.py by PID
 
 Isolation is critical: because idle energy is attributed proportionally to all
 active processes, each method runs the workload alone so that the workload is
@@ -30,13 +30,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 WORKLOAD_SCRIPT = Path(__file__).parent / "verification_workload.py"
-RUST_BINARY = PROJECT_ROOT / "target" / "release" / "energy-monitoring-tool"
+RUST_BINARY = PROJECT_ROOT / "target" / "release" / "emt"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / ".artifacts" / "verification_results.json"
 RUST_VERIFY_TMP_DIR = PROJECT_ROOT / ".artifacts" / "tmp"
 PYTHON = sys.executable
 RAPL_ROOT = Path("/sys/class/powercap")
 ACCURACY_TOLERANCE_PERCENT = 2.0
 WORKLOAD_MONITOR_START_DELAY_SECONDS = 0.3
+ENERGY_FACTORS_TO_JOULES = {
+    "Joules": 1.0,
+    "kJ": 1_000.0,
+    "μJ": 1e-6,
+    "uJ": 1e-6,
+    "mJ": 1e-3,
+    "Wh": 3_600.0,
+    "kWh": 3_600_000.0,
+}
 
 
 @dataclass
@@ -234,6 +243,9 @@ def collect_run_metadata(
             "duration_seconds": workload_duration,
             "output_path": str(output_path),
             "rust_cli_uses_sudo": use_sudo,
+            "python_gpu_disabled": True,
+            "rust_cli_gpu_disabled": True,
+            "method_order": "interleaved_alternating",
             "monitor_start_delay_seconds": WORKLOAD_MONITOR_START_DELAY_SECONDS,
             "python_monitoring_scope": "workload_pid",
             "rust_monitoring_scope": "workload_pid",
@@ -267,8 +279,12 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
     the Rust CLI path, which also monitors the workload from outside instead of
     charging the verifier process tree.
     """
-    # Import here so the module is only loaded when needed
+    previous_reload = os.environ.get("EMT_RELOAD_PROCS")
+    previous_disable_gpu = os.environ.get("EMT_DISABLE_GPU")
     os.environ["EMT_RELOAD_PROCS"] = "1"
+    os.environ["EMT_DISABLE_GPU"] = "1"
+
+    # Import here so the module is only loaded when needed
     from emt import EnergyMonitor
 
     start = time.perf_counter()
@@ -294,21 +310,27 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+        if previous_reload is None:
+            os.environ.pop("EMT_RELOAD_PROCS", None)
+        else:
+            os.environ["EMT_RELOAD_PROCS"] = previous_reload
+        if previous_disable_gpu is None:
+            os.environ.pop("EMT_DISABLE_GPU", None)
+        else:
+            os.environ["EMT_DISABLE_GPU"] = previous_disable_gpu
 
     elapsed = time.perf_counter() - start
 
     total_energy = monitor.total_consumed_energy
     unit = monitor.energy_unit
-    if unit.lower() == "kwh":
-        total_energy *= 3_600_000  # kWh → J
+    total_energy = energy_to_joules(total_energy, unit)
 
     devices = {}
     if hasattr(monitor, "consumed_energy") and isinstance(
         monitor.consumed_energy, dict
     ):
         devices = {
-            k: v * 3_600_000 if unit.lower() == "kwh" else v
-            for k, v in monitor.consumed_energy.items()
+            k: energy_to_joules(v, unit) for k, v in monitor.consumed_energy.items()
         }
 
     return Result(
@@ -370,11 +392,15 @@ def measure_rust_cli(
     if use_sudo:
         rust_cmd.insert(0, "sudo")
 
+    rust_env = os.environ.copy()
+    rust_env["EMT_DISABLE_GPU"] = "1"
+
     rust = subprocess.Popen(
         rust_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=rust_env,
     )
 
     workload.wait()
@@ -399,9 +425,9 @@ def measure_rust_cli(
         method="rust_cli",
         iteration=iteration,
         duration=elapsed,
-        total_energy_j=data.get("total_energy", 0.0),
+        total_energy_j=rust_total_energy_joules(data),
         details={
-            "devices": data.get("devices", {}),
+            "devices": rust_devices_joules(data),
             "workload_pid": workload.pid,
             "monitor_start_delay_s": WORKLOAD_MONITOR_START_DELAY_SECONDS,
         },
@@ -430,6 +456,34 @@ def _parse_json_str(s: str) -> dict[str, Any] | None:
         return json.loads(s)
     except json.JSONDecodeError:
         return None
+
+
+def energy_to_joules(value: float, unit: str | None) -> float:
+    """Normalize an energy value to Joules."""
+    return value * ENERGY_FACTORS_TO_JOULES.get(unit or "Joules", 1.0)
+
+
+def rust_total_energy_joules(data: dict[str, Any]) -> float:
+    """Read Rust CLI energy and normalize it to Joules for parity checks."""
+    unit = data.get("energy_unit", "Joules")
+    if "total_energy" in data:
+        return energy_to_joules(float(data["total_energy"]), unit)
+    return float(data.get("total_energy_joules", 0.0))
+
+
+def rust_devices_joules(data: dict[str, Any]) -> dict[str, float]:
+    """Normalize Rust CLI device energy details to Joules."""
+    unit = data.get("energy_unit", "Joules")
+    devices = data.get("devices", {})
+    if not isinstance(devices, dict):
+        return {}
+
+    normalized = {}
+    for key, value in devices.items():
+        if not isinstance(value, (int, float)):
+            continue
+        normalized[key] = energy_to_joules(float(value), unit)
+    return normalized
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────
@@ -510,10 +564,35 @@ def run_methods(
     num_iterations: int,
     workload_duration: float,
 ) -> dict[str, list[Result]]:
-    return {
-        name: measure_method(name, fn, num_iterations, workload_duration)
-        for name, fn in methods
-    }
+    results: dict[str, list[Result]] = {name: [] for name, _ in methods}
+
+    for iteration in range(1, num_iterations + 1):
+        ordered_methods = methods if iteration % 2 == 1 else list(reversed(methods))
+        print(f"\n{'─'*70}")
+        print(f"Iteration {iteration}/{num_iterations}")
+        print(f"{'─'*70}")
+
+        for name, fn in ordered_methods:
+            print(f"\n  [{name}] Iteration {iteration}/{num_iterations} …")
+            try:
+                result = fn(workload_duration, iteration)
+                results[name].append(result)
+                print(
+                    f"    → {result.total_energy_j:.2f} J  "
+                    f"(duration {result.duration:.1f}s)"
+                )
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                subprocess.SubprocessError,
+            ) as error:
+                print(f"    ✗ Error: {error}")
+
+            print(f"    Settling for {SETTLE_SECONDS}s …")
+            time.sleep(SETTLE_SECONDS)
+
+    return results
 
 
 def print_method_statistics(all_results: dict[str, list[Result]]) -> dict[str, float]:

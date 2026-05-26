@@ -103,7 +103,7 @@ python scripts/verify.py --iterations 3 --duration 30
 The active comparison is:
 
 - Python EMT: `emt.EnergyMonitor`
-- Rust CLI: `energy-monitoring-tool`
+- Rust CLI: `emt`
 - Shared workload source: `scripts/verification_workload.py`
 - Output: `.artifacts/verification_results.json`
 
