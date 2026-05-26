@@ -19,8 +19,8 @@ async-trait = "0.1.88"
 log = "0.4.27"
 sysinfo = "0.35.1"
 env_logger = "0.10"
-users = "0.11"
-rand = "0.8"
+users = { package = "uzers", version = "0.12" }
+rand = "0.8.6"
 thiserror = "1.0"
 polars = "0.50.0"
 tokio = { version = "1.45.1", features = ["full"] }
@@ -30,7 +30,7 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 pyo3 = { version = "0.28.3", features = ["extension-module"], optional = true }
-serde_yml = "0.0.12"
+serde_yml = { package = "serde_yaml_ng", version = "0.10" }
 dirs = "6"
 nvml-wrapper = "0.10"
 
