@@ -184,6 +184,7 @@ class EnergyMonitor:
             self._validate_trace_recorders(self._trace_recorders)
 
         self.pg_objs = None
+        self._rust_backend = None
 
     def _normalize_trace_recorders(self, trace_recorders):
         if trace_recorders is None:
@@ -196,18 +197,46 @@ class EnergyMonitor:
         if not all(isinstance(tr, TraceRecorder) for tr in trace_recorders):
             raise ValueError("Invalid trace emitters provided.")
 
+    def _try_rust_backend(self):
+        """Attempt to create and start the Rust-based monitor backend."""
+        try:
+            from emt._rust import RustMonitor
+
+            kwargs = {"name": self.context_name}
+            if self._pid is not None:
+                kwargs["pid"] = self._pid
+            if self._rate is not None:
+                kwargs["rate"] = self._rate
+            backend = RustMonitor(**kwargs)
+            backend.commence()
+            return backend
+        except ImportError:
+            logger.debug("Rust backend not available, falling back to Python.")
+            return None
+        except Exception as e:
+            logger.warning(
+                f"Rust backend failed to start ({e}), falling back to Python."
+            )
+            return None
+
     def __enter__(self):
         logger.info(f"EMT context manager invoked - {self.context_name} ...")
         self.start_time = time.time()
-        # get available powergroups
+
+        # Try Rust backend first (no Python threads needed)
+        self._rust_backend = self._try_rust_backend()
+        if self._rust_backend is not None:
+            if self._startup_delay_s:
+                time.sleep(self._startup_delay_s)
+            return self
+
+        # Pure-Python fallback
         pg_kwargs = {"pid": self._pid} if self._pid is not None else {}
         if self._rate is not None:
             pg_kwargs["rate"] = self._rate
         self.pg_objs = get_available_pgs(**pg_kwargs)
-        # log powergroup info in a tabular format
         logger.info("\n" + get_pg_table())
 
-        # set trace emitters
         for trace_emitter in self._trace_recorders:
             trace_emitter.power_groups = self.pg_objs
 
@@ -217,7 +246,6 @@ class EnergyMonitor:
             trace_recorders=self._trace_recorders,
         )
         self.energy_meter = energy_meter
-        # run EnergyMonitoring as a separate thread
         self.energy_meter_thread = threading.Thread(
             name="EnergyMonitoringThread", target=energy_meter.run
         )
@@ -225,9 +253,25 @@ class EnergyMonitor:
 
         if self._startup_delay_s:
             time.sleep(self._startup_delay_s)
-        return self.energy_meter
+        return self
 
     def __exit__(self, *_):
+        if self._rust_backend is not None:
+            self._rust_backend.shutdown()
+            execution_time = time.time() - self.start_time
+            logger.info(
+                f"{self.context_name}: Execution time: {execution_time:.2f} seconds"
+            )
+            logger.info(
+                f"{self.context_name}: Total energy consumption: "
+                f"{self._rust_backend.total_consumed_energy:.2f} Joules"
+            )
+            logger.info(
+                f"{self.context_name}: Device energy: {self._rust_backend.consumed_energy}"
+            )
+            return
+
+        # Pure-Python path
         self.energy_meter.conclude()
         self.energy_meter_thread.join()
         execution_time = time.time() - self.start_time
@@ -240,3 +284,35 @@ class EnergyMonitor:
         logger.info(
             f"{self.context_name}: Power group energy consumptions: {self.energy_meter.consumed_energy}"
         )
+
+    @property
+    def total_consumed_energy(self) -> float:
+        """Total energy consumed across all devices (Joules)."""
+        if hasattr(self, "_rust_backend") and self._rust_backend is not None:
+            return self._rust_backend.total_consumed_energy
+        if hasattr(self, "energy_meter"):
+            return self.energy_meter.total_consumed_energy
+        return 0.0
+
+    @property
+    def consumed_energy(self) -> Mapping[str, float]:
+        """Per-device energy breakdown."""
+        if hasattr(self, "_rust_backend") and self._rust_backend is not None:
+            return self._rust_backend.consumed_energy
+        if hasattr(self, "energy_meter"):
+            return self.energy_meter.consumed_energy
+        return {}
+
+    @property
+    def trace_recorders(self):
+        """Expose trace recorders for backwards compatibility."""
+        if hasattr(self, "energy_meter") and self.energy_meter is not None:
+            return self.energy_meter.trace_recorders
+        return self._trace_recorders
+
+    @property
+    def energy_unit(self) -> str:
+        """Returns the energy unit."""
+        if hasattr(self, "energy_meter") and self.energy_meter is not None:
+            return self.energy_meter.energy_unit
+        return "Joules"

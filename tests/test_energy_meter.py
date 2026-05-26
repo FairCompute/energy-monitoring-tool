@@ -248,7 +248,7 @@ def test_enter_method(mock_trace_recorders):
         assert trace_emitter.trace_location is not None
     # 4. Thread starting should be mocked
     mock_thread.assert_called_once_with(
-        name="EnergyMonitoringThread", target=energy_meter.run
+        name="EnergyMonitoringThread", target=energy_monitor.energy_meter.run
     )
     assert energy_meter is not None
 
