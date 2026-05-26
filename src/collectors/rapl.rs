@@ -81,11 +81,16 @@ struct ProcessCpuTracker {
     last_cpu_time: u64,
     /// Last recorded timestamp in microseconds
     last_timestamp_us: u64,
+    /// Last valid CPU percentage (used for exit accounting)
+    last_valid_cpu_percent: f64,
+    /// Whether this tracker has ever produced a valid reading
+    has_valid_reading: bool,
 }
 
 impl ProcessCpuTracker {
     /// Read CPU time from /proc/<pid>/stat and calculate percentage since last call
     /// Returns (cpu_percent, is_valid) - is_valid is false if this is the first call
+    /// When a process exits, returns the last valid reading once for exit accounting.
     fn update(&mut self, pid: u32) -> (f64, bool) {
         let now_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -95,6 +100,11 @@ impl ProcessCpuTracker {
         // Read /proc/<pid>/stat
         let stat_path = format!("/proc/{}/stat", pid);
         let Ok(stat_content) = fs::read_to_string(&stat_path) else {
+            // Process exited — use last valid reading for one final attribution
+            if self.has_valid_reading {
+                self.has_valid_reading = false;
+                return (self.last_valid_cpu_percent, true);
+            }
             return (0.0, false);
         };
 
@@ -134,6 +144,11 @@ impl ProcessCpuTracker {
         let is_first_call = self.last_timestamp_us == 0;
         self.last_cpu_time = cpu_time;
         self.last_timestamp_us = now_us;
+
+        if !is_first_call {
+            self.last_valid_cpu_percent = cpu_percent;
+            self.has_valid_reading = true;
+        }
 
         (cpu_percent, !is_first_call)
     }

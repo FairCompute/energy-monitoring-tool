@@ -166,11 +166,13 @@ class EnergyMonitor:
         trace_recorders: Optional[Collection[TraceRecorder] | TraceRecorder] = None,
         startup_delay_s: float = 1.0,
         pid: Optional[int] = None,
+        rate: Optional[float] = None,
     ):
         self.context_name = name
         setup_logger(logger)
         self._startup_delay_s = max(0.0, float(startup_delay_s))
         self._pid = pid
+        self._rate = rate
 
         self._trace_recorders = self._normalize_trace_recorders(trace_recorders)
 
@@ -199,6 +201,8 @@ class EnergyMonitor:
         self.start_time = time.time()
         # get available powergroups
         pg_kwargs = {"pid": self._pid} if self._pid is not None else {}
+        if self._rate is not None:
+            pg_kwargs["rate"] = self._rate
         self.pg_objs = get_available_pgs(**pg_kwargs)
         # log powergroup info in a tabular format
         logger.info("\n" + get_pg_table())
