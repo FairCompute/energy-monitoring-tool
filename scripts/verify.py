@@ -36,6 +36,7 @@ RUST_VERIFY_TMP_DIR = PROJECT_ROOT / ".artifacts" / "tmp"
 PYTHON = sys.executable
 RAPL_ROOT = Path("/sys/class/powercap")
 ACCURACY_TOLERANCE_PERCENT = 2.0
+COLLECTION_RATE_HZ = 10.0
 WORKLOAD_MONITOR_START_DELAY_SECONDS = 0.3
 ENERGY_FACTORS_TO_JOULES = {
     "Joules": 1.0,
@@ -300,6 +301,7 @@ def measure_python_emt(workload_duration: float, iteration: int) -> Result:
             name=f"verify_{iteration}",
             pid=proc.pid,
             startup_delay_s=0.0,
+            rate=COLLECTION_RATE_HZ,
         ) as monitor:
             proc.wait()
     finally:

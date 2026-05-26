@@ -36,8 +36,11 @@ fn walk_child_pids_from_children_files(roots: &[u32]) -> Result<Vec<u32>, std::i
 
     for &root in roots {
         if visited.insert(root) {
-            result.push(root);
-            queue.push_back(root);
+            let proc_path = format!("/proc/{}", root);
+            if fs::metadata(&proc_path).is_ok() {
+                result.push(root);
+                queue.push_back(root);
+            }
         }
     }
 
@@ -101,8 +104,11 @@ fn walk_child_pids_by_scanning_proc(roots: &[u32]) -> Vec<u32> {
 
     for &root in roots {
         if visited.insert(root) {
-            result.push(root);
-            queue.push_back(root);
+            let proc_path = format!("/proc/{}", root);
+            if fs::metadata(&proc_path).is_ok() {
+                result.push(root);
+                queue.push_back(root);
+            }
         }
     }
 
@@ -310,11 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn walk_child_pids_nonexistent_pid_returns_just_root() {
+    fn walk_child_pids_nonexistent_pid_returns_empty() {
         // A PID that almost certainly doesn't exist
         let result = walk_child_pids(&[999_999_999]);
-        // The root is included even if it has no children in the system
-        assert!(result.contains(&999_999_999));
+        // Dead PIDs are excluded from results
+        assert!(result.is_empty());
     }
 
     #[test]
