@@ -81,6 +81,24 @@ mod tests {
         assert!((output.workloads[0].energy - 0.001).abs() < 1e-9);
         assert!((output.workloads[0].power - 360_000.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn cli_rate_override_wins_over_loaded_config() {
+        let args = Args {
+            pid: None,
+            duration: 1,
+            rate: Some(5.0),
+            output: None,
+            quiet: true,
+        };
+        let mut config = EmtConfig::default();
+        config.collection.rate_hz = 0.0;
+
+        apply_cli_overrides(&mut config, &args);
+
+        assert_eq!(config.collection.rate_hz, 5.0);
+        config.validate().unwrap();
+    }
 }
 
 #[derive(Serialize)]
@@ -162,6 +180,12 @@ fn build_cli_output(
     }
 }
 
+fn apply_cli_overrides(config: &mut EmtConfig, args: &Args) {
+    if let Some(rate) = args.rate {
+        config.collection.rate_hz = rate;
+    }
+}
+
 fn print_human_readable(output: &CliOutput) {
     println!("\n=== Energy Consumption Results ===");
     println!(
@@ -209,8 +233,10 @@ async fn main() {
 
     // Load config and apply CLI rate override
     let mut config = EmtConfig::load();
-    if let Some(rate) = args.rate {
-        config.collection.rate_hz = rate;
+    apply_cli_overrides(&mut config, &args);
+    if let Err(e) = config.validate() {
+        eprintln!("Invalid configuration: {e}");
+        std::process::exit(2);
     }
     let measurement_units = config.measurement_units.clone();
 

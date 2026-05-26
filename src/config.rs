@@ -54,6 +54,8 @@ pub enum ConfigError {
     Io(#[from] std::io::Error),
     #[error("Failed to parse YAML: {0}")]
     Yaml(String),
+    #[error("Invalid config value: {0}")]
+    Invalid(String),
 }
 
 impl Default for DiscoveryConfig {
@@ -148,18 +150,60 @@ impl EmtConfig {
             }
         }
 
-        serde_yml::from_value(base).unwrap_or_default()
+        serde_yml::from_value::<Self>(base)
+            .map(Self::validated_or_default)
+            .unwrap_or_default()
     }
 
     /// Load configuration from a specific YAML file path.
     pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path)?;
-        serde_yml::from_str(&content).map_err(|e| ConfigError::Yaml(e.to_string()))
+        let config: Self =
+            serde_yml::from_str(&content).map_err(|e| ConfigError::Yaml(e.to_string()))?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Validate config values that are later used to build durations or rates.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        validate_positive_finite(
+            "discovery.scan_interval_secs",
+            self.discovery.scan_interval_secs,
+        )?;
+        validate_positive_finite("collection.rate_hz", self.collection.rate_hz)?;
+        validate_positive_finite(
+            "collection.trace_flush_interval_secs",
+            self.collection.trace_flush_interval_secs,
+        )?;
+        if self.collection.trace_retention_secs == 0 {
+            return Err(ConfigError::Invalid(
+                "collection.trace_retention_secs must be greater than 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validated_or_default(config: Self) -> Self {
+        if config.validate().is_ok() {
+            config
+        } else {
+            Self::default()
+        }
     }
 
     /// Returns the user-level config path: `~/.config/emt/config.yaml`
     fn user_config_path() -> Option<std::path::PathBuf> {
         dirs::config_dir().map(|dir| dir.join("emt").join("config.yaml"))
+    }
+}
+
+fn validate_positive_finite(name: &str, value: f64) -> Result<(), ConfigError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(ConfigError::Invalid(format!(
+            "{name} must be a finite value greater than 0"
+        )))
     }
 }
 
@@ -236,6 +280,33 @@ mod tests {
         assert_eq!(config.collection.rate_hz, 25.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
         assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
+    }
+
+    #[test]
+    fn from_file_rejects_non_positive_rate() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("bad_rate.yaml");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "collection:\n  rate_hz: 0.0").unwrap();
+
+        let result = EmtConfig::from_file(&file_path);
+
+        assert!(matches!(result, Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_runtime_durations() {
+        let mut config = EmtConfig::default();
+        config.discovery.scan_interval_secs = f64::NAN;
+        assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
+
+        let mut config = EmtConfig::default();
+        config.collection.trace_flush_interval_secs = -1.0;
+        assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
+
+        let mut config = EmtConfig::default();
+        config.collection.trace_retention_secs = 0;
+        assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
     }
 
     #[test]
