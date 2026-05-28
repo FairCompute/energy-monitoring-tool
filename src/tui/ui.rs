@@ -61,10 +61,7 @@ fn render_header(
         Line::from(vec![
             Span::styled("Uptime: ", Style::default().fg(Color::Green)),
             Span::raw(format!("{mins:02}:{secs:02}")),
-            Span::raw(format!(
-                "    Tracked PIDs: {}",
-                snapshot.tracked_pids.len()
-            )),
+            Span::raw(format!("    Tracked PIDs: {}", snapshot.tracked_pids.len())),
         ]),
     ];
 
@@ -77,11 +74,8 @@ fn render_header(
 
 fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, snapshot: &MetricsSnapshot) {
     if snapshot.workloads.is_empty() {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Workloads ");
-        let paragraph =
-            Paragraph::new("  No process data yet...").block(block);
+        let block = Block::default().borders(Borders::ALL).title(" Workloads ");
+        let paragraph = Paragraph::new("  No process data yet...").block(block);
         frame.render_widget(paragraph, area);
         return;
     }
@@ -114,11 +108,7 @@ fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, snapshot: &Metric
         ],
     )
     .header(header)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Workloads "),
-    );
+    .block(Block::default().borders(Borders::ALL).title(" Workloads "));
 
     frame.render_widget(table, area);
 }
