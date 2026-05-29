@@ -79,7 +79,7 @@ VM energy ≈ total_socket_energy × (vm_vcpu_cpu_time / total_host_cpu_time)
    ```
 3. Start the Rust CLI with the QEMU PID to attribute energy to that VM:
    ```bash
-   energy-monitoring-tool --pid <qemu_pid> --duration 60 --json
+   emt --pid <qemu_pid> --json-out vm-energy.json --duration 60
    ```
 4. The CLI outputs per-socket RAPL energy weighted by the QEMU process's CPU utilisation share.
 

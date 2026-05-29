@@ -124,7 +124,7 @@ The Rust implementation consolidates several concerns that are spread across mul
 | `psutil` Python calls for CPU utilisation | Direct `/proc/stat` and `/proc/<pid>/stat` reads in Rust |
 | `psutil` process tree walk on every `EnergyMonitor.__enter__` | `collect_process_groups()` with recursive child expansion, refreshable on demand |
 | Python `RotatingTrace` list of dicts | Polars `DataFrame` — columnar, zero-copy, easily exported to CSV / Arrow / Parquet |
-| CLI written in Python (`python -m emt --pid …`) | Native binary (`energy-monitoring-tool --pid …`) compiled from `src/main.rs` |
+| CLI written in Python (`python -m emt --pid …`) | Native binary (`emt --pid …`) compiled from `src/main.rs` |
 
 ### PyO3 Integration Points
 
@@ -147,11 +147,11 @@ The Python context manager (`with EnergyMonitor(…) as monitor:`) remains the p
 
 ### CLI Path (Rust Binary)
 
-The Rust binary (`energy-monitoring-tool`) is built directly from `src/main.rs` and does not depend on Python. It provides a standalone CLI for monitoring a PID without writing Python code:
+The Rust binary (`emt`) is built directly from `src/main.rs` and does not depend on Python. It provides a standalone CLI for monitoring a PID without writing Python code:
 
 ```bash
 # Monitor PID 1234 for 30 seconds at 10 Hz, write JSON to results.json
-energy-monitoring-tool --pid 1234 --duration 30 --rate 10 --output results.json
+emt --pid 1234 --duration 30 --rate 10 --json-out results.json
 ```
 
 The Python CLI (`python -m emt …`) will delegate to the same Rust binary once the PyO3 bridge is complete.

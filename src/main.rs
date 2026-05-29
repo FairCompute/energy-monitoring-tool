@@ -1,9 +1,12 @@
 use clap::Parser;
 use emt::config::{EmtConfig, MeasurementUnitsConfig};
 use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor};
+use emt::tui::{self, App};
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
+
+const DEFAULT_BATCH_DURATION_SECS: u64 = 10;
 
 #[derive(Parser, Debug)]
 #[command(name = "emt")]
@@ -13,21 +16,58 @@ struct Args {
     #[arg(short, long)]
     pid: Option<u32>,
 
-    /// Duration to monitor in seconds
-    #[arg(short, long, default_value = "10")]
-    duration: u64,
+    /// Duration to monitor in seconds (JSON output mode only)
+    #[arg(short, long)]
+    duration: Option<u64>,
 
     /// Collection rate in Hz (overrides config file)
     #[arg(short, long)]
     rate: Option<f64>,
 
-    /// Output file for JSON results (optional)
-    #[arg(short, long)]
-    output: Option<String>,
+    /// Launch interactive TUI (default mode)
+    #[arg(long, conflicts_with_all = ["headless", "json_out"])]
+    tui: bool,
 
-    /// Quiet mode - only output JSON result
-    #[arg(short, long)]
-    quiet: bool,
+    /// Reserved for future daemon export modes
+    #[arg(long, conflicts_with_all = ["tui", "json_out"])]
+    headless: bool,
+
+    /// Run once and write JSON results to PATH
+    #[arg(long = "json-out", value_name = "PATH", conflicts_with_all = ["tui", "headless"])]
+    json_out: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Tui,
+    Headless,
+    JsonOut,
+}
+
+fn selected_mode(args: &Args) -> Mode {
+    if args.json_out.is_some() {
+        Mode::JsonOut
+    } else if args.headless {
+        Mode::Headless
+    } else {
+        Mode::Tui
+    }
+}
+
+fn validate_args(args: &Args) -> Result<(), &'static str> {
+    if args.duration.is_some() && selected_mode(args) != Mode::JsonOut {
+        return Err("--duration can only be used with --json-out");
+    }
+    if selected_mode(args) == Mode::Headless {
+        return Err(
+            "--headless is reserved for future daemon export modes; use --json-out <PATH> --duration <SECONDS> for finite JSON output",
+        );
+    }
+    Ok(())
+}
+
+fn batch_duration_seconds(args: &Args) -> u64 {
+    args.duration.unwrap_or(DEFAULT_BATCH_DURATION_SECS)
 }
 
 #[cfg(test)]
@@ -39,10 +79,11 @@ mod tests {
     fn cli_output_uses_configured_units_and_unit_neutral_fields() {
         let args = Args {
             pid: Some(123),
-            duration: 10,
+            duration: Some(10),
             rate: None,
-            output: None,
-            quiet: true,
+            tui: false,
+            headless: false,
+            json_out: Some("results.json".to_string()),
         };
         let units = MeasurementUnitsConfig {
             energy: "kWh".to_string(),
@@ -86,10 +127,11 @@ mod tests {
     fn cli_rate_override_wins_over_loaded_config() {
         let args = Args {
             pid: None,
-            duration: 1,
+            duration: None,
             rate: Some(5.0),
-            output: None,
-            quiet: true,
+            tui: false,
+            headless: false,
+            json_out: None,
         };
         let mut config = EmtConfig::default();
         config.collection.rate_hz = 0.0;
@@ -98,6 +140,50 @@ mod tests {
 
         assert_eq!(config.collection.rate_hz, 5.0);
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn cli_defaults_to_tui_mode() {
+        let args = Args::parse_from(["emt"]);
+
+        assert_eq!(selected_mode(&args), Mode::Tui);
+    }
+
+    #[test]
+    fn cli_accepts_explicit_tui_mode() {
+        let args = Args::parse_from(["emt", "--tui"]);
+
+        assert_eq!(selected_mode(&args), Mode::Tui);
+    }
+
+    #[test]
+    fn cli_reserves_headless_mode_for_future_exports() {
+        let args = Args::parse_from(["emt", "--headless"]);
+
+        assert_eq!(selected_mode(&args), Mode::Headless);
+        assert!(validate_args(&args).is_err());
+    }
+
+    #[test]
+    fn cli_accepts_json_out_mode_with_duration() {
+        let args = Args::parse_from(["emt", "--json-out", "results.json", "--duration", "30"]);
+
+        assert_eq!(selected_mode(&args), Mode::JsonOut);
+        assert_eq!(batch_duration_seconds(&args), 30);
+    }
+
+    #[test]
+    fn cli_rejects_multiple_modes() {
+        let result = Args::try_parse_from(["emt", "--tui", "--json-out", "results.json"]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_rejects_duration_outside_json_out_mode() {
+        let args = Args::parse_from(["emt", "--headless", "--duration", "30"]);
+
+        assert!(validate_args(&args).is_err());
     }
 }
 
@@ -186,65 +272,40 @@ fn apply_cli_overrides(config: &mut EmtConfig, args: &Args) {
     }
 }
 
-fn print_human_readable(output: &CliOutput) {
-    println!("\n=== Energy Consumption Results ===");
-    println!(
-        "PID: {}",
-        output
-            .pid
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "all".to_string())
-    );
-    println!("Duration: {:.2} s", output.duration_seconds);
-    println!(
-        "Total Energy: {:.4} {}",
-        output.total_energy, output.energy_unit
-    );
-    println!("Average Power: {:.2} {}", output.power, output.power_unit);
-    println!("Device breakdown:");
-    println!("  CPU: {:.4} {}", output.devices.cpu, output.energy_unit);
-    println!("  DRAM: {:.4} {}", output.devices.dram, output.energy_unit);
-    println!("  GPU: {:.4} {}", output.devices.gpu, output.energy_unit);
-
-    if !output.workloads.is_empty() {
-        println!("Workloads:");
-        for wl in &output.workloads {
-            println!(
-                "  PID {} ({}, {}): {:.4} {}, {:.2} {}",
-                wl.root_pid,
-                wl.name,
-                wl.user,
-                wl.energy,
-                output.energy_unit,
-                wl.power,
-                output.power_unit
-            );
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-
-    if !args.quiet {
-        emt::utils::logger::setup_logger();
+    if let Err(message) = validate_args(&args) {
+        eprintln!("{message}");
+        std::process::exit(2);
     }
+    let mode = selected_mode(&args);
 
-    // Load config and apply CLI rate override
     let mut config = EmtConfig::load();
     apply_cli_overrides(&mut config, &args);
     if let Err(e) = config.validate() {
         eprintln!("Invalid configuration: {e}");
         std::process::exit(2);
     }
-    let measurement_units = config.measurement_units.clone();
 
-    // Create Monitor with optional root PIDs
-    let root_pids = args.pid.map(|p| vec![p]);
+    match mode {
+        Mode::Tui => run_tui(config, args.pid).await,
+        Mode::Headless => unreachable!("headless mode is rejected by validate_args"),
+        Mode::JsonOut => {
+            let duration = batch_duration_seconds(&args);
+            let path = args
+                .json_out
+                .as_deref()
+                .expect("json_out is present in JsonOut mode");
+            run_json_out(config, &args, duration, path.to_string()).await;
+        }
+    }
+}
+
+async fn run_tui(config: EmtConfig, pid: Option<u32>) {
+    let root_pids = pid.map(|p| vec![p]);
     let mut monitor = Monitor::new(config, root_pids);
 
-    // Start monitoring
     let handle = match monitor.commence().await {
         Ok(h) => h,
         Err(e) => {
@@ -253,36 +314,78 @@ async fn main() {
         }
     };
 
-    // Sleep for the requested duration
-    tokio::time::sleep(tokio::time::Duration::from_secs(args.duration)).await;
+    // Install panic hook that restores terminal
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        original_hook(info);
+    }));
 
-    // Shutdown monitor
+    // Enter TUI
+    crossterm::terminal::enable_raw_mode().expect("Failed to enable raw mode");
+    let mut stdout = std::io::stdout();
+    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)
+        .expect("Failed to enter alternate screen");
+    let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    let mut terminal = ratatui::Terminal::new(backend).expect("Failed to create terminal");
+
+    let mut app = App::new(handle);
+    let tick_rate = std::time::Duration::from_millis(500);
+
+    while !app.should_quit {
+        terminal
+            .draw(|frame| tui::ui::render(frame, &app))
+            .expect("Failed to draw");
+
+        if let Some(event) = tui::event::poll(tick_rate) {
+            match event {
+                tui::event::AppEvent::Quit => app.quit(),
+                tui::event::AppEvent::Tick => {}
+            }
+        }
+    }
+
+    // Restore terminal
+    crossterm::terminal::disable_raw_mode().expect("Failed to disable raw mode");
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::LeaveAlternateScreen
+    )
+    .expect("Failed to leave alternate screen");
+
+    if let Err(e) = monitor.shutdown().await {
+        eprintln!("Warning: Shutdown error: {e}");
+    }
+}
+
+async fn run_json_out(config: EmtConfig, args: &Args, duration_secs: u64, output_path: String) {
+    let measurement_units = config.measurement_units.clone();
+    let root_pids = args.pid.map(|p| vec![p]);
+    let mut monitor = Monitor::new(config, root_pids);
+
+    let handle = match monitor.commence().await {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to start monitoring: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(duration_secs)).await;
+
     if let Err(e) = monitor.shutdown().await {
         eprintln!("Warning: Shutdown error: {e}");
     }
 
-    // Capture final snapshot after shutdown drains collector buffers.
     let snapshot = handle.snapshot();
-    let duration = args.duration as f64;
+    let duration = duration_secs as f64;
+    let cli_output = build_cli_output(args, duration, &snapshot, &measurement_units);
 
-    // Build output
-    let output = build_cli_output(&args, duration, &snapshot, &measurement_units);
-    let json_output = serde_json::to_string_pretty(&output).expect("Failed to serialize output");
-
-    // Write to file if requested
-    if let Some(output_path) = &args.output {
-        let mut file = File::create(output_path).expect("Failed to create output file");
-        file.write_all(json_output.as_bytes())
-            .expect("Failed to write output");
-        if !args.quiet {
-            eprintln!("Results written to: {output_path}");
-        }
-    }
-
-    // Print output
-    if args.quiet {
-        println!("{json_output}");
-    } else {
-        print_human_readable(&output);
-    }
+    let json_output =
+        serde_json::to_string_pretty(&cli_output).expect("Failed to serialize output");
+    let mut file = File::create(&output_path).expect("Failed to create JSON output file");
+    file.write_all(json_output.as_bytes())
+        .expect("Failed to write JSON output");
+    eprintln!("JSON results written to: {output_path}");
 }
