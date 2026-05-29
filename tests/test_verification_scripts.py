@@ -88,7 +88,7 @@ def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatc
             popen_calls.append((cmd, kwargs))
 
             if str(rust_binary) in cmd:
-                output_file = Path(cmd[cmd.index("--output") + 1])
+                output_file = Path(cmd[cmd.index("--json-out") + 1])
                 output_file.write_text(
                     json.dumps(
                         {
@@ -119,7 +119,7 @@ def test_measure_rust_cli_writes_output_under_artifacts_tmp(tmp_path, monkeypatc
     assert output_dir.is_dir()
     assert list(output_dir.iterdir()) == []
     rust_cmd, rust_kwargs = popen_calls[1]
-    assert rust_cmd[rust_cmd.index("--output") + 1].startswith(str(output_dir))
+    assert rust_cmd[rust_cmd.index("--json-out") + 1].startswith(str(output_dir))
     assert rust_kwargs["env"]["EMT_DISABLE_GPU"] == "1"
 
 

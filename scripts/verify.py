@@ -387,9 +387,8 @@ def measure_rust_cli(
         str(rust_duration),
         "--rate",
         "10.0",
-        "--output",
+        "--json-out",
         str(output_file),
-        "--quiet",
     ]
     if use_sudo:
         rust_cmd.insert(0, "sudo")
