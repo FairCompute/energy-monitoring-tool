@@ -42,7 +42,7 @@ fn render_header(
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("  Power: ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Avg Power: ", Style::default().fg(Color::Cyan)),
             Span::raw(format!("{power:.2} W")),
             Span::raw("    "),
             Span::styled("Energy: ", Style::default().fg(Color::Cyan)),
@@ -80,7 +80,7 @@ fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, snapshot: &Metric
         return;
     }
 
-    let header = Row::new(vec!["PID", "Name", "User", "Energy (J)", "Power (W)"])
+    let header = Row::new(vec!["PID", "Name", "User", "Energy (J)", "Avg Power (W)"])
         .style(Style::default().add_modifier(Modifier::BOLD));
 
     let rows: Vec<Row> = snapshot
