@@ -199,6 +199,12 @@ class EnergyMonitor:
 
     def _try_rust_backend(self):
         """Attempt to create and start the Rust-based monitor backend."""
+        if self._trace_recorders:
+            logger.debug(
+                "Trace recorders require the Python backend; skipping Rust backend."
+            )
+            return None
+
         try:
             from emt._rust import RustMonitor
 

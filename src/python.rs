@@ -272,6 +272,7 @@ pub struct PyRustMonitor {
     runtime: Runtime,
     monitor: Option<Monitor>,
     handle: Option<MonitorHandle>,
+    running: bool,
 }
 
 #[pymethods]
@@ -284,6 +285,9 @@ impl PyRustMonitor {
         if let Some(rate_hz) = rate {
             config.collection.rate_hz = rate_hz;
         }
+        config
+            .validate()
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
         let root_pids = pid.map(|p| vec![p]);
         let monitor = Monitor::new(config, root_pids);
         let runtime = build_runtime()?;
@@ -291,6 +295,7 @@ impl PyRustMonitor {
             runtime,
             monitor: Some(monitor),
             handle: None,
+            running: false,
         })
     }
 
@@ -299,12 +304,9 @@ impl PyRustMonitor {
             .monitor
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("Monitor already consumed"))?;
-        let handle = py.detach(|| {
-            self.runtime
-                .block_on(monitor.commence())
-                .map_err(to_py_err)
-        })?;
+        let handle = py.detach(|| self.runtime.block_on(monitor.commence()).map_err(to_py_err))?;
         self.handle = Some(handle);
+        self.running = true;
         Ok(())
     }
 
@@ -313,39 +315,43 @@ impl PyRustMonitor {
             .monitor
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("Monitor already consumed"))?;
-        py.detach(|| {
-            self.runtime
-                .block_on(monitor.shutdown())
-                .map_err(to_py_err)
+        let result = py.detach(|| self.runtime.block_on(monitor.shutdown()).map_err(to_py_err));
+        if result.is_ok() {
+            self.running = false;
+        }
+        result
+    }
+
+    #[getter]
+    fn total_consumed_energy(&self, py: Python<'_>) -> PyResult<f64> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || Ok(handle.total_consumed_energy()))
+    }
+
+    #[getter]
+    fn consumed_energy(&self, py: Python<'_>) -> PyResult<HashMap<String, f64>> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || {
+            let snapshot = handle.snapshot();
+            let mut result = HashMap::new();
+            result.insert("cpu".to_string(), snapshot.system_total.cpu_joules);
+            result.insert("dram".to_string(), snapshot.system_total.dram_joules);
+            result.insert("gpu".to_string(), snapshot.system_total.gpu_joules);
+            Ok(result)
         })
     }
 
     #[getter]
-    fn total_consumed_energy(&self) -> PyResult<f64> {
-        let handle = self
-            .handle
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?;
-        Ok(handle.total_consumed_energy())
-    }
-
-    #[getter]
-    fn consumed_energy(&self) -> PyResult<HashMap<String, f64>> {
-        let handle = self
-            .handle
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?;
-        let snapshot = handle.snapshot();
-        let mut result = HashMap::new();
-        result.insert("cpu".to_string(), snapshot.system_total.cpu_joules);
-        result.insert("dram".to_string(), snapshot.system_total.dram_joules);
-        result.insert("gpu".to_string(), snapshot.system_total.gpu_joules);
-        Ok(result)
-    }
-
-    #[getter]
     fn is_running(&self) -> bool {
-        self.handle.is_some()
+        self.running
     }
 }
 
