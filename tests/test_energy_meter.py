@@ -1,5 +1,7 @@
 import pytest
 import asyncio
+import sys
+import types
 from collections import defaultdict
 import threading
 
@@ -9,6 +11,12 @@ from emt.power_groups import PowerGroup
 from emt.utils import TraceRecorder
 
 TOLERANCE = 1e-9
+
+
+def install_fake_rust_module(monkeypatch, rust_monitor_cls):
+    module = types.ModuleType("emt._rust")
+    module.RustMonitor = rust_monitor_cls
+    monkeypatch.setitem(sys.modules, "emt._rust", module)
 
 
 class MockPGCPU(PowerGroup):
@@ -248,7 +256,7 @@ def test_enter_method(mock_trace_recorders):
         assert trace_emitter.trace_location is not None
     # 4. Thread starting should be mocked
     mock_thread.assert_called_once_with(
-        name="EnergyMonitoringThread", target=energy_meter.run
+        name="EnergyMonitoringThread", target=energy_monitor.energy_meter.run
     )
     assert energy_meter is not None
 
@@ -267,10 +275,108 @@ def test_enter_method_passes_pid_to_power_groups():
         ) as mock_get_available_pgs,
         patch("emt.energy_monitor.get_pg_table", return_value=""),
         patch("threading.Thread", return_value=MagicMock()),
+        patch.object(EnergyMonitor, "_try_rust_backend", return_value=None),
     ):
         energy_monitor.__enter__()
 
     mock_get_available_pgs.assert_called_once_with(pid=4321)
+
+
+def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
+    """EnergyMonitor prefers RustMonitor when no Python-only feature is requested."""
+    instances = []
+
+    class FakeRustMonitor:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.commenced = False
+            self.shutdown_called = False
+            self.total_consumed_energy = 12.5
+            self.consumed_energy = {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+            instances.append(self)
+
+        def commence(self):
+            self.commenced = True
+
+        def shutdown(self):
+            self.shutdown_called = True
+
+    install_fake_rust_module(monkeypatch, FakeRustMonitor)
+    monitor = EnergyMonitor(
+        name="RustContext",
+        pid=4321,
+        rate=5.0,
+        startup_delay_s=0.0,
+    )
+
+    with (
+        patch("emt.energy_monitor.get_available_pgs") as mock_get_available_pgs,
+        patch("threading.Thread") as mock_thread,
+    ):
+        entered = monitor.__enter__()
+
+    assert entered is monitor
+    assert len(instances) == 1
+    assert instances[0].kwargs == {
+        "name": "RustContext",
+        "pid": 4321,
+        "rate": 5.0,
+    }
+    assert instances[0].commenced is True
+    mock_get_available_pgs.assert_not_called()
+    mock_thread.assert_not_called()
+    assert monitor.total_consumed_energy == 12.5
+    assert monitor.consumed_energy == {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+
+    monitor.__exit__()
+    assert instances[0].shutdown_called is True
+
+
+def test_import_error_falls_back_to_python_backend(monkeypatch):
+    """ImportError on emt._rust keeps the existing pure-Python path working."""
+    monkeypatch.setitem(sys.modules, "emt._rust", None)
+    energy_monitor = EnergyMonitor(name="FallbackContext", startup_delay_s=0.0)
+
+    with (
+        patch(
+            "emt.energy_monitor.get_available_pgs", return_value=[]
+        ) as mock_get_available_pgs,
+        patch("emt.energy_monitor.get_pg_table", return_value=""),
+        patch("threading.Thread", return_value=MagicMock()) as mock_thread,
+    ):
+        energy_monitor.__enter__()
+
+    mock_get_available_pgs.assert_called_once_with()
+    mock_thread.assert_called_once_with(
+        name="EnergyMonitoringThread", target=energy_monitor.energy_meter.run
+    )
+    assert energy_monitor._rust_backend is None
+
+
+def test_trace_recorders_force_python_backend(monkeypatch, mock_trace_recorders):
+    """Python trace recorders are not silently bypassed by the Rust backend."""
+    rust_monitor = MagicMock()
+    install_fake_rust_module(monkeypatch, rust_monitor)
+    energy_monitor = EnergyMonitor(
+        name="TraceContext",
+        trace_recorders=mock_trace_recorders,
+        startup_delay_s=0.0,
+    )
+
+    with (
+        patch(
+            "emt.energy_monitor.get_available_pgs", return_value=[]
+        ) as mock_get_available_pgs,
+        patch("emt.energy_monitor.get_pg_table", return_value=""),
+        patch("threading.Thread", return_value=MagicMock()) as mock_thread,
+    ):
+        energy_monitor.__enter__()
+
+    rust_monitor.assert_not_called()
+    mock_get_available_pgs.assert_called_once_with()
+    mock_thread.assert_called_once_with(
+        name="EnergyMonitoringThread", target=energy_monitor.energy_meter.run
+    )
 
 
 def test_exit_method(mock_trace_recorders):

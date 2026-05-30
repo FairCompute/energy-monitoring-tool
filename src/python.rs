@@ -1,10 +1,13 @@
 use crate::collectors::{NvidiaGpu, Rapl};
+use crate::config::EmtConfig;
 use crate::energy_group::{EnergyCollector, EnergyGroup};
+use crate::monitor::{Monitor, MonitorHandle};
 use crate::utils::errors::MonitoringError;
 use polars::prelude::DataFrame;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyType};
+use std::collections::HashMap;
 use tokio::runtime::{Builder, Runtime};
 
 fn to_py_err(err: MonitoringError) -> PyErr {
@@ -262,10 +265,101 @@ impl PyEnergyGroup {
     }
 }
 
+// ─── RustMonitor: high-level PyO3 wrapper around Monitor ───────────────────
+
+#[pyclass(name = "RustMonitor", module = "emt._rust")]
+pub struct PyRustMonitor {
+    runtime: Runtime,
+    monitor: Option<Monitor>,
+    handle: Option<MonitorHandle>,
+    running: bool,
+}
+
+#[pymethods]
+impl PyRustMonitor {
+    #[new]
+    #[pyo3(signature = (*, name=None, pid=None, rate=None))]
+    fn new(name: Option<&str>, pid: Option<u32>, rate: Option<f64>) -> PyResult<Self> {
+        let _ = name;
+        let mut config = EmtConfig::load();
+        if let Some(rate_hz) = rate {
+            config.collection.rate_hz = rate_hz;
+        }
+        config
+            .validate()
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        let root_pids = pid.map(|p| vec![p]);
+        let monitor = Monitor::new(config, root_pids);
+        let runtime = build_runtime()?;
+        Ok(Self {
+            runtime,
+            monitor: Some(monitor),
+            handle: None,
+            running: false,
+        })
+    }
+
+    fn commence(&mut self, py: Python<'_>) -> PyResult<()> {
+        let monitor = self
+            .monitor
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor already consumed"))?;
+        let handle = py.detach(|| self.runtime.block_on(monitor.commence()).map_err(to_py_err))?;
+        self.handle = Some(handle);
+        self.running = true;
+        Ok(())
+    }
+
+    fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
+        let monitor = self
+            .monitor
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor already consumed"))?;
+        let result = py.detach(|| self.runtime.block_on(monitor.shutdown()).map_err(to_py_err));
+        if result.is_ok() {
+            self.running = false;
+        }
+        result
+    }
+
+    #[getter]
+    fn total_consumed_energy(&self, py: Python<'_>) -> PyResult<f64> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || Ok(handle.total_consumed_energy()))
+    }
+
+    #[getter]
+    fn consumed_energy(&self, py: Python<'_>) -> PyResult<HashMap<String, f64>> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || {
+            let snapshot = handle.snapshot();
+            let mut result = HashMap::new();
+            result.insert("cpu".to_string(), snapshot.system_total.cpu_joules);
+            result.insert("dram".to_string(), snapshot.system_total.dram_joules);
+            result.insert("gpu".to_string(), snapshot.system_total.gpu_joules);
+            Ok(result)
+        })
+    }
+
+    #[getter]
+    fn is_running(&self) -> bool {
+        self.running
+    }
+}
+
 #[pymodule]
 fn _rust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyEnergyGroup>()?;
     module.add_class::<PyRaplCollector>()?;
     module.add_class::<PyNvidiaGpuCollector>()?;
+    module.add_class::<PyRustMonitor>()?;
     Ok(())
 }
