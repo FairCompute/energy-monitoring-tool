@@ -374,6 +374,10 @@ fn split_systemd_suffix(segment: &str) -> Option<(&str, &str)> {
 }
 
 fn strip_volatile_suffixes(value: &str) -> String {
+    if !should_strip_volatile_suffixes(value) {
+        return value.to_string();
+    }
+
     let mut parts: Vec<&str> = value.split('-').collect();
 
     while parts.len() > 1 {
@@ -388,6 +392,11 @@ fn strip_volatile_suffixes(value: &str) -> String {
     }
 
     parts.join("-")
+}
+
+fn should_strip_volatile_suffixes(value: &str) -> bool {
+    const PREFIXES: [&str; 3] = ["app-", "session-", "vte-spawn-"];
+    PREFIXES.iter().any(|prefix| value.starts_with(prefix))
 }
 
 fn is_volatile_token(token: &str) -> bool {
@@ -617,6 +626,28 @@ mod tests {
             .expect("scope label")
             .name,
             "app-firefox.scope"
+        );
+    }
+
+    #[test]
+    fn cgroup_labels_preserve_container_and_pod_identity() {
+        assert_eq!(
+            cgroup_label("/system.slice/docker-0123456789abcdef.scope")
+                .expect("docker scope")
+                .name,
+            "docker-0123456789abcdef.scope"
+        );
+        assert_eq!(
+            cgroup_label("/system.slice/cri-containerd-fedcba9876543210.scope")
+                .expect("containerd scope")
+                .name,
+            "cri-containerd-fedcba9876543210.scope"
+        );
+        assert_eq!(
+            cgroup_label("/kubepods.slice/kubepods-besteffort-pod0123456789abcdef.slice")
+                .expect("pod slice")
+                .name,
+            "kubepods-besteffort-pod0123456789abcdef.slice"
         );
     }
 
