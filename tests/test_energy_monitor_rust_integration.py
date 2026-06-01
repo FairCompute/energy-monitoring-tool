@@ -32,6 +32,30 @@ def _readable_rapl_entries(root: Path = RAPL_ROOT) -> list[Path]:
     )
 
 
+def _read_energy_uj(entry: Path) -> int | None:
+    try:
+        return int((entry / "energy_uj").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _any_counter_advanced(entries: list[Path], duration_s: float = 0.5) -> bool:
+    before = {entry: _read_energy_uj(entry) for entry in entries}
+    _run_cpu_bound_workload(duration_s)
+    after = {entry: _read_energy_uj(entry) for entry in entries}
+
+    for entry in entries:
+        before_value = before.get(entry)
+        after_value = after.get(entry)
+        if (
+            before_value is not None
+            and after_value is not None
+            and after_value > before_value
+        ):
+            return True
+    return False
+
+
 @pytest.fixture(scope="module")
 def rust_module():
     module = pytest.importorskip(
@@ -56,6 +80,11 @@ def readable_rapl_entries():
         pytest.skip(
             f"No readable RAPL energy counters found under {RAPL_ROOT}; this "
             "integration test requires Linux powercap/RAPL access."
+        )
+    if not _any_counter_advanced(entries):
+        pytest.skip(
+            "Readable RAPL energy counters were found, but none advanced during "
+            "a CPU warmup; skipping strict positive-energy integration test."
         )
     return entries
 
