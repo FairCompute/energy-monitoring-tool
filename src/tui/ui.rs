@@ -205,19 +205,25 @@ fn render_body(frame: &mut Frame, area: Rect, snapshot: &MetricsSnapshot) {
         return;
     }
 
-    let header = Row::new(vec!["PID", "Name", "User", "Energy (J)", "Avg Power (W)"])
-        .style(Style::default().add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "Group",
+        "User",
+        "Energy (J)",
+        "Avg Power (W)",
+        "% Total",
+    ])
+    .style(Style::default().add_modifier(Modifier::BOLD));
 
     let rows: Vec<Row> = snapshot
         .workloads
         .iter()
         .map(|wl| {
             Row::new(vec![
-                wl.root_pid.to_string(),
                 wl.name.clone(),
                 wl.user.clone(),
                 format!("{:.4}", wl.energy.total()),
                 format!("{:.2}", wl.power_watts),
+                format!("{:.1}%", wl.percentage_of_system),
             ])
         })
         .collect();
@@ -225,11 +231,11 @@ fn render_body(frame: &mut Frame, area: Rect, snapshot: &MetricsSnapshot) {
     let table = Table::new(
         rows,
         [
-            Constraint::Length(8),
-            Constraint::Min(20),
+            Constraint::Min(24),
             Constraint::Length(12),
             Constraint::Length(12),
-            Constraint::Length(10),
+            Constraint::Length(14),
+            Constraint::Length(9),
         ],
     )
     .header(header)

@@ -1,8 +1,12 @@
 use crate::collectors::{NvidiaGpu, Rapl};
 use crate::config::EmtConfig;
 use crate::energy_group::{EnergyCollector, EnergyGroup, EnergyRecord};
+use crate::process::{
+    ProcessGroup, group_processes, pid_to_group_map, scan_processes, tracked_pids,
+};
+use crate::process_aggregation::{aggregate_energy_records, percentage_of_system};
 use crate::utils::errors::MonitoringError;
-use crate::utils::psutils::{ProcessRoot, scan_roots, walk_child_pids};
+use crate::utils::psutils::{ProcessRoot, walk_child_pids};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -40,10 +44,12 @@ impl DeviceEnergy {
 #[derive(Debug, Clone)]
 pub struct WorkloadSnapshot {
     pub root_pid: u32,
+    pub group_id: String,
     pub name: String,
     pub user: String,
     pub energy: DeviceEnergy,
     pub power_watts: f64,
+    pub percentage_of_system: f64,
 }
 
 /// Full metrics snapshot shared via MonitorHandle.
@@ -56,35 +62,7 @@ pub struct MetricsSnapshot {
     pub tracked_pids: Vec<u32>,
 }
 
-// ─── Device classification ──────────────────────────────────────────────────
-
-/// Classify an EnergyRecord into a device category and return the energy value.
-fn classify_energy(record: &EnergyRecord) -> EnergyClass {
-    if record.device.starts_with("nvidia:") {
-        EnergyClass::Gpu
-    } else if record.device == "rapl:system:dram" {
-        EnergyClass::Dram
-    } else {
-        // rapl:socket:*:package, rapl:system:psys, or any other RAPL device
-        EnergyClass::Cpu
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EnergyClass {
-    Cpu,
-    Dram,
-    Gpu,
-}
-
-/// Accumulate an energy record into a DeviceEnergy struct.
-fn accumulate_device_energy(device_energy: &mut DeviceEnergy, class: EnergyClass, joules: f64) {
-    match class {
-        EnergyClass::Cpu => device_energy.cpu_joules += joules,
-        EnergyClass::Dram => device_energy.dram_joules += joules,
-        EnergyClass::Gpu => device_energy.gpu_joules += joules,
-    }
-}
+// ─── Snapshot helpers ───────────────────────────────────────────────────────
 
 fn add_device_energy(total: &mut DeviceEnergy, delta: &DeviceEnergy) {
     total.cpu_joules += delta.cpu_joules;
@@ -92,38 +70,55 @@ fn add_device_energy(total: &mut DeviceEnergy, delta: &DeviceEnergy) {
     total.gpu_joules += delta.gpu_joules;
 }
 
-// ─── Child-to-root mapping ──────────────────────────────────────────────────
-
-/// Build a map from each child PID to its root PID.
-/// Each root is walked independently so that all descendants map back.
-fn build_child_to_root_map(roots: &[u32]) -> (HashMap<u32, u32>, Vec<u32>) {
-    let mut map: HashMap<u32, u32> = HashMap::new();
-    let mut all_pids: Vec<u32> = Vec::new();
-
-    for &root in roots {
-        let children = walk_child_pids(&[root]);
-        for &child in &children {
-            map.insert(child, root);
-        }
-        all_pids.extend(children);
+fn system_total_from_workloads(
+    workloads: &[WorkloadSnapshot],
+    unattributed: &DeviceEnergy,
+) -> DeviceEnergy {
+    DeviceEnergy {
+        cpu_joules: workloads
+            .iter()
+            .map(|workload| workload.energy.cpu_joules)
+            .sum::<f64>()
+            + unattributed.cpu_joules,
+        dram_joules: workloads
+            .iter()
+            .map(|workload| workload.energy.dram_joules)
+            .sum::<f64>()
+            + unattributed.dram_joules,
+        gpu_joules: workloads
+            .iter()
+            .map(|workload| workload.energy.gpu_joules)
+            .sum::<f64>()
+            + unattributed.gpu_joules,
     }
-
-    // Deduplicate all_pids while preserving order
-    let mut seen = std::collections::HashSet::new();
-    all_pids.retain(|pid| seen.insert(*pid));
-
-    (map, all_pids)
 }
 
-fn root_for_record(
-    pid: u32,
-    current_child_to_root: &HashMap<u32, u32>,
-    previous_child_to_root: &HashMap<u32, u32>,
-) -> Option<u32> {
-    current_child_to_root
-        .get(&pid)
-        .or_else(|| previous_child_to_root.get(&pid))
-        .copied()
+fn workload_snapshot(
+    group: &ProcessGroup,
+    energy: DeviceEnergy,
+    elapsed_s: f64,
+) -> WorkloadSnapshot {
+    let power_watts = if elapsed_s > 0.0 {
+        energy.total() / elapsed_s
+    } else {
+        0.0
+    };
+
+    WorkloadSnapshot {
+        root_pid: group.representative_pid,
+        group_id: group.id.clone(),
+        name: group.name.clone(),
+        user: group.user.clone(),
+        energy,
+        power_watts,
+        percentage_of_system: 0.0,
+    }
+}
+
+fn apply_workload_percentages(workloads: &mut [WorkloadSnapshot], system_total: &DeviceEnergy) {
+    for workload in workloads {
+        workload.percentage_of_system = percentage_of_system(&workload.energy, system_total);
+    }
 }
 
 fn resolve_process_roots(pids: &[u32]) -> Vec<ProcessRoot> {
@@ -155,6 +150,89 @@ fn resolve_process_roots(pids: &[u32]) -> Vec<ProcessRoot> {
             ProcessRoot { pid, user, name }
         })
         .collect()
+}
+
+fn explicit_pid_groups(root_pids: &[u32]) -> Vec<ProcessGroup> {
+    let roots = resolve_process_roots(root_pids);
+
+    roots
+        .into_iter()
+        .filter_map(|root| {
+            let mut pids = walk_child_pids(&[root.pid]);
+            if pids.is_empty() {
+                return None;
+            }
+            pids.sort_unstable();
+            pids.dedup();
+
+            Some(ProcessGroup {
+                id: format!("pid:{}", root.pid),
+                name: if root.name.is_empty() {
+                    format!("pid {}", root.pid)
+                } else {
+                    root.name
+                },
+                user: if root.user.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    root.user
+                },
+                representative_pid: root.pid,
+                pids,
+            })
+        })
+        .collect()
+}
+
+fn refresh_explicit_pid_groups(cached_groups: &[ProcessGroup]) -> Vec<ProcessGroup> {
+    cached_groups
+        .iter()
+        .filter_map(|group| {
+            let mut pids = walk_child_pids(&[group.representative_pid]);
+            if pids.is_empty() {
+                return None;
+            }
+            pids.sort_unstable();
+            pids.dedup();
+
+            let mut refreshed = group.clone();
+            refreshed.pids = pids;
+            Some(refreshed)
+        })
+        .collect()
+}
+
+fn cached_explicit_pid_groups(
+    root_pids: &[u32],
+    known_groups: &HashMap<String, ProcessGroup>,
+) -> Vec<ProcessGroup> {
+    root_pids
+        .iter()
+        .map(|pid| {
+            let id = format!("pid:{pid}");
+            known_groups
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| ProcessGroup {
+                    id,
+                    name: format!("pid {pid}"),
+                    user: "unknown".to_string(),
+                    pids: vec![*pid],
+                    representative_pid: *pid,
+                })
+        })
+        .collect()
+}
+
+fn merge_pid_group_maps(
+    current: &HashMap<u32, String>,
+    previous: &HashMap<u32, String>,
+) -> HashMap<u32, String> {
+    let mut merged = previous.clone();
+    for (pid, group_id) in current {
+        merged.insert(*pid, group_id.clone());
+    }
+    merged
 }
 
 // ─── MonitorHandle ──────────────────────────────────────────────────────────
@@ -195,7 +273,7 @@ impl MonitorHandle {
 #[derive(Debug, Clone)]
 struct TickState {
     start_timestamp: i64,
-    workload_energy: HashMap<u32, DeviceEnergy>,
+    workload_energy: HashMap<String, DeviceEnergy>,
 }
 
 impl Default for TickState {
@@ -215,12 +293,12 @@ pub struct Monitor {
     rapl_group: Arc<Mutex<EnergyGroup<Rapl>>>,
     gpu_group: Option<Arc<Mutex<EnergyGroup<NvidiaGpu>>>>,
     root_pids: Option<Vec<u32>>,
-    /// Shared state for scan task results
-    discovered_roots: Arc<RwLock<Vec<ProcessRoot>>>,
-    /// Root metadata retained after exit for cumulative reporting.
-    known_roots: Arc<RwLock<HashMap<u32, ProcessRoot>>>,
-    /// Last child PID to root PID map for final records from exited children.
-    last_child_to_root: Arc<RwLock<HashMap<u32, u32>>>,
+    /// Shared state for scan task results in monitor-all mode.
+    discovered_groups: Arc<RwLock<Vec<ProcessGroup>>>,
+    /// Group metadata retained for cumulative reporting.
+    known_groups: Arc<RwLock<HashMap<String, ProcessGroup>>>,
+    /// Last PID-to-group map for final records from exited children.
+    last_pid_to_group: Arc<RwLock<HashMap<u32, String>>>,
     /// First tick timestamp for average-power calculations.
     start_timestamp: Arc<RwLock<i64>>,
     /// Internal task handles
@@ -263,9 +341,9 @@ impl Monitor {
             rapl_group: Arc::new(Mutex::new(rapl_group)),
             gpu_group,
             root_pids,
-            discovered_roots: Arc::new(RwLock::new(Vec::new())),
-            known_roots: Arc::new(RwLock::new(HashMap::new())),
-            last_child_to_root: Arc::new(RwLock::new(HashMap::new())),
+            discovered_groups: Arc::new(RwLock::new(Vec::new())),
+            known_groups: Arc::new(RwLock::new(HashMap::new())),
+            last_pid_to_group: Arc::new(RwLock::new(HashMap::new())),
             start_timestamp: Arc::new(RwLock::new(0)),
             tick_handle: None,
             scan_handle: None,
@@ -284,33 +362,36 @@ impl Monitor {
             });
         }
 
-        *self.known_roots.write().unwrap() = HashMap::new();
-        *self.last_child_to_root.write().unwrap() = HashMap::new();
+        *self.known_groups.write().unwrap() = HashMap::new();
+        *self.last_pid_to_group.write().unwrap() = HashMap::new();
         *self.start_timestamp.write().unwrap() = 0;
         *self.snapshot.write().unwrap() = MetricsSnapshot::default();
 
-        if let Some(root_pids) = &self.root_pids {
+        let initial_groups = if let Some(root_pids) = &self.root_pids {
             let pids = root_pids.clone();
-            let roots = tokio::task::spawn_blocking(move || resolve_process_roots(&pids))
+            tokio::task::spawn_blocking(move || explicit_pid_groups(&pids))
                 .await
-                .unwrap_or_default();
-            let mut known = self.known_roots.write().unwrap();
-            for root in roots {
-                known.insert(root.pid, root);
+                .unwrap_or_default()
+        } else {
+            tokio::task::spawn_blocking(|| group_processes(&scan_processes()))
+                .await
+                .unwrap_or_default()
+        };
+
+        if self.root_pids.is_none() {
+            *self.discovered_groups.write().unwrap() = initial_groups.clone();
+        }
+
+        {
+            let mut known = self.known_groups.write().unwrap();
+            for group in &initial_groups {
+                known.insert(group.id.clone(), group.clone());
             }
         }
 
-        let initial_tracked_pids = if let Some(root_pids) = &self.root_pids {
-            let pids = root_pids.clone();
-            let (child_to_root, expanded_pids) =
-                tokio::task::spawn_blocking(move || build_child_to_root_map(&pids))
-                    .await
-                    .unwrap_or_default();
-            *self.last_child_to_root.write().unwrap() = child_to_root;
-            expanded_pids
-        } else {
-            Vec::new()
-        };
+        let initial_pid_to_group = pid_to_group_map(&initial_groups);
+        let initial_tracked_pids = tracked_pids(&initial_groups);
+        *self.last_pid_to_group.write().unwrap() = initial_pid_to_group;
 
         self.is_running.store(true, Ordering::SeqCst);
 
@@ -318,14 +399,14 @@ impl Monitor {
         {
             let mut rapl = self.rapl_group.lock().await;
             if !initial_tracked_pids.is_empty() {
-                rapl.set_tracked_pids(initial_tracked_pids.clone());
+                rapl.update_tracked_pids(initial_tracked_pids.clone());
             }
             rapl.commence().await?;
         }
         if let Some(gpu) = &self.gpu_group {
             let mut gpu_lock = gpu.lock().await;
             if !initial_tracked_pids.is_empty() {
-                gpu_lock.set_tracked_pids(initial_tracked_pids.clone());
+                gpu_lock.update_tracked_pids(initial_tracked_pids.clone());
             }
             gpu_lock.commence().await?;
         }
@@ -376,8 +457,12 @@ impl Monitor {
             return;
         }
 
-        let child_to_root = self.last_child_to_root.read().unwrap().clone();
-        let mut known_roots = self.known_roots.read().unwrap().clone();
+        let pid_to_group = self.last_pid_to_group.read().unwrap().clone();
+        let tick = aggregate_energy_records(final_records, &pid_to_group);
+        if tick.system_total.total() <= 0.0 && tick.group_energy.is_empty() {
+            return;
+        }
+
         let current_timestamp = chrono::Utc::now().timestamp_millis();
         let start_timestamp = *self.start_timestamp.read().unwrap();
         let elapsed_s = if start_timestamp > 0 {
@@ -386,99 +471,72 @@ impl Monitor {
             0.0
         };
 
-        let mut tick_system_total = DeviceEnergy::default();
-        let mut tick_workload_energy: HashMap<u32, DeviceEnergy> = HashMap::new();
+        let known_groups_snapshot = {
+            let mut known_groups = self.known_groups.write().unwrap();
+            for group_id in tick.group_energy.keys() {
+                if known_groups.contains_key(group_id) {
+                    continue;
+                }
 
-        for record in final_records {
-            let class = classify_energy(record);
-            accumulate_device_energy(&mut tick_system_total, class, record.energy);
+                let representative_pid = pid_to_group
+                    .iter()
+                    .find_map(|(pid, mapped_group)| (mapped_group == group_id).then_some(*pid))
+                    .unwrap_or_default();
+                let pids = if representative_pid == 0 {
+                    Vec::new()
+                } else {
+                    vec![representative_pid]
+                };
 
-            if let Some(root) = child_to_root.get(&record.pid).copied() {
-                let entry = tick_workload_energy.entry(root).or_default();
-                accumulate_device_energy(entry, class, record.energy);
+                known_groups.insert(
+                    group_id.clone(),
+                    ProcessGroup {
+                        id: group_id.clone(),
+                        name: group_id.clone(),
+                        user: "unknown".to_string(),
+                        pids,
+                        representative_pid,
+                    },
+                );
             }
-        }
+            known_groups.clone()
+        };
 
         let mut snap = self.snapshot.write().unwrap();
-        for workload in &snap.workloads {
-            known_roots.entry(workload.root_pid).or_insert(ProcessRoot {
-                pid: workload.root_pid,
-                user: workload.user.clone(),
-                name: workload.name.clone(),
-            });
-        }
-        for root_pid in tick_workload_energy.keys() {
-            known_roots.entry(*root_pid).or_insert(ProcessRoot {
-                pid: *root_pid,
-                user: "unknown".to_string(),
-                name: String::new(),
-            });
-        }
-
-        let mut cumulative_by_root: HashMap<u32, DeviceEnergy> = snap
+        let mut cumulative_by_group: HashMap<String, DeviceEnergy> = snap
             .workloads
             .iter()
-            .map(|workload| (workload.root_pid, workload.energy.clone()))
+            .map(|workload| (workload.group_id.clone(), workload.energy.clone()))
             .collect();
 
-        let mut workloads_sum = DeviceEnergy::default();
-        for (root_pid, tick_energy) in &tick_workload_energy {
-            add_device_energy(&mut workloads_sum, tick_energy);
-            let entry = cumulative_by_root.entry(*root_pid).or_default();
+        for (group_id, tick_energy) in &tick.group_energy {
+            let entry = cumulative_by_group.entry(group_id.clone()).or_default();
             add_device_energy(entry, tick_energy);
         }
+        add_device_energy(&mut snap.unattributed, &tick.unattributed);
 
-        let tick_unattributed = tick_system_total.saturating_sub(&workloads_sum);
-        add_device_energy(&mut snap.unattributed, &tick_unattributed);
-
-        let mut workloads: Vec<WorkloadSnapshot> = known_roots
+        let mut workloads: Vec<WorkloadSnapshot> = known_groups_snapshot
             .values()
-            .filter_map(|root| {
-                let energy = cumulative_by_root
-                    .get(&root.pid)
+            .filter_map(|group| {
+                let energy = cumulative_by_group
+                    .get(&group.id)
                     .cloned()
                     .unwrap_or_default();
                 if energy.total() <= 0.0 {
                     return None;
                 }
 
-                Some(WorkloadSnapshot {
-                    root_pid: root.pid,
-                    name: root.name.clone(),
-                    user: root.user.clone(),
-                    power_watts: if elapsed_s > 0.0 {
-                        energy.total() / elapsed_s
-                    } else {
-                        0.0
-                    },
-                    energy,
-                })
+                Some(workload_snapshot(group, energy, elapsed_s))
             })
             .collect();
-        workloads.sort_by_key(|workload| workload.root_pid);
+        workloads.sort_by(|left, right| left.group_id.cmp(&right.group_id));
+
+        let system_total = system_total_from_workloads(&workloads, &snap.unattributed);
+        apply_workload_percentages(&mut workloads, &system_total);
 
         snap.timestamp = current_timestamp;
         snap.workloads = workloads;
-        snap.system_total = DeviceEnergy {
-            cpu_joules: snap
-                .workloads
-                .iter()
-                .map(|workload| workload.energy.cpu_joules)
-                .sum::<f64>()
-                + snap.unattributed.cpu_joules,
-            dram_joules: snap
-                .workloads
-                .iter()
-                .map(|workload| workload.energy.dram_joules)
-                .sum::<f64>()
-                + snap.unattributed.dram_joules,
-            gpu_joules: snap
-                .workloads
-                .iter()
-                .map(|workload| workload.energy.gpu_joules)
-                .sum::<f64>()
-                + snap.unattributed.gpu_joules,
-        };
+        snap.system_total = system_total;
     }
 
     /// Spawn the tick task that runs the core polling and update loop.
@@ -487,9 +545,9 @@ impl Monitor {
         let rapl_group = Arc::clone(&self.rapl_group);
         let gpu_group = self.gpu_group.clone();
         let root_pids = self.root_pids.clone();
-        let discovered_roots = Arc::clone(&self.discovered_roots);
-        let known_roots = Arc::clone(&self.known_roots);
-        let last_child_to_root = Arc::clone(&self.last_child_to_root);
+        let discovered_groups = Arc::clone(&self.discovered_groups);
+        let known_groups = Arc::clone(&self.known_groups);
+        let last_pid_to_group = Arc::clone(&self.last_pid_to_group);
         let start_timestamp = Arc::clone(&self.start_timestamp);
         let snapshot = Arc::clone(&self.snapshot);
         let is_running = Arc::clone(&self.is_running);
@@ -498,83 +556,50 @@ impl Monitor {
             let mut tick_state = TickState::default();
 
             while is_running.load(Ordering::SeqCst) {
-                // 1. Determine current root PIDs and metadata
-                let roots_with_metadata: Vec<ProcessRoot> = if let Some(ref pids) = root_pids {
-                    let roots = known_roots.read().unwrap();
-                    pids.iter()
-                        .map(|&pid| {
-                            roots.get(&pid).cloned().unwrap_or(ProcessRoot {
-                                pid,
-                                user: String::new(),
-                                name: String::new(),
-                            })
-                        })
-                        .collect()
-                } else {
-                    discovered_roots.read().unwrap().clone()
-                };
-
-                let root_pid_list: Vec<u32> = roots_with_metadata.iter().map(|r| r.pid).collect();
-                {
-                    let mut roots = known_roots.write().unwrap();
-                    for root in &roots_with_metadata {
-                        roots.insert(root.pid, root.clone());
-                    }
-                }
-                let current_root_set: std::collections::HashSet<u32> =
-                    root_pid_list.iter().copied().collect();
-
-                // 2. Build child-to-root map and get expanded PID set
-                let (child_to_root, expanded_pids) = if root_pid_list.is_empty() {
-                    (HashMap::new(), Vec::new())
-                } else {
-                    let roots_for_walk = root_pid_list.clone();
-                    tokio::task::spawn_blocking(move || build_child_to_root_map(&roots_for_walk))
+                let groups = if let Some(ref pids) = root_pids {
+                    let cached_groups = {
+                        let known = known_groups.read().unwrap();
+                        cached_explicit_pid_groups(pids, &known)
+                    };
+                    tokio::task::spawn_blocking(move || refresh_explicit_pid_groups(&cached_groups))
                         .await
                         .unwrap_or_default()
+                } else {
+                    discovered_groups.read().unwrap().clone()
                 };
-                let previous_child_to_root = last_child_to_root.read().unwrap().clone();
 
-                // 3. Set tracked PIDs on collectors and poll data
+                {
+                    let mut known = known_groups.write().unwrap();
+                    for group in &groups {
+                        known.insert(group.id.clone(), group.clone());
+                    }
+                }
+
+                let current_pid_to_group = pid_to_group_map(&groups);
+                let expanded_pids = tracked_pids(&groups);
+                let previous_pid_to_group = last_pid_to_group.read().unwrap().clone();
+                let active_pid_to_group =
+                    merge_pid_group_maps(&current_pid_to_group, &previous_pid_to_group);
+
                 let rapl_records;
                 {
                     let mut rapl = rapl_group.lock().await;
-                    rapl.set_tracked_pids(expanded_pids.clone());
+                    rapl.update_tracked_pids(expanded_pids.clone());
                     rapl_records = rapl.poll_data();
                 }
 
                 let gpu_records = if let Some(ref gpu) = gpu_group {
                     let mut gpu_lock = gpu.lock().await;
-                    gpu_lock.set_tracked_pids(expanded_pids.clone());
+                    gpu_lock.update_tracked_pids(expanded_pids.clone());
                     gpu_lock.poll_data()
                 } else {
                     Vec::new()
                 };
 
-                // 4. Compute MetricsSnapshot from records
-                let all_records: Vec<&EnergyRecord> =
-                    rapl_records.iter().chain(gpu_records.iter()).collect();
+                let mut all_records = rapl_records;
+                all_records.extend(gpu_records);
+                let tick = aggregate_energy_records(&all_records, &active_pid_to_group);
 
-                // Compute system_total from all records
-                let mut system_total = DeviceEnergy::default();
-                for record in &all_records {
-                    let class = classify_energy(record);
-                    accumulate_device_energy(&mut system_total, class, record.energy);
-                }
-
-                // Compute per-root energy using child_to_root map
-                let mut workload_energy_map: HashMap<u32, DeviceEnergy> = HashMap::new();
-                for record in &all_records {
-                    if let Some(root) =
-                        root_for_record(record.pid, &child_to_root, &previous_child_to_root)
-                    {
-                        let class = classify_energy(record);
-                        let entry = workload_energy_map.entry(root).or_default();
-                        accumulate_device_energy(entry, class, record.energy);
-                    }
-                }
-
-                // Build workload snapshots with power computation
                 let current_timestamp = chrono::Utc::now().timestamp_millis();
                 if tick_state.start_timestamp == 0 {
                     tick_state.start_timestamp = current_timestamp;
@@ -582,83 +607,43 @@ impl Monitor {
                 }
                 let elapsed_s = (current_timestamp - tick_state.start_timestamp) as f64 / 1000.0;
 
+                let known_groups_snapshot = known_groups.read().unwrap().clone();
                 let mut workloads: Vec<WorkloadSnapshot> = Vec::new();
-                let mut workloads_sum = DeviceEnergy::default();
-                let known_roots_snapshot = known_roots.read().unwrap().clone();
 
-                for root_info in known_roots_snapshot.values() {
-                    let tick_energy = workload_energy_map
-                        .get(&root_info.pid)
+                for group in known_groups_snapshot.values() {
+                    let tick_energy = tick
+                        .group_energy
+                        .get(&group.id)
                         .cloned()
                         .unwrap_or_default();
-
-                    // Compute cumulative energy for this workload
-                    let prev_cumulative_energy = tick_state
+                    let mut cumulative_energy = tick_state
                         .workload_energy
-                        .get(&root_info.pid)
+                        .get(&group.id)
                         .cloned()
                         .unwrap_or_default();
-                    let cumulative_energy = DeviceEnergy {
-                        cpu_joules: prev_cumulative_energy.cpu_joules + tick_energy.cpu_joules,
-                        dram_joules: prev_cumulative_energy.dram_joules + tick_energy.dram_joules,
-                        gpu_joules: prev_cumulative_energy.gpu_joules + tick_energy.gpu_joules,
-                    };
+                    add_device_energy(&mut cumulative_energy, &tick_energy);
 
-                    if !current_root_set.contains(&root_info.pid)
-                        && cumulative_energy.total() <= 0.0
-                    {
+                    if cumulative_energy.total() <= 0.0 {
                         continue;
                     }
 
-                    // Average power = cumulative energy / total elapsed time
-                    let power_watts = if elapsed_s > 0.0 {
-                        cumulative_energy.total() / elapsed_s
-                    } else {
-                        0.0
-                    };
-
-                    workloads_sum.cpu_joules += tick_energy.cpu_joules;
-                    workloads_sum.dram_joules += tick_energy.dram_joules;
-                    workloads_sum.gpu_joules += tick_energy.gpu_joules;
-
-                    workloads.push(WorkloadSnapshot {
-                        root_pid: root_info.pid,
-                        name: root_info.name.clone(),
-                        user: root_info.user.clone(),
-                        energy: cumulative_energy,
-                        power_watts,
-                    });
+                    workloads.push(workload_snapshot(group, cumulative_energy, elapsed_s));
                 }
-                workloads.sort_by_key(|workload| workload.root_pid);
+                workloads.sort_by(|left, right| left.group_id.cmp(&right.group_id));
 
-                // Unattributed this tick = system_total - sum(workloads), clamped >= 0
-                let tick_unattributed = system_total.saturating_sub(&workloads_sum);
-
-                // Accumulate unattributed energy
                 let prev_unattributed = { snapshot.read().unwrap().unattributed.clone() };
-                let cumulative_unattributed = DeviceEnergy {
-                    cpu_joules: prev_unattributed.cpu_joules + tick_unattributed.cpu_joules,
-                    dram_joules: prev_unattributed.dram_joules + tick_unattributed.dram_joules,
-                    gpu_joules: prev_unattributed.gpu_joules + tick_unattributed.gpu_joules,
-                };
+                let mut cumulative_unattributed = prev_unattributed;
+                add_device_energy(&mut cumulative_unattributed, &tick.unattributed);
 
-                // system_total = sum(workload cumulative energies) + cumulative unattributed
-                let cumulative_system_total = DeviceEnergy {
-                    cpu_joules: workloads.iter().map(|w| w.energy.cpu_joules).sum::<f64>()
-                        + cumulative_unattributed.cpu_joules,
-                    dram_joules: workloads.iter().map(|w| w.energy.dram_joules).sum::<f64>()
-                        + cumulative_unattributed.dram_joules,
-                    gpu_joules: workloads.iter().map(|w| w.energy.gpu_joules).sum::<f64>()
-                        + cumulative_unattributed.gpu_joules,
-                };
+                let cumulative_system_total =
+                    system_total_from_workloads(&workloads, &cumulative_unattributed);
+                apply_workload_percentages(&mut workloads, &cumulative_system_total);
 
-                // Update tick state with cumulative energies for next iteration
                 tick_state.workload_energy = workloads
                     .iter()
-                    .map(|wl| (wl.root_pid, wl.energy.clone()))
+                    .map(|workload| (workload.group_id.clone(), workload.energy.clone()))
                     .collect();
 
-                // Write updated snapshot
                 {
                     let mut snap = snapshot.write().unwrap();
                     snap.timestamp = current_timestamp;
@@ -667,7 +652,7 @@ impl Monitor {
                     snap.unattributed = cumulative_unattributed;
                     snap.tracked_pids = expanded_pids;
                 }
-                *last_child_to_root.write().unwrap() = child_to_root;
+                *last_pid_to_group.write().unwrap() = current_pid_to_group;
 
                 tokio::time::sleep(interval).await;
             }
@@ -678,15 +663,15 @@ impl Monitor {
     /// Only spawned when `root_pids` is None (monitor-all mode).
     fn spawn_scan_task(&mut self) {
         let interval = Duration::from_secs_f64(self.config.discovery.scan_interval_secs);
-        let discovered_roots = Arc::clone(&self.discovered_roots);
+        let discovered_groups = Arc::clone(&self.discovered_groups);
         let is_running = Arc::clone(&self.is_running);
 
         self.scan_handle = Some(tokio::spawn(async move {
             while is_running.load(Ordering::SeqCst) {
-                let roots = tokio::task::spawn_blocking(scan_roots)
+                let groups = tokio::task::spawn_blocking(|| group_processes(&scan_processes()))
                     .await
                     .unwrap_or_default();
-                *discovered_roots.write().unwrap() = roots;
+                *discovered_groups.write().unwrap() = groups;
                 tokio::time::sleep(interval).await;
             }
         }));
@@ -742,90 +727,23 @@ mod tests {
     }
 
     #[test]
-    fn classify_energy_rapl_package() {
-        let record = EnergyRecord {
-            pid: 1,
-            timestamp: 0,
-            device: "rapl:socket:0:package".to_string(),
-            energy: 5.0,
-        };
-        assert_eq!(classify_energy(&record), EnergyClass::Cpu);
-    }
+    fn refresh_explicit_pid_groups_keeps_cached_metadata() {
+        let pid = std::process::id();
+        let cached = vec![ProcessGroup {
+            id: format!("pid:{pid}"),
+            name: "cached-root".to_string(),
+            user: "cached-user".to_string(),
+            pids: Vec::new(),
+            representative_pid: pid,
+        }];
 
-    #[test]
-    fn classify_energy_rapl_dram() {
-        let record = EnergyRecord {
-            pid: 1,
-            timestamp: 0,
-            device: "rapl:system:dram".to_string(),
-            energy: 2.0,
-        };
-        assert_eq!(classify_energy(&record), EnergyClass::Dram);
-    }
+        let refreshed = refresh_explicit_pid_groups(&cached);
 
-    #[test]
-    fn classify_energy_rapl_psys() {
-        let record = EnergyRecord {
-            pid: 1,
-            timestamp: 0,
-            device: "rapl:system:psys".to_string(),
-            energy: 3.0,
-        };
-        assert_eq!(classify_energy(&record), EnergyClass::Cpu);
-    }
-
-    #[test]
-    fn classify_energy_nvidia() {
-        let record = EnergyRecord {
-            pid: 1,
-            timestamp: 0,
-            device: "nvidia:gpu:0".to_string(),
-            energy: 10.0,
-        };
-        assert_eq!(classify_energy(&record), EnergyClass::Gpu);
-    }
-
-    #[test]
-    fn unattributed_is_clamped_to_zero() {
-        // Simulate jitter: workloads sum exceeds system_total
-        let system_total = DeviceEnergy {
-            cpu_joules: 5.0,
-            dram_joules: 1.0,
-            gpu_joules: 0.0,
-        };
-        let workloads_sum = DeviceEnergy {
-            cpu_joules: 5.5, // exceeds system_total due to jitter
-            dram_joules: 1.2,
-            gpu_joules: 0.1,
-        };
-        let unattributed = system_total.saturating_sub(&workloads_sum);
-        assert_eq!(unattributed.cpu_joules, 0.0);
-        assert_eq!(unattributed.dram_joules, 0.0);
-        assert_eq!(unattributed.gpu_joules, 0.0);
-    }
-
-    #[test]
-    fn build_child_to_root_map_maps_self() {
-        let my_pid = std::process::id();
-        let (map, pids) = build_child_to_root_map(&[my_pid]);
-        // The root maps to itself
-        assert_eq!(map.get(&my_pid), Some(&my_pid));
-        assert!(pids.contains(&my_pid));
-    }
-
-    #[test]
-    fn build_child_to_root_map_empty_returns_empty() {
-        let (map, pids) = build_child_to_root_map(&[]);
-        assert!(map.is_empty());
-        assert!(pids.is_empty());
-    }
-
-    #[test]
-    fn root_for_record_falls_back_to_previous_child_map() {
-        let current = HashMap::new();
-        let previous = HashMap::from([(42, 7)]);
-
-        assert_eq!(root_for_record(42, &current, &previous), Some(7));
+        assert_eq!(refreshed.len(), 1);
+        assert_eq!(refreshed[0].id, format!("pid:{pid}"));
+        assert_eq!(refreshed[0].name, "cached-root");
+        assert_eq!(refreshed[0].user, "cached-user");
+        assert!(refreshed[0].pids.contains(&pid));
     }
 
     #[test]

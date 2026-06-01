@@ -98,6 +98,7 @@ mod tests {
             },
             workloads: vec![WorkloadSnapshot {
                 root_pid: 123,
+                group_id: "pid:123".to_string(),
                 name: "work".to_string(),
                 user: "user".to_string(),
                 energy: DeviceEnergy {
@@ -106,6 +107,7 @@ mod tests {
                     gpu_joules: 0.0,
                 },
                 power_watts: 360.0,
+                percentage_of_system: 100.0,
             }],
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![123],
@@ -119,8 +121,13 @@ mod tests {
         assert!((output.power - 360_000.0).abs() < 1e-9);
         assert!((output.devices.cpu - 0.00075).abs() < 1e-9);
         assert!((output.devices.dram - 0.00025).abs() < 1e-9);
+        assert_eq!(output.workloads[0].root_pid, 123);
+        assert_eq!(output.workloads[0].group_id, "pid:123");
+        assert_eq!(output.workloads[0].name, "work");
+        assert_eq!(output.workloads[0].user, "user");
         assert!((output.workloads[0].energy - 0.001).abs() < 1e-9);
         assert!((output.workloads[0].power - 360_000.0).abs() < 1e-9);
+        assert!((output.workloads[0].percentage_of_system - 100.0).abs() < 1e-9);
     }
 
     #[test]
@@ -209,10 +216,12 @@ struct DeviceBreakdown {
 #[derive(Serialize)]
 struct WorkloadOutput {
     root_pid: u32,
+    group_id: String,
     name: String,
     user: String,
     energy: f64,
     power: f64,
+    percentage_of_system: f64,
 }
 
 impl DeviceBreakdown {
@@ -243,6 +252,7 @@ fn build_cli_output(
         .iter()
         .map(|wl| WorkloadOutput {
             root_pid: wl.root_pid,
+            group_id: wl.group_id.clone(),
             name: wl.name.clone(),
             user: wl.user.clone(),
             energy: units.convert_energy_from_joules(wl.energy.total()),
@@ -251,6 +261,7 @@ fn build_cli_output(
             } else {
                 wl.power_watts
             }),
+            percentage_of_system: wl.percentage_of_system,
         })
         .collect();
 

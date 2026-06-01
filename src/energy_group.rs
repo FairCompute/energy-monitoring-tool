@@ -82,9 +82,14 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         }
     }
 
-    /// Set the tracked PIDs by delegating to the collector
-    pub fn set_tracked_pids(&self, pids: Vec<u32>) {
+    /// Update the tracked PIDs by delegating to the collector.
+    pub fn update_tracked_pids(&self, pids: Vec<u32>) {
         self.energy_collector.set_tracked_pids(pids);
+    }
+
+    /// Set the tracked PIDs by delegating to the collector.
+    pub fn set_tracked_pids(&self, pids: Vec<u32>) {
+        self.update_tracked_pids(pids);
     }
 
     /// Register a trace recorder for persistent storage of energy data.
@@ -461,6 +466,17 @@ mod tests {
         fn is_available() -> bool {
             true
         }
+    }
+
+    #[test]
+    fn update_tracked_pids_delegates_to_collector() {
+        let group = EnergyGroup::new(TestCollector::new(123), 50.0, Some(1));
+
+        group.update_tracked_pids(vec![456, 789]);
+        assert_eq!(*group.energy_collector.pids.lock().unwrap(), vec![456, 789]);
+
+        group.set_tracked_pids(vec![321]);
+        assert_eq!(*group.energy_collector.pids.lock().unwrap(), vec![321]);
     }
 
     #[tokio::test]
