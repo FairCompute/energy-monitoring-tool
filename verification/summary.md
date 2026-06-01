@@ -28,6 +28,12 @@ both methods run in isolated phases with settling time between phases. Each
 method monitors the `scripts/verification_workload.py` subprocess PID directly
 so verifier-process overhead is not charged to only one side of the comparison.
 
+After the PyO3 backend swap, the `python emt` method means the public
+`EnergyMonitor` API. If `emt._rust.RustMonitor` is importable and no
+Python-only feature is requested, that API may delegate to the Rust backend.
+Future parity work should add explicit backend selection before treating this
+method as a pure-Python reference.
+
 ## output
 
 `scripts/verify.py` writes results to
