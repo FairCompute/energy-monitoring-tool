@@ -2,6 +2,8 @@ pub mod collectors;
 pub mod config;
 pub mod energy_group;
 pub mod monitor;
+pub mod process;
+pub mod process_aggregation;
 pub mod trace_recorder;
 pub mod tui;
 
