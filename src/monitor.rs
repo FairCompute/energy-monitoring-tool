@@ -184,6 +184,46 @@ fn explicit_pid_groups(root_pids: &[u32]) -> Vec<ProcessGroup> {
         .collect()
 }
 
+fn refresh_explicit_pid_groups(cached_groups: &[ProcessGroup]) -> Vec<ProcessGroup> {
+    cached_groups
+        .iter()
+        .filter_map(|group| {
+            let mut pids = walk_child_pids(&[group.representative_pid]);
+            if pids.is_empty() {
+                return None;
+            }
+            pids.sort_unstable();
+            pids.dedup();
+
+            let mut refreshed = group.clone();
+            refreshed.pids = pids;
+            Some(refreshed)
+        })
+        .collect()
+}
+
+fn cached_explicit_pid_groups(
+    root_pids: &[u32],
+    known_groups: &HashMap<String, ProcessGroup>,
+) -> Vec<ProcessGroup> {
+    root_pids
+        .iter()
+        .map(|pid| {
+            let id = format!("pid:{pid}");
+            known_groups
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| ProcessGroup {
+                    id,
+                    name: format!("pid {pid}"),
+                    user: "unknown".to_string(),
+                    pids: vec![*pid],
+                    representative_pid: *pid,
+                })
+        })
+        .collect()
+}
+
 fn merge_pid_group_maps(
     current: &HashMap<u32, String>,
     previous: &HashMap<u32, String>,
@@ -517,8 +557,11 @@ impl Monitor {
 
             while is_running.load(Ordering::SeqCst) {
                 let groups = if let Some(ref pids) = root_pids {
-                    let pids = pids.clone();
-                    tokio::task::spawn_blocking(move || explicit_pid_groups(&pids))
+                    let cached_groups = {
+                        let known = known_groups.read().unwrap();
+                        cached_explicit_pid_groups(pids, &known)
+                    };
+                    tokio::task::spawn_blocking(move || refresh_explicit_pid_groups(&cached_groups))
                         .await
                         .unwrap_or_default()
                 } else {
@@ -681,6 +724,26 @@ mod tests {
         assert_eq!(result.cpu_joules, 0.0); // clamped
         assert!((result.dram_joules - 0.2).abs() < 1e-10);
         assert_eq!(result.gpu_joules, 0.0); // clamped
+    }
+
+    #[test]
+    fn refresh_explicit_pid_groups_keeps_cached_metadata() {
+        let pid = std::process::id();
+        let cached = vec![ProcessGroup {
+            id: format!("pid:{pid}"),
+            name: "cached-root".to_string(),
+            user: "cached-user".to_string(),
+            pids: Vec::new(),
+            representative_pid: pid,
+        }];
+
+        let refreshed = refresh_explicit_pid_groups(&cached);
+
+        assert_eq!(refreshed.len(), 1);
+        assert_eq!(refreshed[0].id, format!("pid:{pid}"));
+        assert_eq!(refreshed[0].name, "cached-root");
+        assert_eq!(refreshed[0].user, "cached-user");
+        assert!(refreshed[0].pids.contains(&pid));
     }
 
     #[test]
