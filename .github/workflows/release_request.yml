@@ -34,7 +34,7 @@ jobs:
         run: maturin build --release --strip
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.python-version }}
           path: target/wheels/*.whl
@@ -59,7 +59,7 @@ jobs:
         run: maturin sdist
 
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: target/wheels/*.tar.gz
