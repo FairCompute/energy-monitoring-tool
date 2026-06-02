@@ -325,7 +325,7 @@ def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
     assert instances[0].commenced is True
     mock_get_available_pgs.assert_not_called()
     mock_thread.assert_not_called()
-    assert monitor.total_consumed_energy == 12.5
+    assert monitor.total_consumed_energy == pytest.approx(12.5)
     assert monitor.consumed_energy == {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
 
     monitor.__exit__()
