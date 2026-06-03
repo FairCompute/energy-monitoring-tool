@@ -12,6 +12,15 @@ pub fn render(frame: &mut Frame, app: &App) {
     let uptime = app.uptime_secs();
     let power_history = app.power_history();
 
+    render_snapshot(frame, &snapshot, uptime, &power_history);
+}
+
+fn render_snapshot(
+    frame: &mut Frame,
+    snapshot: &MetricsSnapshot,
+    uptime: f64,
+    power_history: &PowerHistorySnapshot,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -21,8 +30,8 @@ pub fn render(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area());
 
-    render_header(frame, chunks[0], &snapshot, uptime, &power_history);
-    render_body(frame, chunks[1], &snapshot);
+    render_header(frame, chunks[0], snapshot, uptime, power_history);
+    render_body(frame, chunks[1], snapshot);
     render_footer(frame, chunks[2]);
 }
 
@@ -157,7 +166,7 @@ fn render_power_label(
         .map(|watts| format!("{watts:.2} W"))
         .unwrap_or_else(|| "--".to_string());
     let label = Paragraph::new(Line::from(vec![Span::styled(
-        format!("{label}: {value}"),
+        format!("Interval {label}: {value}"),
         Style::default().fg(color),
     )]));
     frame.render_widget(label, area);
@@ -255,6 +264,9 @@ fn render_footer(frame: &mut Frame, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monitor::{DeviceEnergy, WorkloadSnapshot};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn sparkline_data_uses_milliwatts_to_keep_sub_watt_values_visible() {
@@ -267,5 +279,55 @@ mod tests {
             sparkline_data(&[f64::NAN, f64::INFINITY, -1.0]),
             vec![0, 0, 0]
         );
+    }
+
+    #[test]
+    fn render_snapshot_shows_average_and_interval_power_labels() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            system_total: DeviceEnergy {
+                cpu_joules: 180.0,
+                dram_joules: 60.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 123,
+                group_id: "pid:123".to_string(),
+                name: "python workload.py".to_string(),
+                user: "alice".to_string(),
+                energy: DeviceEnergy {
+                    cpu_joules: 120.0,
+                    dram_joules: 30.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 2.5,
+                percentage_of_system: 62.5,
+            }],
+            unattributed: DeviceEnergy {
+                cpu_joules: 60.0,
+                dram_joules: 30.0,
+                gpu_joules: 0.0,
+            },
+            tracked_pids: vec![123, 124],
+        };
+        let power_history = PowerHistorySnapshot {
+            cpu: vec![5.0],
+            dram: vec![1.5],
+            gpu: vec![],
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
+
+        terminal
+            .draw(|frame| render_snapshot(frame, &snapshot, 60.0, &power_history))
+            .unwrap();
+
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("Avg Power: 4.00 W"));
+        assert!(screen.contains("Interval CPU: 5.00 W"));
+        assert!(screen.contains("Interval DRAM: 1.50 W"));
+        assert!(screen.contains("Avg Power (W)"));
+        assert!(screen.contains("2.50"));
+        assert!(screen.contains("python workload.py"));
+        assert!(screen.contains("Tracked PIDs: 2"));
     }
 }
