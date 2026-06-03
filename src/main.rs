@@ -1,12 +1,17 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use emt::config::{EmtConfig, MeasurementUnitsConfig};
-use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor};
+use emt::metrics_sink::{MetricsSink, PrometheusSink, SharedPrometheusSink, prometheus_router};
+use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor, MonitorHandle};
 use emt::tui::{self, App};
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 const DEFAULT_BATCH_DURATION_SECS: u64 = 10;
+const DEFAULT_PROMETHEUS_PORT: u16 = 9101;
 
 #[derive(Parser, Debug)]
 #[command(name = "emt")]
@@ -32,9 +37,26 @@ struct Args {
     #[arg(long, conflicts_with_all = ["tui", "json_out"])]
     headless: bool,
 
+    /// Export sink for headless daemon mode
+    #[arg(long, value_enum, requires = "headless")]
+    export: Option<ExportMode>,
+
+    /// TCP port for headless Prometheus export
+    #[arg(long, default_value_t = DEFAULT_PROMETHEUS_PORT)]
+    port: u16,
+
+    /// Bind address for headless Prometheus export
+    #[arg(long, default_value = "0.0.0.0")]
+    bind: IpAddr,
+
     /// Run once and write JSON results to PATH
     #[arg(long = "json-out", value_name = "PATH", conflicts_with_all = ["tui", "headless"])]
     json_out: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ExportMode {
+    Prometheus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,10 +80,8 @@ fn validate_args(args: &Args) -> Result<(), &'static str> {
     if args.duration.is_some() && selected_mode(args) != Mode::JsonOut {
         return Err("--duration can only be used with --json-out");
     }
-    if selected_mode(args) == Mode::Headless {
-        return Err(
-            "--headless is reserved for future daemon export modes; use --json-out <PATH> --duration <SECONDS> for finite JSON output",
-        );
+    if selected_mode(args) == Mode::Headless && args.export != Some(ExportMode::Prometheus) {
+        return Err("--headless requires --export prometheus");
     }
     Ok(())
 }
@@ -83,6 +103,9 @@ mod tests {
             rate: None,
             tui: false,
             headless: false,
+            export: None,
+            port: DEFAULT_PROMETHEUS_PORT,
+            bind: "0.0.0.0".parse().unwrap(),
             json_out: Some("results.json".to_string()),
         };
         let units = MeasurementUnitsConfig {
@@ -138,6 +161,9 @@ mod tests {
             rate: Some(5.0),
             tui: false,
             headless: false,
+            export: None,
+            port: DEFAULT_PROMETHEUS_PORT,
+            bind: "0.0.0.0".parse().unwrap(),
             json_out: None,
         };
         let mut config = EmtConfig::default();
@@ -169,6 +195,33 @@ mod tests {
 
         assert_eq!(selected_mode(&args), Mode::Headless);
         assert!(validate_args(&args).is_err());
+    }
+
+    #[test]
+    fn cli_accepts_headless_prometheus_export() {
+        let args = Args::parse_from([
+            "emt",
+            "--headless",
+            "--export",
+            "prometheus",
+            "--bind",
+            "127.0.0.1",
+            "--port",
+            "9200",
+        ]);
+
+        assert_eq!(selected_mode(&args), Mode::Headless);
+        assert_eq!(args.export, Some(ExportMode::Prometheus));
+        assert_eq!(args.bind, "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(args.port, 9200);
+        assert!(validate_args(&args).is_ok());
+    }
+
+    #[test]
+    fn cli_requires_headless_for_export() {
+        let result = Args::try_parse_from(["emt", "--export", "prometheus"]);
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -301,7 +354,7 @@ async fn main() {
 
     match mode {
         Mode::Tui => run_tui(config, args.pid).await,
-        Mode::Headless => unreachable!("headless mode is rejected by validate_args"),
+        Mode::Headless => run_prometheus_export(config, args.pid, args.bind, args.port).await,
         Mode::JsonOut => {
             let duration = batch_duration_seconds(&args);
             let path = args
@@ -348,6 +401,7 @@ async fn run_tui(config: EmtConfig, pid: Option<u32>) {
         std::env::var_os("EMT_TUI_FORCE_PANIC_AFTER_FIRST_DRAW").is_some();
 
     while !app.should_quit {
+        app.refresh();
         terminal
             .draw(|frame| tui::ui::render(frame, &app))
             .expect("Failed to draw");
@@ -407,4 +461,100 @@ async fn run_json_out(config: EmtConfig, args: &Args, duration_secs: u64, output
     file.write_all(json_output.as_bytes())
         .expect("Failed to write JSON output");
     eprintln!("JSON results written to: {output_path}");
+}
+
+async fn run_prometheus_export(config: EmtConfig, pid: Option<u32>, bind: IpAddr, port: u16) {
+    let update_interval = Duration::from_secs_f64((1.0 / config.collection.rate_hz).max(0.1));
+    let root_pids = pid.map(|p| vec![p]);
+    let mut monitor = Monitor::new(config, root_pids);
+
+    let handle = match monitor.commence().await {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to start monitoring: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let sink = Arc::new(Mutex::new(
+        PrometheusSink::new().expect("Failed to create Prometheus sink"),
+    ));
+    update_prometheus_sink(&sink, &handle.snapshot());
+
+    let app = prometheus_router(Arc::clone(&sink));
+    let address = SocketAddr::new(bind, port);
+    let listener = match tokio::net::TcpListener::bind(address).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Failed to bind Prometheus exporter on {address}: {e}");
+            let _ = monitor.shutdown().await;
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("Prometheus exporter listening on http://{address}/metrics");
+
+    let update_task = tokio::spawn(update_prometheus_sink_loop(
+        Arc::clone(&sink),
+        handle,
+        update_interval,
+    ));
+    let serve_result = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await;
+
+    update_task.abort();
+    let _ = update_task.await;
+
+    if let Err(e) = monitor.shutdown().await {
+        eprintln!("Warning: Shutdown error: {e}");
+    }
+
+    if let Err(e) = serve_result {
+        eprintln!("Prometheus exporter error: {e}");
+        std::process::exit(1);
+    }
+}
+
+async fn update_prometheus_sink_loop(
+    sink: SharedPrometheusSink,
+    handle: MonitorHandle,
+    interval: Duration,
+) {
+    loop {
+        update_prometheus_sink(&sink, &handle.snapshot());
+        tokio::time::sleep(interval).await;
+    }
+}
+
+fn update_prometheus_sink(sink: &SharedPrometheusSink, snapshot: &MetricsSnapshot) {
+    sink.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .update(snapshot);
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl-C handler");
+    };
+
+    #[cfg(unix)]
+    {
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+    }
+
+    #[cfg(not(unix))]
+    ctrl_c.await;
 }
