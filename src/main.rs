@@ -343,11 +343,19 @@ async fn run_tui(config: EmtConfig, pid: Option<u32>) {
 
     let mut app = App::new(handle);
     let tick_rate = std::time::Duration::from_millis(500);
+    #[cfg(debug_assertions)]
+    let force_panic_after_first_draw =
+        std::env::var_os("EMT_TUI_FORCE_PANIC_AFTER_FIRST_DRAW").is_some();
 
     while !app.should_quit {
         terminal
             .draw(|frame| tui::ui::render(frame, &app))
             .expect("Failed to draw");
+
+        #[cfg(debug_assertions)]
+        if force_panic_after_first_draw {
+            panic!("forced TUI panic smoke check");
+        }
 
         if let Some(event) = tui::event::poll(tick_rate) {
             match event {
