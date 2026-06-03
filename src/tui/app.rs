@@ -1,5 +1,5 @@
+use crate::metrics_sink::MetricsSink;
 use crate::monitor::{DeviceEnergy, MetricsSnapshot, MonitorHandle};
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::time::Instant;
 
@@ -9,7 +9,7 @@ const POWER_HISTORY_MAX_SAMPLES: usize = 120;
 pub struct App {
     handle: MonitorHandle,
     start_time: Instant,
-    power_history: RefCell<RollingPowerHistory>,
+    sink: TuiSink,
     pub should_quit: bool,
 }
 
@@ -18,19 +18,18 @@ impl App {
         Self {
             handle,
             start_time: Instant::now(),
-            power_history: RefCell::new(RollingPowerHistory::default()),
+            sink: TuiSink::default(),
             should_quit: false,
         }
     }
 
-    pub fn snapshot(&self) -> MetricsSnapshot {
+    pub fn refresh(&mut self) {
         let snapshot = self.handle.snapshot();
-        if snapshot.timestamp > 0 {
-            self.power_history
-                .borrow_mut()
-                .record(snapshot.timestamp as f64 / 1_000.0, &snapshot.system_total);
-        }
-        snapshot
+        self.sink.update(&snapshot);
+    }
+
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        self.sink.snapshot().clone()
     }
 
     pub fn uptime_secs(&self) -> f64 {
@@ -38,11 +37,37 @@ impl App {
     }
 
     pub fn power_history(&self) -> PowerHistorySnapshot {
-        self.power_history.borrow().snapshot()
+        self.sink.power_history()
     }
 
     pub fn quit(&mut self) {
         self.should_quit = true;
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TuiSink {
+    snapshot: MetricsSnapshot,
+    power_history: RollingPowerHistory,
+}
+
+impl TuiSink {
+    pub fn snapshot(&self) -> &MetricsSnapshot {
+        &self.snapshot
+    }
+
+    pub fn power_history(&self) -> PowerHistorySnapshot {
+        self.power_history.snapshot()
+    }
+}
+
+impl MetricsSink for TuiSink {
+    fn update(&mut self, snapshot: &MetricsSnapshot) {
+        if snapshot.timestamp > 0 {
+            self.power_history
+                .record(snapshot.timestamp as f64 / 1_000.0, &snapshot.system_total);
+        }
+        self.snapshot = snapshot.clone();
     }
 }
 
@@ -237,6 +262,26 @@ mod tests {
             dram_joules: dram,
             gpu_joules: gpu,
         }
+    }
+
+    fn snapshot(timestamp: i64, energy: DeviceEnergy) -> MetricsSnapshot {
+        MetricsSnapshot {
+            timestamp,
+            system_total: energy,
+            ..MetricsSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn tui_sink_stores_latest_snapshot_and_power_history() {
+        let mut sink = TuiSink::default();
+
+        sink.update(&snapshot(1_000, energy(1.0, 0.0, 0.0)));
+        sink.update(&snapshot(3_000, energy(11.0, 4.0, 0.0)));
+
+        assert_eq!(sink.snapshot().system_total.cpu_joules, 11.0);
+        assert_eq!(sink.power_history().cpu, vec![5.0]);
+        assert_eq!(sink.power_history().dram, vec![2.0]);
     }
 
     #[test]

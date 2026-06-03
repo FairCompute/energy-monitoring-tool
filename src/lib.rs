@@ -1,6 +1,7 @@
 pub mod collectors;
 pub mod config;
 pub mod energy_group;
+pub mod metrics_sink;
 pub mod monitor;
 pub mod process;
 pub mod process_aggregation;
