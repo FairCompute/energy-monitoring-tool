@@ -149,7 +149,7 @@ impl From<&MetricsSnapshot> for PreviousSnapshot {
             workloads: snapshot
                 .workloads
                 .iter()
-                .map(|workload| (workload_label(workload), workload.energy.clone()))
+                .map(|workload| (workload_key(workload), workload.energy.clone()))
                 .collect(),
         }
     }
@@ -187,13 +187,14 @@ impl<T> LockUnpoisoned<T> for Mutex<T> {
 }
 
 fn energy_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
-    let mut samples = device_samples("system", None, &snapshot.system_total);
+    let mut samples = device_samples("system", None, None, &snapshot.system_total);
 
     for workload in &snapshot.workloads {
-        let label = workload_label(workload);
+        let key = workload_key(workload);
         samples.extend(device_samples(
             "workload",
-            Some(label.as_str()),
+            Some(key.as_str()),
+            workload_name(workload),
             &workload.energy,
         ));
     }
@@ -215,19 +216,20 @@ fn power_samples(
     }
 
     let system_power = snapshot.system_total.saturating_sub(&previous.system_total);
-    let mut samples = device_power_samples("system", None, &system_power, elapsed_seconds);
+    let mut samples = device_power_samples("system", None, None, &system_power, elapsed_seconds);
 
     for workload in &snapshot.workloads {
-        let label = workload_label(workload);
+        let key = workload_key(workload);
         let power = previous
             .workloads
-            .get(&label)
+            .get(&key)
             .map(|previous_energy| workload.energy.saturating_sub(previous_energy))
             .unwrap_or_default();
 
         samples.extend(device_power_samples(
             "workload",
-            Some(label.as_str()),
+            Some(key.as_str()),
+            workload_name(workload),
             &power,
             elapsed_seconds,
         ));
@@ -238,13 +240,14 @@ fn power_samples(
 
 fn zero_power_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
     let zero = DeviceEnergy::default();
-    let mut samples = device_power_samples("system", None, &zero, 1.0);
+    let mut samples = device_power_samples("system", None, None, &zero, 1.0);
 
     for workload in &snapshot.workloads {
-        let label = workload_label(workload);
+        let key = workload_key(workload);
         samples.extend(device_power_samples(
             "workload",
-            Some(label.as_str()),
+            Some(key.as_str()),
+            workload_name(workload),
             &zero,
             1.0,
         ));
@@ -255,13 +258,15 @@ fn zero_power_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
 
 fn device_power_samples(
     scope: &'static str,
-    workload: Option<&str>,
+    workload_id: Option<&str>,
+    workload_name: Option<&str>,
     energy_delta: &DeviceEnergy,
     elapsed_seconds: f64,
 ) -> Vec<MetricSample> {
     device_samples(
         scope,
-        workload,
+        workload_id,
+        workload_name,
         &DeviceEnergy {
             cpu_joules: energy_delta.cpu_joules / elapsed_seconds,
             dram_joules: energy_delta.dram_joules / elapsed_seconds,
@@ -272,19 +277,27 @@ fn device_power_samples(
 
 fn device_samples(
     scope: &'static str,
-    workload: Option<&str>,
+    workload_id: Option<&str>,
+    workload_name: Option<&str>,
     energy: &DeviceEnergy,
 ) -> Vec<MetricSample> {
     vec![
-        metric_sample(scope, workload, "cpu", energy.cpu_joules),
-        metric_sample(scope, workload, "dram", energy.dram_joules),
-        metric_sample(scope, workload, "gpu", energy.gpu_joules),
+        metric_sample(scope, workload_id, workload_name, "cpu", energy.cpu_joules),
+        metric_sample(
+            scope,
+            workload_id,
+            workload_name,
+            "dram",
+            energy.dram_joules,
+        ),
+        metric_sample(scope, workload_id, workload_name, "gpu", energy.gpu_joules),
     ]
 }
 
 fn metric_sample(
     scope: &'static str,
-    workload: Option<&str>,
+    workload_id: Option<&str>,
+    workload_name: Option<&str>,
     device: &'static str,
     value: f64,
 ) -> MetricSample {
@@ -294,18 +307,29 @@ fn metric_sample(
         ("socket", SOCKET_LABEL.to_string()),
     ];
 
-    if let Some(workload) = workload {
-        labels.push(("workload", workload.to_string()));
+    if let Some(workload_id) = workload_id {
+        labels.push(("workload", workload_id.to_string()));
+    }
+    if let Some(workload_name) = workload_name {
+        labels.push(("workload_name", workload_name.to_string()));
     }
 
     MetricSample { value, labels }
 }
 
-fn workload_label(workload: &WorkloadSnapshot) -> String {
-    if workload.name.is_empty() {
-        workload.group_id.clone()
+fn workload_key(workload: &WorkloadSnapshot) -> String {
+    if workload.group_id.is_empty() {
+        format!("pid:{}", workload.root_pid)
     } else {
-        workload.name.clone()
+        workload.group_id.clone()
+    }
+}
+
+fn workload_name(workload: &WorkloadSnapshot) -> Option<&str> {
+    if workload.name.is_empty() {
+        None
+    } else {
+        Some(workload.name.as_str())
     }
 }
 
@@ -408,7 +432,7 @@ mod tests {
         );
         assert!(
             exposition.contains(
-                "emt_energy_joules_total{device=\"gpu\",scope=\"workload\",socket=\"0\",workload=\"render\"} 6"
+                "emt_energy_joules_total{device=\"gpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 6"
             ),
             "{exposition}"
         );
@@ -418,7 +442,7 @@ mod tests {
         );
         assert!(
             exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"render\"} 1"
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 1"
             ),
             "{exposition}"
         );
@@ -451,10 +475,57 @@ mod tests {
         );
         assert!(
             exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"render\"} 0"
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
             ),
             "{exposition}"
         );
+    }
+
+    #[test]
+    fn prometheus_sink_keys_workloads_by_group_id_not_display_name() {
+        let mut sink = PrometheusSink::new().unwrap();
+        sink.update(&multi_workload_snapshot(
+            1_000,
+            vec![
+                workload("group-a", "python", energy(1.0, 0.0, 0.0)),
+                workload("group-b", "python", energy(100.0, 0.0, 0.0)),
+            ],
+        ));
+        sink.update(&multi_workload_snapshot(
+            3_000,
+            vec![
+                workload("group-a", "python", energy(3.0, 0.0, 0.0)),
+                workload("group-b", "python", energy(101.0, 0.0, 0.0)),
+            ],
+        ));
+
+        let exposition = sink.encode_text().unwrap();
+
+        assert!(
+            exposition.contains(
+                "emt_energy_joules_total{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"python\"} 3"
+            ),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_energy_joules_total{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-b\",workload_name=\"python\"} 101"
+            ),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"python\"} 1"
+            ),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-b\",workload_name=\"python\"} 0.5"
+            ),
+            "{exposition}"
+        );
+        assert!(!exposition.contains("workload=\"python\""));
     }
 
     #[tokio::test]
@@ -517,20 +588,61 @@ mod tests {
         system_total: DeviceEnergy,
         workload_energy: DeviceEnergy,
     ) -> MetricsSnapshot {
+        multi_workload_snapshot(
+            timestamp,
+            vec![workload("group-a", "render", workload_energy)],
+        )
+        .with_system_total(system_total)
+    }
+
+    fn multi_workload_snapshot(
+        timestamp: i64,
+        workloads: Vec<WorkloadSnapshot>,
+    ) -> MetricsSnapshot {
+        let system_total = DeviceEnergy {
+            cpu_joules: workloads
+                .iter()
+                .map(|workload| workload.energy.cpu_joules)
+                .sum(),
+            dram_joules: workloads
+                .iter()
+                .map(|workload| workload.energy.dram_joules)
+                .sum(),
+            gpu_joules: workloads
+                .iter()
+                .map(|workload| workload.energy.gpu_joules)
+                .sum(),
+        };
+
         MetricsSnapshot {
             timestamp,
             system_total,
-            workloads: vec![WorkloadSnapshot {
-                root_pid: 123,
-                group_id: "group-a".to_string(),
-                name: "render".to_string(),
-                user: "user".to_string(),
-                energy: workload_energy,
-                power_watts: 0.0,
-                percentage_of_system: 0.0,
-            }],
+            workloads,
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![123],
+        }
+    }
+
+    fn workload(group_id: &str, name: &str, energy: DeviceEnergy) -> WorkloadSnapshot {
+        WorkloadSnapshot {
+            root_pid: 123,
+            group_id: group_id.to_string(),
+            name: name.to_string(),
+            user: "user".to_string(),
+            energy,
+            power_watts: 0.0,
+            percentage_of_system: 0.0,
+        }
+    }
+
+    trait WithSystemTotal {
+        fn with_system_total(self, system_total: DeviceEnergy) -> Self;
+    }
+
+    impl WithSystemTotal for MetricsSnapshot {
+        fn with_system_total(mut self, system_total: DeviceEnergy) -> Self {
+            self.system_total = system_total;
+            self
         }
     }
 }
