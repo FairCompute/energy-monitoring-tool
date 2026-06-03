@@ -4,6 +4,8 @@ use std::time::Duration;
 pub enum AppEvent {
     Tick,
     Quit,
+    CycleSortMode,
+    ResetDisplay,
 }
 
 pub fn poll(timeout: Duration) -> Option<AppEvent> {
@@ -18,6 +20,8 @@ pub fn poll(timeout: Duration) -> Option<AppEvent> {
 fn handle_key(key: KeyEvent) -> AppEvent {
     match key.code {
         KeyCode::Char('q') => AppEvent::Quit,
+        KeyCode::Char('s') => AppEvent::CycleSortMode,
+        KeyCode::Char('r') => AppEvent::ResetDisplay,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => AppEvent::Quit,
         _ => AppEvent::Tick,
     }
