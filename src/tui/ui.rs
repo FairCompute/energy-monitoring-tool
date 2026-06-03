@@ -326,6 +326,7 @@ mod tests {
         assert!(screen.contains("Interval CPU: 5.00 W"));
         assert!(screen.contains("Interval DRAM: 1.50 W"));
         assert!(screen.contains("Avg Power (W)"));
+        assert!(screen.contains("2.50"));
         assert!(screen.contains("python workload.py"));
         assert!(screen.contains("Tracked PIDs: 2"));
     }
