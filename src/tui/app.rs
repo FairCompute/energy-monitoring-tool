@@ -96,8 +96,11 @@ impl App {
     }
 
     pub fn expand_selected(&mut self) {
-        if let Some(group_id) = self.selected_group_id() {
-            self.state.expand_group(group_id);
+        let snapshot = self.sink.display_snapshot(self.state.sort_mode);
+        if let Some(workload) = snapshot.workloads.get(self.state.selected_group_index) {
+            if workload.is_live {
+                self.state.expand_group(workload.group_id.clone());
+            }
         }
     }
 
@@ -148,7 +151,7 @@ impl App {
         let Some(workload) = snapshot.workloads.get(self.state.selected_group_index) else {
             return false;
         };
-        if !self.state.expanded_group_ids.contains(&workload.group_id) {
+        if !workload.is_live || !self.state.expanded_group_ids.contains(&workload.group_id) {
             return false;
         }
 
@@ -157,14 +160,15 @@ impl App {
     }
 
     fn scroll_selected_children_previous(&mut self) -> bool {
-        let Some(group_id) = self.selected_group_id() else {
+        let snapshot = self.sink.display_snapshot(self.state.sort_mode);
+        let Some(workload) = snapshot.workloads.get(self.state.selected_group_index) else {
             return false;
         };
-        if !self.state.expanded_group_ids.contains(&group_id) {
+        if !workload.is_live || !self.state.expanded_group_ids.contains(&workload.group_id) {
             return false;
         }
 
-        self.state.scroll_children_previous(&group_id)
+        self.state.scroll_children_previous(&workload.group_id)
     }
 }
 
@@ -289,6 +293,7 @@ impl SortMode {
 pub struct TuiSink {
     snapshot: MetricsSnapshot,
     baseline: Option<ResetBaseline>,
+    hidden_dead_group_ids: HashSet<String>,
     power_history: RollingPowerHistory,
 }
 
@@ -308,6 +313,14 @@ impl TuiSink {
     }
 
     pub fn reset(&mut self) {
+        self.hidden_dead_group_ids = self
+            .snapshot
+            .workloads
+            .iter()
+            .filter(|workload| !workload.is_live)
+            .map(|workload| workload.group_id.clone())
+            .collect();
+
         if self.snapshot.timestamp > 0 {
             self.power_history.reset(Some((
                 timestamp_to_secs(self.snapshot.timestamp),
@@ -330,6 +343,7 @@ impl TuiSink {
     fn baseline_adjusted_snapshot(&self) -> MetricsSnapshot {
         let mut snapshot = self.snapshot.clone();
         let Some(baseline) = &self.baseline else {
+            self.hide_reset_dead_workloads(&mut snapshot);
             return snapshot;
         };
 
@@ -367,7 +381,52 @@ impl TuiSink {
             }
         }
 
+        self.hide_reset_dead_workloads(&mut snapshot);
+
         snapshot
+    }
+
+    fn hide_reset_dead_workloads(&self, snapshot: &mut MetricsSnapshot) {
+        if self.hidden_dead_group_ids.is_empty() {
+            return;
+        }
+
+        let original_len = snapshot.workloads.len();
+        snapshot.workloads.retain(|workload| {
+            workload.is_live || !self.hidden_dead_group_ids.contains(&workload.group_id)
+        });
+        if snapshot.workloads.len() == original_len {
+            return;
+        }
+
+        snapshot.system_total = system_total_from_display_workloads(snapshot);
+        for workload in &mut snapshot.workloads {
+            workload.percentage_of_system =
+                percentage_of_system(&workload.energy, &snapshot.system_total);
+        }
+    }
+}
+
+fn system_total_from_display_workloads(snapshot: &MetricsSnapshot) -> DeviceEnergy {
+    DeviceEnergy {
+        cpu_joules: snapshot
+            .workloads
+            .iter()
+            .map(|workload| workload.energy.cpu_joules)
+            .sum::<f64>()
+            + snapshot.unattributed.cpu_joules,
+        dram_joules: snapshot
+            .workloads
+            .iter()
+            .map(|workload| workload.energy.dram_joules)
+            .sum::<f64>()
+            + snapshot.unattributed.dram_joules,
+        gpu_joules: snapshot
+            .workloads
+            .iter()
+            .map(|workload| workload.energy.gpu_joules)
+            .sum::<f64>()
+            + snapshot.unattributed.gpu_joules,
     }
 }
 
@@ -674,6 +733,7 @@ mod tests {
             name: name.to_string(),
             user: "user".to_string(),
             processes: Vec::new(),
+            is_live: true,
             energy,
             power_watts: 0.0,
             percentage_of_system: 0.0,
@@ -894,6 +954,43 @@ mod tests {
         assert_eq!(display.workloads[1].processes[0].power_watts, 1.5);
         assert_energy(&display.system_total, &energy(5.0, 1.0, 1.0));
         assert_eq!(sink.power_history().cpu, vec![2.5]);
+    }
+
+    #[test]
+    fn reset_clears_dead_groups_from_display() {
+        let mut sink = TuiSink::default();
+        let mut before_reset = snapshot(2_000, energy(15.0, 0.0, 0.0));
+        before_reset.workloads = vec![
+            workload("pid:101", "live", energy(10.0, 0.0, 0.0)),
+            WorkloadSnapshot {
+                is_live: false,
+                ..workload("pid:202", "dead", energy(5.0, 0.0, 0.0))
+            },
+        ];
+        sink.update(&before_reset);
+
+        assert_eq!(
+            workload_names(&sink.display_snapshot(SortMode::Name)),
+            vec!["dead", "live"]
+        );
+
+        sink.reset();
+        let mut after_reset = snapshot(3_000, energy(22.0, 0.0, 0.0));
+        after_reset.workloads = vec![
+            workload("pid:101", "live", energy(15.0, 0.0, 0.0)),
+            WorkloadSnapshot {
+                is_live: false,
+                ..workload("pid:202", "dead", energy(7.0, 0.0, 0.0))
+            },
+        ];
+        sink.update(&after_reset);
+
+        let display = sink.display_snapshot(SortMode::Name);
+
+        assert_eq!(workload_names(&display), vec!["live"]);
+        assert_eq!(display.workloads[0].energy.total(), 5.0);
+        assert_eq!(display.system_total.total(), 5.0);
+        assert_eq!(display.workloads[0].percentage_of_system, 100.0);
     }
 
     #[test]

@@ -356,7 +356,9 @@ fn workload_table_rows(
 
     for (group_index, workload) in snapshot.workloads.iter().enumerate() {
         let is_expanded = expanded_group_ids.contains(&workload.group_id);
-        let disclosure = if workload.processes.is_empty() {
+        let disclosure = if !workload.is_live {
+            "x "
+        } else if workload.processes.is_empty() {
             "  "
         } else if is_expanded {
             "v "
@@ -365,6 +367,8 @@ fn workload_table_rows(
         };
         let style = if group_index == selected_group_index {
             Style::default().add_modifier(Modifier::REVERSED)
+        } else if !workload.is_live {
+            Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
         };
@@ -381,7 +385,7 @@ fn workload_table_rows(
             group_index: Some(group_index),
         });
 
-        if is_expanded {
+        if workload.is_live && is_expanded {
             let offset = child_scroll_offsets
                 .get(&workload.group_id)
                 .copied()
@@ -473,6 +477,7 @@ mod tests {
                 name: "python workload.py".to_string(),
                 user: "alice".to_string(),
                 processes: Vec::new(),
+                is_live: true,
                 energy: DeviceEnergy {
                     cpu_joules: 120.0,
                     dram_joules: 30.0,
@@ -600,6 +605,7 @@ mod tests {
                     },
                     power_watts: 7.5,
                 }],
+                is_live: true,
                 energy: DeviceEnergy {
                     cpu_joules: 20.0,
                     dram_joules: 4.0,
@@ -664,6 +670,7 @@ mod tests {
                     },
                     power_watts: 4.0,
                 }],
+                is_live: true,
                 energy: DeviceEnergy {
                     cpu_joules: 8.0,
                     dram_joules: 0.0,
@@ -681,6 +688,69 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].cells[0], "> python");
         assert!(rows[0].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn workload_table_rows_mark_dead_groups() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            system_total: DeviceEnergy {
+                cpu_joules: 8.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![
+                WorkloadSnapshot {
+                    root_pid: 100,
+                    group_id: "pid:100".to_string(),
+                    name: "live".to_string(),
+                    user: "alice".to_string(),
+                    processes: Vec::new(),
+                    is_live: true,
+                    energy: DeviceEnergy {
+                        cpu_joules: 3.0,
+                        dram_joules: 0.0,
+                        gpu_joules: 0.0,
+                    },
+                    power_watts: 3.0,
+                    percentage_of_system: 37.5,
+                },
+                WorkloadSnapshot {
+                    root_pid: 200,
+                    group_id: "pid:200".to_string(),
+                    name: "finished".to_string(),
+                    user: "alice".to_string(),
+                    processes: vec![crate::monitor::ProcessEnergySnapshot {
+                        pid: 201,
+                        name: "stale-child".to_string(),
+                        energy: DeviceEnergy {
+                            cpu_joules: 2.0,
+                            dram_joules: 0.0,
+                            gpu_joules: 0.0,
+                        },
+                        power_watts: 0.0,
+                    }],
+                    is_live: false,
+                    energy: DeviceEnergy {
+                        cpu_joules: 5.0,
+                        dram_joules: 0.0,
+                        gpu_joules: 0.0,
+                    },
+                    power_watts: 0.0,
+                    percentage_of_system: 62.5,
+                },
+            ],
+            unattributed: DeviceEnergy::default(),
+            tracked_pids: vec![100],
+        };
+        let expanded = HashSet::from(["pid:200".to_string()]);
+
+        let rows = workload_table_rows(&snapshot, 0, &expanded, &HashMap::new());
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].cells[0], "x finished");
+        assert_eq!(rows[1].style.fg, Some(Color::DarkGray));
     }
 
     #[test]
@@ -710,6 +780,7 @@ mod tests {
                         power_watts: 1.0,
                     })
                     .collect(),
+                is_live: true,
                 energy: DeviceEnergy {
                     cpu_joules: 3.0,
                     dram_joules: 0.0,
