@@ -1,6 +1,6 @@
 use crate::monitor::MetricsSnapshot;
 use crate::tui::App;
-use crate::tui::app::PowerHistorySnapshot;
+use crate::tui::app::{PowerHistorySnapshot, SortMode};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -10,16 +10,27 @@ use ratatui::widgets::{Block, Borders, Paragraph, Row, Sparkline, Table};
 pub fn render(frame: &mut Frame, app: &App) {
     let snapshot = app.snapshot();
     let uptime = app.uptime_secs();
+    let display_elapsed = app.display_elapsed_secs();
     let power_history = app.power_history();
+    let sort_mode = app.sort_mode();
 
-    render_snapshot(frame, &snapshot, uptime, &power_history);
+    render_snapshot(
+        frame,
+        &snapshot,
+        uptime,
+        display_elapsed,
+        &power_history,
+        sort_mode,
+    );
 }
 
 fn render_snapshot(
     frame: &mut Frame,
     snapshot: &MetricsSnapshot,
     uptime: f64,
+    display_elapsed: f64,
     power_history: &PowerHistorySnapshot,
+    sort_mode: SortMode,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -30,9 +41,16 @@ fn render_snapshot(
         ])
         .split(frame.area());
 
-    render_header(frame, chunks[0], snapshot, uptime, power_history);
+    render_header(
+        frame,
+        chunks[0],
+        snapshot,
+        uptime,
+        display_elapsed,
+        power_history,
+    );
     render_body(frame, chunks[1], snapshot);
-    render_footer(frame, chunks[2]);
+    render_footer(frame, chunks[2], sort_mode);
 }
 
 fn render_header(
@@ -40,11 +58,12 @@ fn render_header(
     area: Rect,
     snapshot: &MetricsSnapshot,
     uptime: f64,
+    display_elapsed: f64,
     power_history: &PowerHistorySnapshot,
 ) {
     let total_energy = snapshot.system_total.total();
-    let power = if uptime > 0.0 {
-        total_energy / uptime
+    let power = if display_elapsed > 0.0 {
+        total_energy / display_elapsed
     } else {
         0.0
     };
@@ -275,10 +294,15 @@ fn render_body(frame: &mut Frame, area: Rect, snapshot: &MetricsSnapshot) {
     frame.render_widget(table, area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect) {
+fn render_footer(frame: &mut Frame, area: Rect, sort_mode: SortMode) {
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(" q", Style::default().fg(Color::Red)),
         Span::raw(" quit"),
+        Span::styled("  s", Style::default().fg(Color::Cyan)),
+        Span::raw(" sort "),
+        Span::styled(sort_mode.label(), Style::default().fg(Color::Yellow)),
+        Span::styled("  r", Style::default().fg(Color::Cyan)),
+        Span::raw(" reset"),
     ]));
     frame.render_widget(footer, area);
 }
@@ -341,7 +365,16 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
 
         terminal
-            .draw(|frame| render_snapshot(frame, &snapshot, 60.0, &power_history))
+            .draw(|frame| {
+                render_snapshot(
+                    frame,
+                    &snapshot,
+                    60.0,
+                    60.0,
+                    &power_history,
+                    SortMode::Energy,
+                )
+            })
             .unwrap();
 
         let screen = terminal.backend().to_string();
@@ -354,6 +387,8 @@ mod tests {
         assert!(screen.contains("2.50"));
         assert!(screen.contains("python workload.py"));
         assert!(screen.contains("Tracked PIDs: 2"));
+        assert!(screen.contains("sort energy"));
+        assert!(screen.contains("reset"));
     }
 
     #[test]
@@ -382,7 +417,16 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
 
         terminal
-            .draw(|frame| render_snapshot(frame, &snapshot, 60.0, &power_history))
+            .draw(|frame| {
+                render_snapshot(
+                    frame,
+                    &snapshot,
+                    60.0,
+                    60.0,
+                    &power_history,
+                    SortMode::Energy,
+                )
+            })
             .unwrap();
 
         let screen = terminal.backend().to_string();

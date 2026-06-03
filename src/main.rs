@@ -415,6 +415,8 @@ async fn run_tui(config: EmtConfig, pid: Option<u32>) {
         if let Some(event) = tui::event::poll(tick_rate) {
             match event {
                 tui::event::AppEvent::Quit => app.quit(),
+                tui::event::AppEvent::CycleSortMode => app.cycle_sort_mode(),
+                tui::event::AppEvent::ResetDisplay => app.reset_display(),
                 tui::event::AppEvent::Tick => {}
             }
         }
