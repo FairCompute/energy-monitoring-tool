@@ -114,6 +114,7 @@ mod tests {
         };
         let snapshot = MetricsSnapshot {
             timestamp: 0,
+            gpu_available: false,
             system_total: DeviceEnergy {
                 cpu_joules: 2_700.0,
                 dram_joules: 900.0,

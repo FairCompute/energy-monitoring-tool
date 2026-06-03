@@ -56,6 +56,7 @@ pub struct WorkloadSnapshot {
 #[derive(Debug, Clone, Default)]
 pub struct MetricsSnapshot {
     pub timestamp: i64,
+    pub gpu_available: bool,
     pub system_total: DeviceEnergy,
     pub workloads: Vec<WorkloadSnapshot>,
     pub unattributed: DeviceEnergy,
@@ -336,6 +337,8 @@ impl Monitor {
                 None
             };
 
+        let gpu_available = gpu_group.is_some();
+
         Self {
             config,
             rapl_group: Arc::new(Mutex::new(rapl_group)),
@@ -347,7 +350,10 @@ impl Monitor {
             start_timestamp: Arc::new(RwLock::new(0)),
             tick_handle: None,
             scan_handle: None,
-            snapshot: Arc::new(RwLock::new(MetricsSnapshot::default())),
+            snapshot: Arc::new(RwLock::new(MetricsSnapshot {
+                gpu_available,
+                ..MetricsSnapshot::default()
+            })),
             is_running: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -365,7 +371,10 @@ impl Monitor {
         *self.known_groups.write().unwrap() = HashMap::new();
         *self.last_pid_to_group.write().unwrap() = HashMap::new();
         *self.start_timestamp.write().unwrap() = 0;
-        *self.snapshot.write().unwrap() = MetricsSnapshot::default();
+        *self.snapshot.write().unwrap() = MetricsSnapshot {
+            gpu_available: self.gpu_group.is_some(),
+            ..MetricsSnapshot::default()
+        };
 
         let initial_groups = if let Some(root_pids) = &self.root_pids {
             let pids = root_pids.clone();
@@ -535,6 +544,7 @@ impl Monitor {
         apply_workload_percentages(&mut workloads, &system_total);
 
         snap.timestamp = current_timestamp;
+        snap.gpu_available = self.gpu_group.is_some();
         snap.workloads = workloads;
         snap.system_total = system_total;
     }
@@ -544,6 +554,7 @@ impl Monitor {
         let interval = Duration::from_secs_f64(1.0 / self.config.collection.rate_hz);
         let rapl_group = Arc::clone(&self.rapl_group);
         let gpu_group = self.gpu_group.clone();
+        let gpu_available = gpu_group.is_some();
         let root_pids = self.root_pids.clone();
         let discovered_groups = Arc::clone(&self.discovered_groups);
         let known_groups = Arc::clone(&self.known_groups);
@@ -647,6 +658,7 @@ impl Monitor {
                 {
                     let mut snap = snapshot.write().unwrap();
                     snap.timestamp = current_timestamp;
+                    snap.gpu_available = gpu_available;
                     snap.system_total = cumulative_system_total;
                     snap.workloads = workloads;
                     snap.unattributed = cumulative_unattributed;
@@ -750,10 +762,22 @@ mod tests {
     fn metrics_snapshot_default() {
         let snap = MetricsSnapshot::default();
         assert_eq!(snap.timestamp, 0);
+        assert!(!snap.gpu_available);
         assert_eq!(snap.system_total.total(), 0.0);
         assert!(snap.workloads.is_empty());
         assert_eq!(snap.unattributed.total(), 0.0);
         assert!(snap.tracked_pids.is_empty());
+    }
+
+    #[test]
+    fn monitor_initial_snapshot_reports_gpu_availability() {
+        let monitor = Monitor::new(EmtConfig::default(), Some(vec![std::process::id()]));
+        let expected_gpu_available =
+            std::env::var_os("EMT_DISABLE_GPU").is_none() && NvidiaGpu::is_available();
+
+        let snapshot = monitor.snapshot.read().unwrap();
+
+        assert_eq!(snapshot.gpu_available, expected_gpu_available);
     }
 
     #[tokio::test]
