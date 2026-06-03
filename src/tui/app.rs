@@ -1,9 +1,8 @@
 use crate::metrics_sink::MetricsSink;
-use crate::monitor::{DeviceEnergy, MetricsSnapshot, MonitorHandle};
+use crate::monitor::{DeviceEnergy, MetricsSnapshot, MonitorHandle, WorkloadSnapshot};
 use crate::process_aggregation::percentage_of_system;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 const POWER_HISTORY_WINDOW_SECS: f64 = 60.0;
@@ -29,8 +28,10 @@ impl App {
     }
 
     pub fn refresh(&mut self) {
+        let selected_group_id = self.selected_group_id();
         let snapshot = self.handle.snapshot();
         self.sink.update(&snapshot);
+        self.restore_selection(selected_group_id);
     }
 
     pub fn snapshot(&self) -> MetricsSnapshot {
@@ -54,28 +55,207 @@ impl App {
     }
 
     pub fn cycle_sort_mode(&mut self) {
+        let selected_group_id = self.selected_group_id();
         self.state.cycle_sort_mode();
+        self.restore_selection(selected_group_id);
     }
 
     pub fn reset_display(&mut self) {
+        let selected_group_id = self.selected_group_id();
         let snapshot = self.handle.snapshot();
         self.sink.update(&snapshot);
         self.sink.reset();
+        self.restore_selection(selected_group_id);
+    }
+
+    pub fn selected_group_index(&self) -> usize {
+        self.state.selected_group_index
+    }
+
+    pub fn expanded_group_ids(&self) -> &HashSet<String> {
+        &self.state.expanded_group_ids
+    }
+
+    pub fn child_scroll_offsets(&self) -> &HashMap<String, usize> {
+        &self.state.child_scroll_offsets
+    }
+
+    pub fn select_previous(&mut self) {
+        if self.scroll_selected_children_previous() {
+            return;
+        }
+        self.state.select_previous();
+    }
+
+    pub fn select_next(&mut self) {
+        if self.scroll_selected_children_next() {
+            return;
+        }
+        let workload_count = self.current_workload_count();
+        self.state.select_next(workload_count);
+    }
+
+    pub fn expand_selected(&mut self) {
+        if let Some(group_id) = self.selected_group_id() {
+            self.state.expand_group(group_id);
+        }
+    }
+
+    pub fn collapse_selected(&mut self) {
+        if let Some(group_id) = self.selected_group_id() {
+            self.state.collapse_group(&group_id);
+        }
     }
 
     pub fn quit(&mut self) {
         self.should_quit = true;
+    }
+
+    fn selected_group_id(&self) -> Option<String> {
+        self.sink
+            .display_snapshot(self.state.sort_mode)
+            .workloads
+            .get(self.state.selected_group_index)
+            .map(|workload| workload.group_id.clone())
+    }
+
+    fn restore_selection(&mut self, selected_group_id: Option<String>) {
+        let snapshot = self.sink.display_snapshot(self.state.sort_mode);
+        if let Some(group_id) = selected_group_id {
+            if let Some(index) = snapshot
+                .workloads
+                .iter()
+                .position(|workload| workload.group_id == group_id)
+            {
+                self.state.selected_group_index = index;
+                self.state.clamp_child_scroll_offsets(&snapshot.workloads);
+                return;
+            }
+        }
+        self.state.clamp_selection(snapshot.workloads.len());
+        self.state.clamp_child_scroll_offsets(&snapshot.workloads);
+    }
+
+    fn current_workload_count(&self) -> usize {
+        self.sink
+            .display_snapshot(self.state.sort_mode)
+            .workloads
+            .len()
+    }
+
+    fn scroll_selected_children_next(&mut self) -> bool {
+        let snapshot = self.sink.display_snapshot(self.state.sort_mode);
+        let Some(workload) = snapshot.workloads.get(self.state.selected_group_index) else {
+            return false;
+        };
+        if !self.state.expanded_group_ids.contains(&workload.group_id) {
+            return false;
+        }
+
+        self.state
+            .scroll_children_next(&workload.group_id, workload.processes.len())
+    }
+
+    fn scroll_selected_children_previous(&mut self) -> bool {
+        let Some(group_id) = self.selected_group_id() else {
+            return false;
+        };
+        if !self.state.expanded_group_ids.contains(&group_id) {
+            return false;
+        }
+
+        self.state.scroll_children_previous(&group_id)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 struct AppState {
     sort_mode: SortMode,
+    selected_group_index: usize,
+    expanded_group_ids: HashSet<String>,
+    child_scroll_offsets: HashMap<String, usize>,
 }
 
 impl AppState {
     fn cycle_sort_mode(&mut self) {
         self.sort_mode = self.sort_mode.next();
+    }
+
+    fn select_previous(&mut self) {
+        self.selected_group_index = self.selected_group_index.saturating_sub(1);
+    }
+
+    fn select_next(&mut self, workload_count: usize) {
+        if workload_count == 0 {
+            self.selected_group_index = 0;
+            return;
+        }
+
+        let last_index = workload_count - 1;
+        self.selected_group_index = (self.selected_group_index + 1).min(last_index);
+    }
+
+    fn clamp_selection(&mut self, workload_count: usize) {
+        if workload_count == 0 {
+            self.selected_group_index = 0;
+        } else {
+            self.selected_group_index = self.selected_group_index.min(workload_count - 1);
+        }
+    }
+
+    fn expand_group(&mut self, group_id: String) {
+        self.expanded_group_ids.insert(group_id);
+    }
+
+    fn collapse_group(&mut self, group_id: &str) {
+        self.expanded_group_ids.remove(group_id);
+    }
+
+    fn scroll_children_next(&mut self, group_id: &str, child_count: usize) -> bool {
+        if child_count <= 1 {
+            return false;
+        }
+
+        let offset = self
+            .child_scroll_offsets
+            .entry(group_id.to_string())
+            .or_default();
+        if *offset + 1 >= child_count {
+            return false;
+        }
+
+        *offset += 1;
+        true
+    }
+
+    fn scroll_children_previous(&mut self, group_id: &str) -> bool {
+        if let Some(offset) = self.child_scroll_offsets.get_mut(group_id) {
+            if *offset == 0 {
+                return false;
+            }
+            *offset = offset.saturating_sub(1);
+            return true;
+        }
+
+        false
+    }
+
+    fn clamp_child_scroll_offsets(&mut self, workloads: &[WorkloadSnapshot]) {
+        let child_counts: HashMap<&str, usize> = workloads
+            .iter()
+            .map(|workload| (workload.group_id.as_str(), workload.processes.len()))
+            .collect();
+
+        self.child_scroll_offsets
+            .retain(|group_id, _| child_counts.contains_key(group_id.as_str()));
+        for (group_id, offset) in &mut self.child_scroll_offsets {
+            let max_offset = child_counts
+                .get(group_id.as_str())
+                .copied()
+                .unwrap_or_default()
+                .saturating_sub(1);
+            *offset = (*offset).min(max_offset);
+        }
     }
 }
 
@@ -171,6 +351,20 @@ impl TuiSink {
             };
             workload.percentage_of_system =
                 percentage_of_system(&workload.energy, &snapshot.system_total);
+
+            for process in &mut workload.processes {
+                let baseline_energy = baseline
+                    .processes
+                    .get(&(workload.group_id.clone(), process.pid))
+                    .cloned()
+                    .unwrap_or_default();
+                process.energy = process.energy.saturating_sub(&baseline_energy);
+                process.power_watts = if elapsed_secs > f64::EPSILON {
+                    process.energy.total() / elapsed_secs
+                } else {
+                    0.0
+                };
+            }
         }
 
         snapshot
@@ -193,6 +387,7 @@ struct ResetBaseline {
     system_total: DeviceEnergy,
     unattributed: DeviceEnergy,
     workloads: HashMap<String, DeviceEnergy>,
+    processes: HashMap<(String, u32), DeviceEnergy>,
 }
 
 impl ResetBaseline {
@@ -216,6 +411,18 @@ impl From<&MetricsSnapshot> for ResetBaseline {
                 .workloads
                 .iter()
                 .map(|workload| (workload.group_id.clone(), workload.energy.clone()))
+                .collect(),
+            processes: snapshot
+                .workloads
+                .iter()
+                .flat_map(|workload| {
+                    workload.processes.iter().map(|process| {
+                        (
+                            (workload.group_id.clone(), process.pid),
+                            process.energy.clone(),
+                        )
+                    })
+                })
                 .collect(),
         }
     }
@@ -442,7 +649,7 @@ struct PowerSample {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::monitor::WorkloadSnapshot;
+    use crate::monitor::{ProcessEnergySnapshot, WorkloadSnapshot};
 
     fn energy(cpu: f64, dram: f64, gpu: f64) -> DeviceEnergy {
         DeviceEnergy {
@@ -466,9 +673,19 @@ mod tests {
             group_id: group_id.to_string(),
             name: name.to_string(),
             user: "user".to_string(),
+            processes: Vec::new(),
             energy,
             power_watts: 0.0,
             percentage_of_system: 0.0,
+        }
+    }
+
+    fn process(pid: u32, name: &str, energy: DeviceEnergy) -> ProcessEnergySnapshot {
+        ProcessEnergySnapshot {
+            pid,
+            name: name.to_string(),
+            energy,
+            power_watts: 0.0,
         }
     }
 
@@ -483,6 +700,74 @@ mod tests {
         assert_eq!(state.sort_mode, SortMode::Name);
         state.cycle_sort_mode();
         assert_eq!(state.sort_mode, SortMode::Energy);
+    }
+
+    #[test]
+    fn app_state_navigation_clamps_to_group_boundaries() {
+        let mut state = AppState::default();
+
+        state.select_previous();
+        assert_eq!(state.selected_group_index, 0);
+
+        state.select_next(3);
+        state.select_next(3);
+        state.select_next(3);
+        state.select_next(3);
+        assert_eq!(state.selected_group_index, 2);
+
+        state.clamp_selection(1);
+        assert_eq!(state.selected_group_index, 0);
+        state.select_next(0);
+        assert_eq!(state.selected_group_index, 0);
+    }
+
+    #[test]
+    fn app_state_tracks_expanded_group_ids_until_collapse() {
+        let mut state = AppState::default();
+
+        state.expand_group("pid:123".to_string());
+        state.clamp_selection(1);
+        assert!(state.expanded_group_ids.contains("pid:123"));
+
+        state.collapse_group("pid:123");
+        assert!(!state.expanded_group_ids.contains("pid:123"));
+    }
+
+    #[test]
+    fn app_state_scrolls_expanded_children_before_leaving_group() {
+        let mut state = AppState::default();
+        state.expand_group("pid:123".to_string());
+
+        assert!(state.scroll_children_next("pid:123", 3));
+        assert!(state.scroll_children_next("pid:123", 3));
+        assert!(!state.scroll_children_next("pid:123", 3));
+        assert_eq!(state.child_scroll_offsets.get("pid:123"), Some(&2));
+
+        assert!(state.scroll_children_previous("pid:123"));
+        assert!(state.scroll_children_previous("pid:123"));
+        assert!(!state.scroll_children_previous("pid:123"));
+        assert_eq!(state.child_scroll_offsets.get("pid:123"), Some(&0));
+    }
+
+    #[test]
+    fn app_state_clamps_stale_child_scroll_offsets_to_current_process_count() {
+        let mut state = AppState::default();
+        state.child_scroll_offsets.insert("pid:123".to_string(), 5);
+        state
+            .child_scroll_offsets
+            .insert("pid:missing".to_string(), 2);
+        let workload = WorkloadSnapshot {
+            processes: vec![
+                process(123, "child-a", DeviceEnergy::default()),
+                process(124, "child-b", DeviceEnergy::default()),
+            ],
+            ..workload("pid:123", "parent", DeviceEnergy::default())
+        };
+
+        state.clamp_child_scroll_offsets(&[workload]);
+
+        assert_eq!(state.child_scroll_offsets.get("pid:123"), Some(&1));
+        assert!(!state.child_scroll_offsets.contains_key("pid:missing"));
     }
 
     #[test]
@@ -540,12 +825,14 @@ mod tests {
                 root_pid: 101,
                 power_watts: 5.0,
                 percentage_of_system: 60.0,
+                processes: vec![process(101, "rustc", energy(10.0, 2.0, 1.0))],
                 ..workload("pid:101", "compile", energy(10.0, 2.0, 1.0))
             },
             WorkloadSnapshot {
                 root_pid: 202,
                 power_watts: 3.0,
                 percentage_of_system: 40.0,
+                processes: vec![process(202, "cargo", energy(5.0, 4.0, 0.0))],
                 ..workload("pid:202", "test", energy(5.0, 4.0, 0.0))
             },
         ];
@@ -578,11 +865,13 @@ mod tests {
             WorkloadSnapshot {
                 root_pid: 101,
                 power_watts: 6.0,
+                processes: vec![process(101, "rustc", energy(12.0, 4.0, 2.0))],
                 ..workload("pid:101", "compile", energy(12.0, 4.0, 2.0))
             },
             WorkloadSnapshot {
                 root_pid: 202,
                 power_watts: 4.0,
+                processes: vec![process(202, "cargo", energy(8.0, 3.0, 0.0))],
                 ..workload("pid:202", "test", energy(8.0, 3.0, 0.0))
             },
         ];
@@ -591,8 +880,18 @@ mod tests {
         let display = sink.display_snapshot(SortMode::Name);
         assert_energy(&display.workloads[0].energy, &energy(2.0, 2.0, 1.0));
         assert_eq!(display.workloads[0].power_watts, 2.5);
+        assert_energy(
+            &display.workloads[0].processes[0].energy,
+            &energy(2.0, 2.0, 1.0),
+        );
+        assert_eq!(display.workloads[0].processes[0].power_watts, 2.5);
         assert_energy(&display.workloads[1].energy, &energy(3.0, 0.0, 0.0));
         assert_eq!(display.workloads[1].power_watts, 1.5);
+        assert_energy(
+            &display.workloads[1].processes[0].energy,
+            &energy(3.0, 0.0, 0.0),
+        );
+        assert_eq!(display.workloads[1].processes[0].power_watts, 1.5);
         assert_energy(&display.system_total, &energy(5.0, 1.0, 1.0));
         assert_eq!(sink.power_history().cpu, vec![2.5]);
     }
