@@ -52,6 +52,21 @@ fn render_header(
     let mins = (uptime as u64) / 60;
     let secs = (uptime as u64) % 60;
 
+    let mut device_line = vec![
+        Span::styled("    CPU: ", Style::default().fg(Color::Yellow)),
+        Span::raw(format!("{:.4} J", snapshot.system_total.cpu_joules)),
+        Span::raw("    "),
+        Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
+        Span::raw(format!("{:.4} J", snapshot.system_total.dram_joules)),
+    ];
+    if snapshot.gpu_available {
+        device_line.extend([
+            Span::raw("    "),
+            Span::styled("GPU: ", Style::default().fg(Color::Yellow)),
+            Span::raw(format!("{:.4} J", snapshot.system_total.gpu_joules)),
+        ]);
+    }
+
     let lines = vec![
         Line::from(vec![
             Span::styled("  Avg Power: ", Style::default().fg(Color::Cyan)),
@@ -60,16 +75,7 @@ fn render_header(
             Span::styled("Energy: ", Style::default().fg(Color::Cyan)),
             Span::raw(format!("{total_energy:.4} J")),
         ]),
-        Line::from(vec![
-            Span::styled("    CPU: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{:.4} J", snapshot.system_total.cpu_joules)),
-            Span::raw("    "),
-            Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{:.4} J", snapshot.system_total.dram_joules)),
-            Span::raw("    "),
-            Span::styled("GPU: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{:.4} J", snapshot.system_total.gpu_joules)),
-        ]),
+        Line::from(device_line),
         Line::from(vec![
             Span::styled("Uptime: ", Style::default().fg(Color::Green)),
             Span::raw(format!("{mins:02}:{secs:02}")),
@@ -94,7 +100,13 @@ fn render_header(
 
     frame.render_widget(Paragraph::new(lines), header_chunks[0]);
     if power_history.has_samples() {
-        render_power_history(frame, header_chunks[1], header_chunks[2], power_history);
+        render_power_history(
+            frame,
+            header_chunks[1],
+            header_chunks[2],
+            power_history,
+            snapshot.gpu_available,
+        );
     }
 }
 
@@ -103,9 +115,10 @@ fn render_power_history(
     label_area: Rect,
     sparkline_area: Rect,
     power_history: &PowerHistorySnapshot,
+    gpu_available: bool,
 ) {
-    let label_chunks = split_power_columns(label_area);
-    let sparkline_chunks = split_power_columns(sparkline_area);
+    let label_chunks = split_power_columns(label_area, gpu_available);
+    let sparkline_chunks = split_power_columns(sparkline_area, gpu_available);
 
     render_power_label(
         frame,
@@ -121,13 +134,6 @@ fn render_power_history(
         power_history.latest_dram(),
         Color::Magenta,
     );
-    render_power_label(
-        frame,
-        label_chunks[2],
-        "GPU",
-        power_history.latest_gpu(),
-        Color::Green,
-    );
 
     render_component_sparkline(
         frame,
@@ -141,17 +147,33 @@ fn render_power_history(
         &power_history.dram,
         Color::Magenta,
     );
-    render_component_sparkline(frame, sparkline_chunks[2], &power_history.gpu, Color::Green);
+
+    if gpu_available {
+        render_power_label(
+            frame,
+            label_chunks[2],
+            "GPU",
+            power_history.latest_gpu(),
+            Color::Green,
+        );
+        render_component_sparkline(frame, sparkline_chunks[2], &power_history.gpu, Color::Green);
+    }
 }
 
-fn split_power_columns(area: Rect) -> std::rc::Rc<[Rect]> {
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
+fn split_power_columns(area: Rect, gpu_available: bool) -> std::rc::Rc<[Rect]> {
+    let constraints = if gpu_available {
+        vec![
             Constraint::Percentage(34),
             Constraint::Percentage(33),
             Constraint::Percentage(33),
-        ])
+        ]
+    } else {
+        vec![Constraint::Percentage(50), Constraint::Percentage(50)]
+    };
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(constraints)
         .split(area)
 }
 
@@ -285,6 +307,7 @@ mod tests {
     fn render_snapshot_shows_average_and_interval_power_labels() {
         let snapshot = MetricsSnapshot {
             timestamp: 1_000,
+            gpu_available: false,
             system_total: DeviceEnergy {
                 cpu_joules: 180.0,
                 dram_joules: 60.0,
@@ -325,9 +348,45 @@ mod tests {
         assert!(screen.contains("Avg Power: 4.00 W"));
         assert!(screen.contains("Interval CPU: 5.00 W"));
         assert!(screen.contains("Interval DRAM: 1.50 W"));
+        assert!(!screen.contains("GPU:"));
+        assert!(!screen.contains("Interval GPU"));
         assert!(screen.contains("Avg Power (W)"));
         assert!(screen.contains("2.50"));
         assert!(screen.contains("python workload.py"));
         assert!(screen.contains("Tracked PIDs: 2"));
+    }
+
+    #[test]
+    fn render_snapshot_shows_gpu_energy_when_gpu_is_available() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: true,
+            system_total: DeviceEnergy {
+                cpu_joules: 180.0,
+                dram_joules: 60.0,
+                gpu_joules: 30.0,
+            },
+            workloads: Vec::new(),
+            unattributed: DeviceEnergy {
+                cpu_joules: 180.0,
+                dram_joules: 60.0,
+                gpu_joules: 30.0,
+            },
+            tracked_pids: Vec::new(),
+        };
+        let power_history = PowerHistorySnapshot {
+            cpu: vec![5.0],
+            dram: vec![1.5],
+            gpu: vec![3.0],
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
+
+        terminal
+            .draw(|frame| render_snapshot(frame, &snapshot, 60.0, &power_history))
+            .unwrap();
+
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("GPU: 30.0000 J"));
+        assert!(screen.contains("Interval GPU: 3.00 W"));
     }
 }

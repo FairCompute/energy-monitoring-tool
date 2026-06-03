@@ -616,6 +616,7 @@ mod tests {
 
         MetricsSnapshot {
             timestamp,
+            gpu_available: system_total.gpu_joules > 0.0,
             system_total,
             workloads,
             unattributed: DeviceEnergy::default(),
