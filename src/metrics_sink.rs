@@ -631,6 +631,7 @@ mod tests {
             name: name.to_string(),
             user: "user".to_string(),
             processes: Vec::new(),
+            is_live: true,
             energy,
             power_watts: 0.0,
             percentage_of_system: 0.0,

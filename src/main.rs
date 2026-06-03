@@ -126,6 +126,7 @@ mod tests {
                 name: "work".to_string(),
                 user: "user".to_string(),
                 processes: Vec::new(),
+                is_live: true,
                 energy: DeviceEnergy {
                     cpu_joules: 2_700.0,
                     dram_joules: 900.0,

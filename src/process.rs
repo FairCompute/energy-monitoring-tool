@@ -68,6 +68,10 @@ impl GroupingStrategy for ParentLineageGrouping {
         let mut groups: BTreeMap<u32, Vec<&ProcessInfo>> = BTreeMap::new();
 
         for process in processes {
+            if process.pid == 1 || process.pid == 2 {
+                continue;
+            }
+
             let root_pid = lineage_representative(process.pid, &by_pid);
             groups.entry(root_pid).or_default().push(process);
         }
@@ -589,6 +593,8 @@ mod tests {
             group.id == "lineage:1" && group.pids.iter().any(|pid| *pid == 100 || *pid == 101)
         }));
         assert!(groups.iter().any(|group| group.id == "lineage:200"));
+        assert!(!groups.iter().any(|group| group.id == "lineage:1"));
+        assert!(!groups.iter().any(|group| group.id == "lineage:2"));
     }
 
     #[test]
@@ -604,6 +610,25 @@ mod tests {
 
         assert_eq!(ids, vec!["lineage:100", "lineage:200"]);
         assert_eq!(groups[0].pids, vec![100, 101]);
+        assert_eq!(groups[1].pids, vec![200]);
+    }
+
+    #[test]
+    fn group_processes_falls_back_from_single_low_signal_user_slice() {
+        let processes = vec![
+            process(1, None, "systemd", "root", "/"),
+            process(100, Some(1), "python api.py", "alice", "/user.slice"),
+            process(101, Some(100), "worker", "alice", "/user.slice"),
+            process(200, Some(1), "node server.js", "alice", "/user.slice"),
+        ];
+
+        let groups = group_processes(&processes);
+        let ids: Vec<&str> = groups.iter().map(|group| group.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["lineage:100", "lineage:200"]);
+        assert_eq!(groups[0].name, "python");
+        assert_eq!(groups[0].pids, vec![100, 101]);
+        assert_eq!(groups[1].name, "node");
         assert_eq!(groups[1].pids, vec![200]);
     }
 
