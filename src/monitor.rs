@@ -40,6 +40,15 @@ impl DeviceEnergy {
     }
 }
 
+/// Per-process energy and power snapshot nested under a workload group.
+#[derive(Debug, Clone)]
+pub struct ProcessEnergySnapshot {
+    pub pid: u32,
+    pub name: String,
+    pub energy: DeviceEnergy,
+    pub power_watts: f64,
+}
+
 /// Per-workload (root process) energy and power snapshot.
 #[derive(Debug, Clone)]
 pub struct WorkloadSnapshot {
@@ -47,6 +56,7 @@ pub struct WorkloadSnapshot {
     pub group_id: String,
     pub name: String,
     pub user: String,
+    pub processes: Vec<ProcessEnergySnapshot>,
     pub energy: DeviceEnergy,
     pub power_watts: f64,
     pub percentage_of_system: f64,
@@ -97,6 +107,7 @@ fn system_total_from_workloads(
 fn workload_snapshot(
     group: &ProcessGroup,
     energy: DeviceEnergy,
+    processes: Vec<ProcessEnergySnapshot>,
     elapsed_s: f64,
 ) -> WorkloadSnapshot {
     let power_watts = if elapsed_s > 0.0 {
@@ -110,10 +121,54 @@ fn workload_snapshot(
         group_id: group.id.clone(),
         name: group.name.clone(),
         user: group.user.clone(),
+        processes,
         energy,
         power_watts,
         percentage_of_system: 0.0,
     }
+}
+
+fn process_energy_snapshot(
+    pid: u32,
+    name: String,
+    energy: DeviceEnergy,
+    elapsed_s: f64,
+) -> ProcessEnergySnapshot {
+    let power_watts = if elapsed_s > 0.0 {
+        energy.total() / elapsed_s
+    } else {
+        0.0
+    };
+
+    ProcessEnergySnapshot {
+        pid,
+        name,
+        energy,
+        power_watts,
+    }
+}
+
+fn process_snapshots_for_group(
+    group: &ProcessGroup,
+    cumulative_by_pid: &HashMap<u32, DeviceEnergy>,
+    process_names: &HashMap<u32, String>,
+    elapsed_s: f64,
+) -> Vec<ProcessEnergySnapshot> {
+    let mut pids = group.pids.clone();
+    pids.extend(cumulative_by_pid.keys().copied());
+    pids.sort_unstable();
+    pids.dedup();
+
+    pids.into_iter()
+        .map(|pid| {
+            let energy = cumulative_by_pid.get(&pid).cloned().unwrap_or_default();
+            let name = process_names
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| format!("pid {pid}"));
+            process_energy_snapshot(pid, name, energy, elapsed_s)
+        })
+        .collect()
 }
 
 fn apply_workload_percentages(workloads: &mut [WorkloadSnapshot], system_total: &DeviceEnergy) {
@@ -236,6 +291,18 @@ fn merge_pid_group_maps(
     merged
 }
 
+fn retained_pid_to_group_map(workloads: &[WorkloadSnapshot]) -> HashMap<u32, String> {
+    workloads
+        .iter()
+        .flat_map(|workload| {
+            workload
+                .processes
+                .iter()
+                .map(|process| (process.pid, workload.group_id.clone()))
+        })
+        .collect()
+}
+
 // ─── MonitorHandle ──────────────────────────────────────────────────────────
 
 /// A cloneable handle providing read-only access to the latest monitor state.
@@ -275,6 +342,9 @@ impl MonitorHandle {
 struct TickState {
     start_timestamp: i64,
     workload_energy: HashMap<String, DeviceEnergy>,
+    pid_energy: HashMap<u32, DeviceEnergy>,
+    pid_to_group: HashMap<u32, String>,
+    process_names: HashMap<u32, String>,
 }
 
 impl Default for TickState {
@@ -282,6 +352,9 @@ impl Default for TickState {
         Self {
             start_timestamp: 0,
             workload_energy: HashMap::new(),
+            pid_energy: HashMap::new(),
+            pid_to_group: HashMap::new(),
+            process_names: HashMap::new(),
         }
     }
 }
@@ -466,7 +539,12 @@ impl Monitor {
             return;
         }
 
-        let pid_to_group = self.last_pid_to_group.read().unwrap().clone();
+        let retained_pid_to_group = {
+            let snap = self.snapshot.read().unwrap();
+            retained_pid_to_group_map(&snap.workloads)
+        };
+        let current_pid_to_group = self.last_pid_to_group.read().unwrap().clone();
+        let pid_to_group = merge_pid_group_maps(&current_pid_to_group, &retained_pid_to_group);
         let tick = aggregate_energy_records(final_records, &pid_to_group);
         if tick.system_total.total() <= 0.0 && tick.group_energy.is_empty() {
             return;
@@ -517,9 +595,33 @@ impl Monitor {
             .iter()
             .map(|workload| (workload.group_id.clone(), workload.energy.clone()))
             .collect();
+        let mut cumulative_by_pid: HashMap<u32, DeviceEnergy> = snap
+            .workloads
+            .iter()
+            .flat_map(|workload| {
+                workload
+                    .processes
+                    .iter()
+                    .map(|process| (process.pid, process.energy.clone()))
+            })
+            .collect();
+        let process_names: HashMap<u32, String> = snap
+            .workloads
+            .iter()
+            .flat_map(|workload| {
+                workload
+                    .processes
+                    .iter()
+                    .map(|process| (process.pid, process.name.clone()))
+            })
+            .collect();
 
         for (group_id, tick_energy) in &tick.group_energy {
             let entry = cumulative_by_group.entry(group_id.clone()).or_default();
+            add_device_energy(entry, tick_energy);
+        }
+        for (pid, tick_energy) in &tick.pid_energy {
+            let entry = cumulative_by_pid.entry(*pid).or_default();
             add_device_energy(entry, tick_energy);
         }
         add_device_energy(&mut snap.unattributed, &tick.unattributed);
@@ -535,7 +637,18 @@ impl Monitor {
                     return None;
                 }
 
-                Some(workload_snapshot(group, energy, elapsed_s))
+                let processes = process_snapshots_for_group(
+                    group,
+                    &pid_energy_for_group(
+                        &group.id,
+                        &group.pids,
+                        &cumulative_by_pid,
+                        &pid_to_group,
+                    ),
+                    &process_names,
+                    elapsed_s,
+                );
+                Some(workload_snapshot(group, energy, processes, elapsed_s))
             })
             .collect();
         workloads.sort_by(|left, right| left.group_id.cmp(&right.group_id));
@@ -620,6 +733,13 @@ impl Monitor {
 
                 let known_groups_snapshot = known_groups.read().unwrap().clone();
                 let mut workloads: Vec<WorkloadSnapshot> = Vec::new();
+                resolve_missing_process_names(&expanded_pids, &mut tick_state.process_names);
+                for (pid, tick_energy) in &tick.pid_energy {
+                    let entry = tick_state.pid_energy.entry(*pid).or_default();
+                    add_device_energy(entry, tick_energy);
+                }
+                tick_state.pid_to_group =
+                    merge_pid_group_maps(&current_pid_to_group, &tick_state.pid_to_group);
 
                 for group in known_groups_snapshot.values() {
                     let tick_energy = tick
@@ -638,7 +758,23 @@ impl Monitor {
                         continue;
                     }
 
-                    workloads.push(workload_snapshot(group, cumulative_energy, elapsed_s));
+                    let processes = process_snapshots_for_group(
+                        group,
+                        &pid_energy_for_group(
+                            &group.id,
+                            &group.pids,
+                            &tick_state.pid_energy,
+                            &tick_state.pid_to_group,
+                        ),
+                        &tick_state.process_names,
+                        elapsed_s,
+                    );
+                    workloads.push(workload_snapshot(
+                        group,
+                        cumulative_energy,
+                        processes,
+                        elapsed_s,
+                    ));
                 }
                 workloads.sort_by(|left, right| left.group_id.cmp(&right.group_id));
 
@@ -687,6 +823,60 @@ impl Monitor {
                 tokio::time::sleep(interval).await;
             }
         }));
+    }
+}
+
+fn pid_energy_for_group(
+    group_id: &str,
+    live_pids: &[u32],
+    cumulative_by_pid: &HashMap<u32, DeviceEnergy>,
+    pid_to_group: &HashMap<u32, String>,
+) -> HashMap<u32, DeviceEnergy> {
+    let mut result = HashMap::new();
+
+    for pid in live_pids {
+        if let Some(energy) = cumulative_by_pid.get(pid) {
+            result.insert(*pid, energy.clone());
+        }
+    }
+
+    for (pid, mapped_group_id) in pid_to_group {
+        if mapped_group_id == group_id {
+            if let Some(energy) = cumulative_by_pid.get(pid) {
+                result.insert(*pid, energy.clone());
+            }
+        }
+    }
+
+    result
+}
+
+fn resolve_missing_process_names(pids: &[u32], process_names: &mut HashMap<u32, String>) {
+    let missing_pids: Vec<u32> = pids
+        .iter()
+        .copied()
+        .filter(|pid| !process_names.contains_key(pid))
+        .collect();
+    if missing_pids.is_empty() {
+        return;
+    }
+
+    use sysinfo::System;
+
+    let system = System::new_all();
+    for pid in missing_pids {
+        let name = system
+            .process(sysinfo::Pid::from_u32(pid))
+            .map(|process| {
+                let name = process.name().to_string_lossy().to_string();
+                if name.is_empty() {
+                    format!("pid {pid}")
+                } else {
+                    name
+                }
+            })
+            .unwrap_or_else(|| format!("pid {pid}"));
+        process_names.insert(pid, name);
     }
 }
 
@@ -756,6 +946,93 @@ mod tests {
         assert_eq!(refreshed[0].name, "cached-root");
         assert_eq!(refreshed[0].user, "cached-user");
         assert!(refreshed[0].pids.contains(&pid));
+    }
+
+    #[test]
+    fn process_snapshots_for_group_include_pid_energy_power_and_names() {
+        let group = ProcessGroup {
+            id: "pid:123".to_string(),
+            name: "workload".to_string(),
+            user: "user".to_string(),
+            pids: vec![123, 456],
+            representative_pid: 123,
+        };
+        let cumulative_by_pid = HashMap::from([(
+            123,
+            DeviceEnergy {
+                cpu_joules: 3.0,
+                dram_joules: 1.0,
+                gpu_joules: 0.0,
+            },
+        )]);
+        let process_names = HashMap::from([(123, "python".to_string())]);
+
+        let processes =
+            process_snapshots_for_group(&group, &cumulative_by_pid, &process_names, 2.0);
+
+        assert_eq!(processes.len(), 2);
+        assert_eq!(processes[0].pid, 123);
+        assert_eq!(processes[0].name, "python");
+        assert_eq!(processes[0].energy.total(), 4.0);
+        assert_eq!(processes[0].power_watts, 2.0);
+        assert_eq!(processes[1].pid, 456);
+        assert_eq!(processes[1].name, "pid 456");
+        assert_eq!(processes[1].energy.total(), 0.0);
+        assert_eq!(processes[1].power_watts, 0.0);
+    }
+
+    #[test]
+    fn pid_energy_for_group_keeps_previously_mapped_exited_pids() {
+        let cumulative_by_pid = HashMap::from([
+            (
+                123,
+                DeviceEnergy {
+                    cpu_joules: 2.0,
+                    dram_joules: 0.0,
+                    gpu_joules: 0.0,
+                },
+            ),
+            (
+                456,
+                DeviceEnergy {
+                    cpu_joules: 3.0,
+                    dram_joules: 0.0,
+                    gpu_joules: 0.0,
+                },
+            ),
+        ]);
+        let pid_to_group =
+            HashMap::from([(123, "pid:123".to_string()), (456, "pid:123".to_string())]);
+
+        let group_energy =
+            pid_energy_for_group("pid:123", &[123], &cumulative_by_pid, &pid_to_group);
+
+        assert_eq!(group_energy.len(), 2);
+        assert_eq!(group_energy.get(&123).unwrap().total(), 2.0);
+        assert_eq!(group_energy.get(&456).unwrap().total(), 3.0);
+    }
+
+    #[test]
+    fn retained_pid_to_group_map_preserves_existing_process_rows() {
+        let workloads = vec![WorkloadSnapshot {
+            root_pid: 123,
+            group_id: "pid:123".to_string(),
+            name: "workload".to_string(),
+            user: "user".to_string(),
+            processes: vec![ProcessEnergySnapshot {
+                pid: 456,
+                name: "child".to_string(),
+                energy: DeviceEnergy::default(),
+                power_watts: 0.0,
+            }],
+            energy: DeviceEnergy::default(),
+            power_watts: 0.0,
+            percentage_of_system: 0.0,
+        }];
+
+        let retained = retained_pid_to_group_map(&workloads);
+
+        assert_eq!(retained.get(&456), Some(&"pid:123".to_string()));
     }
 
     #[test]

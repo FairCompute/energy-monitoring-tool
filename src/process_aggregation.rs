@@ -13,6 +13,7 @@ pub enum AggregatedDeviceClass {
 pub struct GroupedEnergyTick {
     pub system_total: DeviceEnergy,
     pub group_energy: HashMap<String, DeviceEnergy>,
+    pub pid_energy: HashMap<u32, DeviceEnergy>,
     pub unattributed: DeviceEnergy,
 }
 
@@ -32,6 +33,7 @@ pub fn aggregate_energy_records(
 ) -> GroupedEnergyTick {
     let mut system_total = DeviceEnergy::default();
     let mut group_energy: HashMap<String, DeviceEnergy> = HashMap::new();
+    let mut pid_energy: HashMap<u32, DeviceEnergy> = HashMap::new();
     let mut groups_sum = DeviceEnergy::default();
 
     for record in records {
@@ -41,6 +43,8 @@ pub fn aggregate_energy_records(
         if let Some(group_id) = pid_to_group.get(&record.pid) {
             let entry = group_energy.entry(group_id.clone()).or_default();
             accumulate_device_energy(entry, device_class, record.energy);
+            let pid_entry = pid_energy.entry(record.pid).or_default();
+            accumulate_device_energy(pid_entry, device_class, record.energy);
             accumulate_device_energy(&mut groups_sum, device_class, record.energy);
         }
     }
@@ -50,6 +54,7 @@ pub fn aggregate_energy_records(
     GroupedEnergyTick {
         system_total,
         group_energy,
+        pid_energy,
         unattributed,
     }
 }
@@ -131,6 +136,9 @@ mod tests {
         assert_close(group.cpu_joules, 2.0);
         assert_close(group.dram_joules, 0.5);
         assert_close(group.gpu_joules, 3.0);
+        assert_close(tick.pid_energy.get(&101).unwrap().cpu_joules, 2.0);
+        assert_close(tick.pid_energy.get(&102).unwrap().dram_joules, 0.5);
+        assert_close(tick.pid_energy.get(&102).unwrap().gpu_joules, 3.0);
         assert_close(tick.system_total.total(), 5.5);
         assert_close(tick.unattributed.total(), 0.0);
     }
@@ -153,6 +161,7 @@ mod tests {
         assert_close(tick.unattributed.dram_joules, 0.75);
         assert_close(tick.unattributed.gpu_joules, 1.25);
         assert!(!tick.group_energy.contains_key("999"));
+        assert!(!tick.pid_energy.contains_key(&999));
     }
 
     #[test]

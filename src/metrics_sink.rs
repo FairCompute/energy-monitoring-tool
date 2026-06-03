@@ -630,6 +630,7 @@ mod tests {
             group_id: group_id.to_string(),
             name: name.to_string(),
             user: "user".to_string(),
+            processes: Vec::new(),
             energy,
             power_watts: 0.0,
             percentage_of_system: 0.0,

@@ -6,6 +6,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Sparkline, Table};
+use std::collections::{HashMap, HashSet};
 
 pub fn render(frame: &mut Frame, app: &App) {
     let snapshot = app.snapshot();
@@ -13,6 +14,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     let display_elapsed = app.display_elapsed_secs();
     let power_history = app.power_history();
     let sort_mode = app.sort_mode();
+    let selected_group_index = app.selected_group_index();
+    let expanded_group_ids = app.expanded_group_ids();
+    let child_scroll_offsets = app.child_scroll_offsets();
 
     render_snapshot(
         frame,
@@ -21,6 +25,9 @@ pub fn render(frame: &mut Frame, app: &App) {
         display_elapsed,
         &power_history,
         sort_mode,
+        selected_group_index,
+        expanded_group_ids,
+        child_scroll_offsets,
     );
 }
 
@@ -31,6 +38,9 @@ fn render_snapshot(
     display_elapsed: f64,
     power_history: &PowerHistorySnapshot,
     sort_mode: SortMode,
+    selected_group_index: usize,
+    expanded_group_ids: &HashSet<String>,
+    child_scroll_offsets: &HashMap<String, usize>,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -49,7 +59,14 @@ fn render_snapshot(
         display_elapsed,
         power_history,
     );
-    render_body(frame, chunks[1], snapshot);
+    render_body(
+        frame,
+        chunks[1],
+        snapshot,
+        selected_group_index,
+        expanded_group_ids,
+        child_scroll_offsets,
+    );
     render_footer(frame, chunks[2], sort_mode);
 }
 
@@ -247,7 +264,14 @@ fn power_to_sparkline_value(watts: f64) -> u64 {
     }
 }
 
-fn render_body(frame: &mut Frame, area: Rect, snapshot: &MetricsSnapshot) {
+fn render_body(
+    frame: &mut Frame,
+    area: Rect,
+    snapshot: &MetricsSnapshot,
+    selected_group_index: usize,
+    expanded_group_ids: &HashSet<String>,
+    child_scroll_offsets: &HashMap<String, usize>,
+) {
     if snapshot.workloads.is_empty() {
         let block = Block::default().borders(Borders::ALL).title(" Workloads ");
         let paragraph = Paragraph::new("  No process data yet...").block(block);
@@ -264,19 +288,16 @@ fn render_body(frame: &mut Frame, area: Rect, snapshot: &MetricsSnapshot) {
     ])
     .style(Style::default().add_modifier(Modifier::BOLD));
 
-    let rows: Vec<Row> = snapshot
-        .workloads
-        .iter()
-        .map(|wl| {
-            Row::new(vec![
-                wl.name.clone(),
-                wl.user.clone(),
-                format!("{:.4}", wl.energy.total()),
-                format!("{:.2}", wl.power_watts),
-                format!("{:.1}%", wl.percentage_of_system),
-            ])
-        })
-        .collect();
+    let rows = workload_table_rows(
+        snapshot,
+        selected_group_index,
+        expanded_group_ids,
+        child_scroll_offsets,
+    );
+    let rows = visible_table_rows(rows, selected_group_index, table_body_capacity(area))
+        .into_iter()
+        .map(WorkloadTableRow::into_row)
+        .collect::<Vec<_>>();
 
     let table = Table::new(
         rows,
@@ -298,6 +319,12 @@ fn render_footer(frame: &mut Frame, area: Rect, sort_mode: SortMode) {
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(" q", Style::default().fg(Color::Red)),
         Span::raw(" quit"),
+        Span::styled("  up/down", Style::default().fg(Color::Cyan)),
+        Span::raw(" move"),
+        Span::styled("  enter", Style::default().fg(Color::Cyan)),
+        Span::raw(" expand"),
+        Span::styled("  esc", Style::default().fg(Color::Cyan)),
+        Span::raw(" collapse"),
         Span::styled("  s", Style::default().fg(Color::Cyan)),
         Span::raw(" sort "),
         Span::styled(sort_mode.label(), Style::default().fg(Color::Yellow)),
@@ -305,6 +332,109 @@ fn render_footer(frame: &mut Frame, area: Rect, sort_mode: SortMode) {
         Span::raw(" reset"),
     ]));
     frame.render_widget(footer, area);
+}
+
+struct WorkloadTableRow {
+    cells: Vec<String>,
+    style: Style,
+    group_index: Option<usize>,
+}
+
+impl WorkloadTableRow {
+    fn into_row(self) -> Row<'static> {
+        Row::new(self.cells).style(self.style)
+    }
+}
+
+fn workload_table_rows(
+    snapshot: &MetricsSnapshot,
+    selected_group_index: usize,
+    expanded_group_ids: &HashSet<String>,
+    child_scroll_offsets: &HashMap<String, usize>,
+) -> Vec<WorkloadTableRow> {
+    let mut rows = Vec::new();
+
+    for (group_index, workload) in snapshot.workloads.iter().enumerate() {
+        let is_expanded = expanded_group_ids.contains(&workload.group_id);
+        let disclosure = if workload.processes.is_empty() {
+            "  "
+        } else if is_expanded {
+            "v "
+        } else {
+            "> "
+        };
+        let style = if group_index == selected_group_index {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+
+        rows.push(WorkloadTableRow {
+            cells: vec![
+                format!("{disclosure}{}", workload.name),
+                workload.user.clone(),
+                format!("{:.4}", workload.energy.total()),
+                format!("{:.2}", workload.power_watts),
+                format!("{:.1}%", workload.percentage_of_system),
+            ],
+            style,
+            group_index: Some(group_index),
+        });
+
+        if is_expanded {
+            let offset = child_scroll_offsets
+                .get(&workload.group_id)
+                .copied()
+                .unwrap_or_default()
+                .min(workload.processes.len().saturating_sub(1));
+            for process in workload.processes.iter().skip(offset) {
+                rows.push(WorkloadTableRow {
+                    cells: vec![
+                        format!("  pid {} {}", process.pid, process.name),
+                        String::new(),
+                        format!("{:.4}", process.energy.total()),
+                        format!("{:.2}", process.power_watts),
+                        String::new(),
+                    ],
+                    style: Style::default().fg(Color::DarkGray),
+                    group_index: None,
+                });
+            }
+        }
+    }
+
+    rows
+}
+
+fn visible_table_rows(
+    rows: Vec<WorkloadTableRow>,
+    selected_group_index: usize,
+    capacity: usize,
+) -> Vec<WorkloadTableRow> {
+    if rows.len() <= capacity {
+        return rows;
+    }
+
+    let selected_row_index = rows
+        .iter()
+        .position(|row| row.group_index == Some(selected_group_index))
+        .unwrap_or_default();
+    let selected_group_has_children = rows
+        .get(selected_row_index + 1)
+        .is_some_and(|row| row.group_index.is_none());
+    let start = if selected_group_has_children {
+        selected_row_index.min(rows.len().saturating_sub(capacity))
+    } else {
+        selected_row_index
+            .saturating_add(1)
+            .saturating_sub(capacity)
+    };
+
+    rows.into_iter().skip(start).take(capacity).collect()
+}
+
+fn table_body_capacity(area: Rect) -> usize {
+    usize::from(area.height.saturating_sub(3)).max(1)
 }
 
 #[cfg(test)]
@@ -342,6 +472,7 @@ mod tests {
                 group_id: "pid:123".to_string(),
                 name: "python workload.py".to_string(),
                 user: "alice".to_string(),
+                processes: Vec::new(),
                 energy: DeviceEnergy {
                     cpu_joules: 120.0,
                     dram_joules: 30.0,
@@ -362,6 +493,8 @@ mod tests {
             dram: vec![1.5],
             gpu: vec![],
         };
+        let expanded = HashSet::new();
+        let child_scroll_offsets = HashMap::new();
         let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
 
         terminal
@@ -373,6 +506,9 @@ mod tests {
                     60.0,
                     &power_history,
                     SortMode::Energy,
+                    0,
+                    &expanded,
+                    &child_scroll_offsets,
                 )
             })
             .unwrap();
@@ -414,6 +550,8 @@ mod tests {
             dram: vec![1.5],
             gpu: vec![3.0],
         };
+        let expanded = HashSet::new();
+        let child_scroll_offsets = HashMap::new();
         let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
 
         terminal
@@ -425,6 +563,9 @@ mod tests {
                     60.0,
                     &power_history,
                     SortMode::Energy,
+                    0,
+                    &expanded,
+                    &child_scroll_offsets,
                 )
             })
             .unwrap();
@@ -432,5 +573,178 @@ mod tests {
         let screen = terminal.backend().to_string();
         assert!(screen.contains("GPU: 30.0000 J"));
         assert!(screen.contains("Interval GPU: 3.00 W"));
+    }
+
+    #[test]
+    fn render_snapshot_shows_expanded_pid_rows_and_selected_group() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            system_total: DeviceEnergy {
+                cpu_joules: 20.0,
+                dram_joules: 4.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 123,
+                group_id: "pid:123".to_string(),
+                name: "cargo test".to_string(),
+                user: "alice".to_string(),
+                processes: vec![crate::monitor::ProcessEnergySnapshot {
+                    pid: 123,
+                    name: "cargo".to_string(),
+                    energy: DeviceEnergy {
+                        cpu_joules: 12.0,
+                        dram_joules: 3.0,
+                        gpu_joules: 0.0,
+                    },
+                    power_watts: 7.5,
+                }],
+                energy: DeviceEnergy {
+                    cpu_joules: 20.0,
+                    dram_joules: 4.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 12.0,
+                percentage_of_system: 100.0,
+            }],
+            unattributed: DeviceEnergy::default(),
+            tracked_pids: vec![123],
+        };
+        let power_history = PowerHistorySnapshot::default();
+        let expanded = HashSet::from(["pid:123".to_string()]);
+        let child_scroll_offsets = HashMap::new();
+        let mut terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_snapshot(
+                    frame,
+                    &snapshot,
+                    2.0,
+                    2.0,
+                    &power_history,
+                    SortMode::Energy,
+                    0,
+                    &expanded,
+                    &child_scroll_offsets,
+                )
+            })
+            .unwrap();
+
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("v cargo test"));
+        assert!(screen.contains("pid 123 cargo"));
+        assert!(screen.contains("15.0000"));
+        assert!(screen.contains("7.50"));
+    }
+
+    #[test]
+    fn workload_table_rows_mark_selected_group_and_hide_collapsed_children() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            system_total: DeviceEnergy {
+                cpu_joules: 8.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 123,
+                group_id: "pid:123".to_string(),
+                name: "python".to_string(),
+                user: "alice".to_string(),
+                processes: vec![crate::monitor::ProcessEnergySnapshot {
+                    pid: 123,
+                    name: "python".to_string(),
+                    energy: DeviceEnergy {
+                        cpu_joules: 8.0,
+                        dram_joules: 0.0,
+                        gpu_joules: 0.0,
+                    },
+                    power_watts: 4.0,
+                }],
+                energy: DeviceEnergy {
+                    cpu_joules: 8.0,
+                    dram_joules: 0.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 4.0,
+                percentage_of_system: 100.0,
+            }],
+            unattributed: DeviceEnergy::default(),
+            tracked_pids: vec![123],
+        };
+
+        let rows = workload_table_rows(&snapshot, 0, &HashSet::new(), &HashMap::new());
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].cells[0], "> python");
+        assert!(rows[0].style.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn workload_table_rows_apply_child_scroll_offset_to_expanded_group() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            system_total: DeviceEnergy {
+                cpu_joules: 3.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 1,
+                group_id: "pid:1".to_string(),
+                name: "python".to_string(),
+                user: "alice".to_string(),
+                processes: (1..=3)
+                    .map(|pid| crate::monitor::ProcessEnergySnapshot {
+                        pid,
+                        name: format!("child-{pid}"),
+                        energy: DeviceEnergy {
+                            cpu_joules: 1.0,
+                            dram_joules: 0.0,
+                            gpu_joules: 0.0,
+                        },
+                        power_watts: 1.0,
+                    })
+                    .collect(),
+                energy: DeviceEnergy {
+                    cpu_joules: 3.0,
+                    dram_joules: 0.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 3.0,
+                percentage_of_system: 100.0,
+            }],
+            unattributed: DeviceEnergy::default(),
+            tracked_pids: vec![1, 2, 3],
+        };
+        let expanded = HashSet::from(["pid:1".to_string()]);
+        let child_scroll_offsets = HashMap::from([("pid:1".to_string(), 1)]);
+
+        let rows = workload_table_rows(&snapshot, 0, &expanded, &child_scroll_offsets);
+
+        assert_eq!(rows[0].cells[0], "v python");
+        assert_eq!(rows[1].cells[0], "  pid 2 child-2");
+        assert_eq!(rows[2].cells[0], "  pid 3 child-3");
+    }
+
+    #[test]
+    fn visible_table_rows_keep_selected_group_visible() {
+        let rows = (0..8)
+            .map(|index| WorkloadTableRow {
+                cells: vec![format!("row {index}")],
+                style: Style::default(),
+                group_index: Some(index),
+            })
+            .collect::<Vec<_>>();
+
+        let visible = visible_table_rows(rows, 7, 3);
+
+        assert_eq!(visible.len(), 3);
+        assert_eq!(visible[0].cells[0], "row 5");
+        assert_eq!(visible[2].cells[0], "row 7");
     }
 }

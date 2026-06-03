@@ -125,6 +125,7 @@ mod tests {
                 group_id: "pid:123".to_string(),
                 name: "work".to_string(),
                 user: "user".to_string(),
+                processes: Vec::new(),
                 energy: DeviceEnergy {
                     cpu_joules: 2_700.0,
                     dram_joules: 900.0,
@@ -417,6 +418,10 @@ async fn run_tui(config: EmtConfig, pid: Option<u32>) {
                 tui::event::AppEvent::Quit => app.quit(),
                 tui::event::AppEvent::CycleSortMode => app.cycle_sort_mode(),
                 tui::event::AppEvent::ResetDisplay => app.reset_display(),
+                tui::event::AppEvent::SelectPrevious => app.select_previous(),
+                tui::event::AppEvent::SelectNext => app.select_next(),
+                tui::event::AppEvent::ExpandSelected => app.expand_selected(),
+                tui::event::AppEvent::CollapseSelected => app.collapse_selected(),
                 tui::event::AppEvent::Tick => {}
             }
         }
