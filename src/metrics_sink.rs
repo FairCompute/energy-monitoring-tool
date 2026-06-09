@@ -621,6 +621,7 @@ mod tests {
             workloads,
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
         }
     }
 

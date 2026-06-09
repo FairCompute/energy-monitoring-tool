@@ -21,6 +21,18 @@ pub struct CollectionConfig {
     pub trace_flush_interval_secs: f64,
 }
 
+/// Configuration for the interactive terminal UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TuiConfig {
+    /// Lower collection rate used by default for monitor-all TUI mode.
+    pub monitor_all_rate_hz: f64,
+    /// Lower process scan cadence used by default for monitor-all TUI mode.
+    pub monitor_all_scan_interval_secs: f64,
+    /// TUI render/input polling interval in milliseconds.
+    pub render_interval_millis: u64,
+}
+
 /// Configuration for user-facing measurement units.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -44,6 +56,7 @@ pub struct MeasurementUnitsConfig {
 pub struct EmtConfig {
     pub discovery: DiscoveryConfig,
     pub collection: CollectionConfig,
+    pub tui: TuiConfig,
     pub measurement_units: MeasurementUnitsConfig,
 }
 
@@ -72,6 +85,16 @@ impl Default for CollectionConfig {
             rate_hz: 10.0,
             trace_retention_secs: 3600,
             trace_flush_interval_secs: 5.0,
+        }
+    }
+}
+
+impl Default for TuiConfig {
+    fn default() -> Self {
+        Self {
+            monitor_all_rate_hz: 0.1,
+            monitor_all_scan_interval_secs: 30.0,
+            render_interval_millis: 2000,
         }
     }
 }
@@ -175,6 +198,16 @@ impl EmtConfig {
             "collection.trace_flush_interval_secs",
             self.collection.trace_flush_interval_secs,
         )?;
+        validate_positive_finite("tui.monitor_all_rate_hz", self.tui.monitor_all_rate_hz)?;
+        validate_positive_finite(
+            "tui.monitor_all_scan_interval_secs",
+            self.tui.monitor_all_scan_interval_secs,
+        )?;
+        if self.tui.render_interval_millis == 0 {
+            return Err(ConfigError::Invalid(
+                "tui.render_interval_millis must be greater than 0".to_string(),
+            ));
+        }
         if self.collection.trace_retention_secs == 0 {
             return Err(ConfigError::Invalid(
                 "collection.trace_retention_secs must be greater than 0".to_string(),
@@ -239,6 +272,9 @@ mod tests {
         assert_eq!(config.collection.rate_hz, 10.0);
         assert_eq!(config.collection.trace_retention_secs, 3600);
         assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
+        assert_eq!(config.tui.monitor_all_rate_hz, 0.1);
+        assert_eq!(config.tui.monitor_all_scan_interval_secs, 30.0);
+        assert_eq!(config.tui.render_interval_millis, 2000);
         assert_eq!(config.measurement_units.energy, "Joules");
         assert_eq!(config.measurement_units.power, "Watts");
     }
@@ -251,6 +287,7 @@ mod tests {
         assert_eq!(config.collection.trace_retention_secs, 3600);
         assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
+        assert_eq!(config.tui.monitor_all_rate_hz, 0.1);
         assert_eq!(config.measurement_units.energy, "Joules");
     }
 
@@ -262,6 +299,7 @@ mod tests {
         assert_eq!(config.collection.trace_retention_secs, 3600);
         assert_eq!(config.collection.trace_flush_interval_secs, 5.0);
         assert_eq!(config.discovery.scan_interval_secs, 2.0);
+        assert_eq!(config.tui.render_interval_millis, 2000);
     }
 
     #[test]
@@ -306,6 +344,10 @@ mod tests {
 
         let mut config = EmtConfig::default();
         config.collection.trace_retention_secs = 0;
+        assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
+
+        let mut config = EmtConfig::default();
+        config.tui.render_interval_millis = 0;
         assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
     }
 

@@ -2,13 +2,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use sysinfo::{Process, System};
 use users::{Users, UsersCache};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub parent_pid: Option<u32>,
+    pub process_group_id: Option<u32>,
+    pub session_id: Option<u32>,
     pub command: String,
     pub user: String,
     pub cgroup_path: String,
@@ -33,11 +34,21 @@ pub struct CgroupGrouping;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ParentLineageGrouping;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProcessGroupIdGrouping;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CgroupLabel {
     key: String,
     name: String,
     priority: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProcStatIds {
+    parent_pid: Option<u32>,
+    process_group_id: Option<u32>,
+    session_id: Option<u32>,
 }
 
 impl GroupingStrategy for CgroupGrouping {
@@ -94,21 +105,64 @@ impl GroupingStrategy for ParentLineageGrouping {
     }
 }
 
-pub fn scan_processes() -> Vec<ProcessInfo> {
-    let system = System::new_all();
-    let users_cache = UsersCache::new();
-    let mut processes: Vec<ProcessInfo> = system
-        .processes()
-        .iter()
-        .map(|(pid, process)| {
-            let pid = pid.as_u32();
-            ProcessInfo {
-                pid,
-                parent_pid: process.parent().map(|parent| parent.as_u32()),
-                command: process_command(process),
-                user: process_user(process, &users_cache),
-                cgroup_path: read_cgroup_path(pid).unwrap_or_default(),
+impl GroupingStrategy for ProcessGroupIdGrouping {
+    fn group(&self, processes: &[ProcessInfo]) -> Vec<ProcessGroup> {
+        let mut groups: BTreeMap<u32, Vec<&ProcessInfo>> = BTreeMap::new();
+
+        for process in processes {
+            if process.pid == 1 || process.pid == 2 {
+                continue;
             }
+
+            let group_id = process.process_group_id.unwrap_or(process.pid);
+            groups.entry(group_id).or_default().push(process);
+        }
+
+        groups
+            .into_iter()
+            .filter_map(|(group_id, processes)| {
+                let representative_pid = processes
+                    .iter()
+                    .find(|process| process.pid == group_id)
+                    .map(|process| process.pid)
+                    .or_else(|| processes.first().map(|process| process.pid));
+                let name = representative_pid
+                    .and_then(|pid| {
+                        processes
+                            .iter()
+                            .find(|process| process.pid == pid)
+                            .map(|process| command_name(&process.command, process.pid))
+                    })
+                    .unwrap_or_else(|| format!("process group {group_id}"));
+                build_group(
+                    format!("pgrp:{group_id}"),
+                    name,
+                    &processes,
+                    representative_pid,
+                )
+            })
+            .collect()
+    }
+}
+
+pub fn scan_processes() -> Vec<ProcessInfo> {
+    let users_cache = UsersCache::new();
+    let mut processes: Vec<ProcessInfo> = fs::read_dir("/proc")
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
+            let stat_ids = read_proc_stat_ids(pid);
+            Some(ProcessInfo {
+                pid,
+                parent_pid: stat_ids.and_then(|ids| ids.parent_pid),
+                process_group_id: stat_ids.and_then(|ids| ids.process_group_id),
+                session_id: stat_ids.and_then(|ids| ids.session_id),
+                command: read_process_command(pid),
+                user: read_process_user(pid, &users_cache),
+                cgroup_path: read_cgroup_path(pid).unwrap_or_default(),
+            })
         })
         .collect();
 
@@ -135,6 +189,11 @@ pub fn group_processes(processes: &[ProcessInfo]) -> Vec<ProcessGroup> {
         if !lineage_groups.is_empty() {
             return lineage_groups;
         }
+    }
+
+    let split_groups = split_low_signal_cgroup_groups(processes, &cgroup_groups);
+    if let Some(groups) = split_groups {
+        return groups;
     }
 
     cgroup_groups
@@ -202,27 +261,65 @@ fn parse_cgroup_line(line: &str) -> Option<String> {
     }
 }
 
-fn process_command(process: &Process) -> String {
-    let command = process
-        .cmd()
-        .iter()
-        .map(|part| part.to_string_lossy())
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    if command.is_empty() {
-        process.name().to_string_lossy().to_string()
-    } else {
-        command
-    }
+fn read_proc_stat_ids(pid: u32) -> Option<ProcStatIds> {
+    let contents = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    parse_proc_stat_ids(&contents)
 }
 
-fn process_user(process: &Process, users_cache: &UsersCache) -> String {
-    process
-        .user_id()
-        .map(|uid| resolve_username(**uid, users_cache))
+#[cfg(test)]
+fn parse_parent_pid_from_stat(contents: &str) -> Option<u32> {
+    parse_proc_stat_ids(contents).and_then(|ids| ids.parent_pid)
+}
+
+fn parse_proc_stat_ids(contents: &str) -> Option<ProcStatIds> {
+    let comm_end = contents.rfind(')')?;
+    let fields: Vec<&str> = contents[comm_end + 2..].split_whitespace().collect();
+    Some(ProcStatIds {
+        parent_pid: fields.get(1).and_then(|value| value.parse().ok()),
+        process_group_id: fields.get(2).and_then(|value| value.parse().ok()),
+        session_id: fields.get(3).and_then(|value| value.parse().ok()),
+    })
+}
+
+fn read_process_command(pid: u32) -> String {
+    let command = fs::read(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .map(|contents| command_from_cmdline(&contents))
+        .unwrap_or_default();
+    if !command.is_empty() {
+        return command;
+    }
+
+    fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|name| name.trim().to_string())
+        .unwrap_or_else(|_| format!("pid {pid}"))
+}
+
+fn command_from_cmdline(contents: &[u8]) -> String {
+    contents
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn read_process_user(pid: u32, users_cache: &UsersCache) -> String {
+    fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|contents| parse_uid_from_status(&contents))
+        .map(|uid| resolve_username(uid, users_cache))
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn parse_uid_from_status(contents: &str) -> Option<u32> {
+    contents.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "Uid:" {
+            return None;
+        }
+        fields.next()?.parse().ok()
+    })
 }
 
 fn resolve_username(uid: u32, users_cache: &UsersCache) -> String {
@@ -266,6 +363,70 @@ fn cgroup_grouping_is_degenerate(processes: &[ProcessInfo], groups: &[ProcessGro
     }
 
     unique_paths.len() <= 1 && ParentLineageGrouping.group(processes).len() > 1
+}
+
+fn split_low_signal_cgroup_groups(
+    processes: &[ProcessInfo],
+    groups: &[ProcessGroup],
+) -> Option<Vec<ProcessGroup>> {
+    let by_pid: HashMap<u32, &ProcessInfo> = processes
+        .iter()
+        .map(|process| (process.pid, process))
+        .collect();
+    let mut split_any = false;
+    let mut output = Vec::new();
+
+    for group in groups {
+        let group_processes: Vec<ProcessInfo> = group
+            .pids
+            .iter()
+            .filter_map(|pid| by_pid.get(pid).map(|process| (*process).clone()))
+            .collect();
+
+        if cgroup_group_should_split_by_process_group(&group_processes) {
+            let process_group_groups = ProcessGroupIdGrouping.group(&group_processes);
+            if process_group_groups.len() > 1 {
+                split_any = true;
+                output.extend(process_group_groups);
+                continue;
+            }
+        }
+
+        output.push(group.clone());
+    }
+
+    if split_any {
+        output.sort_by(|left, right| left.id.cmp(&right.id));
+        Some(output)
+    } else {
+        None
+    }
+}
+
+fn cgroup_group_should_split_by_process_group(processes: &[ProcessInfo]) -> bool {
+    if processes.len() <= 1 {
+        return false;
+    }
+
+    let labels: Vec<CgroupLabel> = processes
+        .iter()
+        .filter_map(|process| cgroup_label(&process.cgroup_path))
+        .collect();
+    if labels.is_empty() || !labels.iter().all(cgroup_label_is_low_signal) {
+        return false;
+    }
+
+    ProcessGroupIdGrouping.group(processes).len() > 1
+}
+
+fn cgroup_label_is_low_signal(label: &CgroupLabel) -> bool {
+    label.priority < 3 || is_interactive_user_scope_name(&label.name)
+}
+
+fn is_interactive_user_scope_name(name: &str) -> bool {
+    let stem = name.strip_suffix(".scope").unwrap_or(name);
+    const PREFIXES: [&str; 4] = ["app-", "session-", "vte-spawn-", "tmux-spawn-"];
+    PREFIXES.iter().any(|prefix| stem.starts_with(prefix))
 }
 
 fn cgroup_label(path: &str) -> Option<CgroupLabel> {
@@ -519,6 +680,27 @@ mod tests {
         ProcessInfo {
             pid,
             parent_pid,
+            process_group_id: Some(pid),
+            session_id: Some(pid),
+            command: command.to_string(),
+            user: user.to_string(),
+            cgroup_path: cgroup_path.to_string(),
+        }
+    }
+
+    fn process_with_process_group(
+        pid: u32,
+        parent_pid: Option<u32>,
+        process_group_id: u32,
+        command: &str,
+        user: &str,
+        cgroup_path: &str,
+    ) -> ProcessInfo {
+        ProcessInfo {
+            pid,
+            parent_pid,
+            process_group_id: Some(process_group_id),
+            session_id: Some(process_group_id),
             command: command.to_string(),
             user: user.to_string(),
             cgroup_path: cgroup_path.to_string(),
@@ -633,6 +815,26 @@ mod tests {
     }
 
     #[test]
+    fn group_processes_splits_low_signal_tmux_scope_by_process_group() {
+        let cgroup = "/user.slice/user-1000.slice/user@1000.service/app.slice/tmux-spawn-c62b4263-07fc-4c42-9cc5-4dda073993ce.scope";
+        let processes = vec![
+            process_with_process_group(100, Some(1), 100, "zsh", "alice", cgroup),
+            process_with_process_group(200, Some(100), 200, "emt --tui", "alice", cgroup),
+            process_with_process_group(201, Some(200), 200, "emt helper", "alice", cgroup),
+            process_with_process_group(300, Some(100), 300, "python workload.py", "alice", cgroup),
+        ];
+
+        let groups = group_processes(&processes);
+        let ids: Vec<&str> = groups.iter().map(|group| group.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["pgrp:100", "pgrp:200", "pgrp:300"]);
+        assert_eq!(groups[1].name, "emt");
+        assert_eq!(groups[1].pids, vec![200, 201]);
+        assert_eq!(groups[2].name, "python");
+        assert_eq!(groups[2].pids, vec![300]);
+    }
+
+    #[test]
     fn scanner_cgroup_parser_prefers_specific_systemd_path() {
         let contents = "\
 12:memory:/
@@ -652,6 +854,44 @@ mod tests {
             .name,
             "app-firefox.scope"
         );
+    }
+
+    #[test]
+    fn scanner_stat_parser_reads_parent_pid_after_comm() {
+        let stat = "123 (python worker) S 42 1 1 0 0 0";
+
+        assert_eq!(parse_parent_pid_from_stat(stat), Some(42));
+    }
+
+    #[test]
+    fn scanner_stat_parser_reads_process_group_and_session_ids() {
+        let stat = "123 (python worker) S 42 200 300 0 0 0";
+
+        assert_eq!(
+            parse_proc_stat_ids(stat),
+            Some(ProcStatIds {
+                parent_pid: Some(42),
+                process_group_id: Some(200),
+                session_id: Some(300),
+            })
+        );
+    }
+
+    #[test]
+    fn scanner_cmdline_parser_joins_nul_separated_args() {
+        let cmdline = b"/usr/bin/python\0script.py\0--flag\0";
+
+        assert_eq!(
+            command_from_cmdline(cmdline),
+            "/usr/bin/python script.py --flag"
+        );
+    }
+
+    #[test]
+    fn scanner_status_parser_reads_real_uid() {
+        let status = "Name:\tpython\nUid:\t1000\t1000\t1000\t1000\n";
+
+        assert_eq!(parse_uid_from_status(status), Some(1000));
     }
 
     #[test]
