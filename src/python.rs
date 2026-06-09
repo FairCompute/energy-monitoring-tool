@@ -1,3 +1,4 @@
+use crate::cli;
 use crate::collectors::{NvidiaGpu, Rapl};
 use crate::config::EmtConfig;
 use crate::energy_group::{EnergyCollector, EnergyGroup};
@@ -19,6 +20,13 @@ fn build_runtime() -> PyResult<Runtime> {
         .enable_all()
         .build()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+}
+
+#[pyfunction]
+#[pyo3(signature = (argv=None))]
+fn cli_main(py: Python<'_>, argv: Option<Vec<String>>) -> PyResult<i32> {
+    let args = argv.unwrap_or_else(|| std::env::args().collect());
+    py.detach(|| Ok(cli::run_from(args)))
 }
 
 #[pyclass(name = "RaplCollector", module = "emt._rust")]
@@ -361,5 +369,6 @@ fn _rust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyRaplCollector>()?;
     module.add_class::<PyNvidiaGpuCollector>()?;
     module.add_class::<PyRustMonitor>()?;
+    module.add_function(wrap_pyfunction!(cli_main, module)?)?;
     Ok(())
 }

@@ -50,6 +50,7 @@ features = ["pyo3"]
 
 
 [project.scripts]
+emt = "emt.cli:main"
 emt_cfgup = "emt.cfgup:main"
 
 
