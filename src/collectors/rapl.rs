@@ -7,7 +7,8 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use sysinfo::{Pid, System};
+
+const LINUX_PAGE_SIZE_BYTES: u64 = 4096;
 
 /// DeltaReader tracks energy deltas from RAPL MSR registers
 /// It reads the energy_uj file and computes the delta from the previous reading
@@ -72,6 +73,7 @@ struct SocketReaders {
 }
 
 type UtilizationSeries = Vec<(u32, f64)>;
+const UNATTRIBUTED_PID: u32 = 0;
 
 /// Tracks CPU times for a process to calculate CPU percentage accurately
 /// Similar to how psutil tracks cpu_percent internally
@@ -164,8 +166,10 @@ pub struct Rapl {
     psys_reader: Option<DeltaReader>,
     /// Tracked process PIDs for per-process energy attribution
     tracked_pids: Arc<Mutex<Vec<u32>>>,
-    /// Persistent System instance for memory tracking
-    system: Mutex<System>,
+    /// Logical CPU count used to normalize process CPU percentages.
+    cpu_count: f64,
+    /// Host total memory, used to normalize process RSS.
+    total_memory_bytes: u64,
     /// Per-process CPU time trackers for accurate CPU percentage
     cpu_trackers: Mutex<std::collections::HashMap<u32, ProcessCpuTracker>>,
     /// System-wide CPU tracker
@@ -235,9 +239,6 @@ impl Rapl {
         let rapl_dir = rapl_path.unwrap_or_else(|| "/sys/class/powercap".to_string());
         let (socket_readers, dram_reader, psys_reader) = Self::scan_powercap_entries(&rapl_dir);
 
-        // Initialize System for memory tracking (CPU tracking now uses /proc/stat directly)
-        let system = System::new_all();
-
         // Initialize CPU trackers with a warmup call
         let mut system_cpu_tracker = SystemCpuTracker::default();
         system_cpu_tracker.update(); // First call establishes baseline
@@ -247,7 +248,8 @@ impl Rapl {
             dram_reader,
             psys_reader,
             tracked_pids: Arc::new(Mutex::new(Vec::new())),
-            system: Mutex::new(system),
+            cpu_count: logical_cpu_count(),
+            total_memory_bytes: read_total_memory_bytes(),
             cpu_trackers: Mutex::new(std::collections::HashMap::new()),
             system_cpu_tracker: Mutex::new(system_cpu_tracker),
         }
@@ -434,8 +436,6 @@ impl Rapl {
         &self,
         pids: &[u32],
     ) -> Result<(UtilizationSeries, UtilizationSeries), String> {
-        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
-
         // Get system CPU using our custom tracker (reads from /proc/stat)
         let (system_cpu, sys_valid) = {
             let mut tracker = self
@@ -481,41 +481,22 @@ impl Rapl {
             pids.len()
         );
 
-        // Use sysinfo only for memory tracking
-        let mut system = self
-            .system
-            .lock()
-            .map_err(|e| format!("Failed to lock system: {}", e))?;
-
-        // Refresh memory info for tracked processes
-        let pids_to_update: Vec<Pid> = pids.iter().map(|&p| Pid::from(p as usize)).collect();
-        let refresh_kind = ProcessRefreshKind::nothing().with_memory();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&pids_to_update),
-            true,
-            refresh_kind,
-        );
-
-        let cpu_count = system.cpus().len().max(1) as f64;
-        let total_memory = system.total_memory();
+        let cpu_count = self.cpu_count.max(1.0);
+        let total_memory = self.total_memory_bytes;
 
         // Calculate per-process memory utilization
         let mut total_process_memory = 0.0;
         let mut process_memory: Vec<(u32, f64)> = Vec::new();
 
         for &pid in pids {
-            if let Some(process) = system.process(Pid::from(pid as usize)) {
-                let memory_bytes = process.memory();
-                let memory_percent = if total_memory > 0 {
-                    (memory_bytes as f64 / total_memory as f64) * 100.0
-                } else {
-                    0.0
-                };
-                total_process_memory += memory_percent;
-                process_memory.push((pid, memory_percent));
+            let memory_bytes = read_process_rss_bytes(pid);
+            let memory_percent = if total_memory > 0 {
+                (memory_bytes as f64 / total_memory as f64) * 100.0
             } else {
-                process_memory.push((pid, 0.0));
-            }
+                0.0
+            };
+            total_process_memory += memory_percent;
+            process_memory.push((pid, memory_percent));
         }
 
         // Normalize CPU utilization relative to system CPU
@@ -539,6 +520,7 @@ impl Rapl {
                 (pid, normalized)
             })
             .collect();
+        let normalized_cpus = normalize_fraction_budget(normalized_cpus);
 
         // Normalize memory utilization relative to total process memory
         let normalized_memory: Vec<(u32, f64)> = process_memory
@@ -552,9 +534,65 @@ impl Rapl {
                 (pid, normalized)
             })
             .collect();
+        let normalized_memory = normalize_fraction_budget(normalized_memory);
 
         Ok((normalized_cpus, normalized_memory))
     }
+}
+
+fn normalize_fraction_budget(series: UtilizationSeries) -> UtilizationSeries {
+    let total: f64 = series.iter().map(|(_, value)| *value).sum();
+    if total <= 1.0 || total <= f64::EPSILON {
+        return series;
+    }
+
+    series
+        .into_iter()
+        .map(|(pid, value)| (pid, value / total))
+        .collect()
+}
+
+fn logical_cpu_count() -> f64 {
+    std::thread::available_parallelism()
+        .map(|count| count.get().max(1) as f64)
+        .unwrap_or(1.0)
+}
+
+fn read_total_memory_bytes() -> u64 {
+    fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|contents| parse_memtotal_bytes(&contents))
+        .unwrap_or(0)
+}
+
+fn parse_memtotal_bytes(contents: &str) -> Option<u64> {
+    contents.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "MemTotal:" {
+            return None;
+        }
+        fields
+            .next()?
+            .parse::<u64>()
+            .ok()
+            .map(|kib| kib.saturating_mul(1024))
+    })
+}
+
+fn read_process_rss_bytes(pid: u32) -> u64 {
+    fs::read_to_string(format!("/proc/{pid}/statm"))
+        .ok()
+        .and_then(|contents| parse_statm_resident_bytes(&contents))
+        .unwrap_or(0)
+}
+
+fn parse_statm_resident_bytes(contents: &str) -> Option<u64> {
+    contents
+        .split_whitespace()
+        .nth(1)?
+        .parse::<u64>()
+        .ok()
+        .map(|resident_pages| resident_pages.saturating_mul(LINUX_PAGE_SIZE_BYTES))
 }
 
 impl Default for Rapl {
@@ -645,6 +683,7 @@ impl EnergyCollector for Rapl {
             // NOTE: Package energy is the total socket energy and already includes core energy.
             // We only attribute package energy to avoid double counting.
             // Core and uncore are recorded separately for detailed breakdown but not summed into total.
+            let mut attributed_package_energy = 0.0;
             for &pid in &pids {
                 let normalized_cpu = cpu_utilization_ratio
                     .iter()
@@ -656,6 +695,7 @@ impl EnergyCollector for Rapl {
                 // Package = Core + Uncore, so we only count package to avoid double counting
                 if socket.package_reader.is_some() {
                     let package_attribution = package_energy * normalized_cpu;
+                    attributed_package_energy += package_attribution;
                     log::trace!(
                         "PID {} socket {}: package_energy={:.4}J × normalized_cpu={:.4} = {:.4}J",
                         pid,
@@ -669,6 +709,19 @@ impl EnergyCollector for Rapl {
                         timestamp,
                         device: format!("rapl:socket:{}:package", socket_id),
                         energy: package_attribution,
+                    });
+                }
+            }
+
+            if socket.package_reader.is_some() {
+                let unattributed_package_energy =
+                    (package_energy - attributed_package_energy).max(0.0);
+                if unattributed_package_energy > 0.0 {
+                    records.push(EnergyRecord {
+                        pid: UNATTRIBUTED_PID,
+                        timestamp,
+                        device: format!("rapl:socket:{}:package", socket_id),
+                        energy: unattributed_package_energy,
                     });
                 }
             }
@@ -702,6 +755,8 @@ impl EnergyCollector for Rapl {
         };
 
         // Attribute system-level energy to tracked PIDs
+        let mut attributed_dram_energy = 0.0;
+        let mut attributed_psys_energy = 0.0;
         for &pid in &pids {
             let normalized_mem = memory_utilization_ratio
                 .iter()
@@ -712,6 +767,7 @@ impl EnergyCollector for Rapl {
             // DRAM energy attributed by memory usage
             if self.dram_reader.is_some() {
                 let dram_attribution = dram_energy * normalized_mem;
+                attributed_dram_energy += dram_attribution;
                 records.push(EnergyRecord {
                     pid,
                     timestamp,
@@ -723,11 +779,35 @@ impl EnergyCollector for Rapl {
             // PSYS energy distributed equally among processes
             if self.psys_reader.is_some() {
                 let psys_attribution = psys_energy / pids.len() as f64;
+                attributed_psys_energy += psys_attribution;
                 records.push(EnergyRecord {
                     pid,
                     timestamp,
                     device: "rapl:system:psys".to_string(),
                     energy: psys_attribution,
+                });
+            }
+        }
+
+        if self.dram_reader.is_some() {
+            let unattributed_dram_energy = (dram_energy - attributed_dram_energy).max(0.0);
+            if unattributed_dram_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: UNATTRIBUTED_PID,
+                    timestamp,
+                    device: "rapl:system:dram".to_string(),
+                    energy: unattributed_dram_energy,
+                });
+            }
+        }
+        if self.psys_reader.is_some() {
+            let unattributed_psys_energy = (psys_energy - attributed_psys_energy).max(0.0);
+            if unattributed_psys_energy > 0.0 {
+                records.push(EnergyRecord {
+                    pid: UNATTRIBUTED_PID,
+                    timestamp,
+                    device: "rapl:system:psys".to_string(),
+                    energy: unattributed_psys_energy,
                 });
             }
         }
@@ -832,6 +912,23 @@ mod tests {
     }
 
     #[test]
+    fn normalize_fraction_budget_preserves_under_budget_values() {
+        let values = vec![(1, 0.25), (2, 0.5)];
+
+        assert_eq!(normalize_fraction_budget(values.clone()), values);
+    }
+
+    #[test]
+    fn normalize_fraction_budget_scales_over_budget_values() {
+        let values = normalize_fraction_budget(vec![(1, 0.75), (2, 0.75)]);
+        let total: f64 = values.iter().map(|(_, value)| *value).sum();
+
+        assert!((total - 1.0).abs() < 1e-10);
+        assert!((values[0].1 - 0.5).abs() < 1e-10);
+        assert!((values[1].1 - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
     fn scan_powercap_entries_keeps_multi_socket_components_separate() {
         let rapl_dir = TempTestDir::new("multi-socket");
 
@@ -863,5 +960,22 @@ mod tests {
         assert!(socket1.package_reader.is_some());
         assert!(socket1.core_reader.is_some());
         assert!(socket1.uncore_reader.is_none());
+    }
+
+    #[test]
+    fn parse_memtotal_bytes_reads_kib_value() {
+        let contents = "MemFree: 1 kB\nMemTotal: 2048 kB\n";
+
+        assert_eq!(parse_memtotal_bytes(contents), Some(2_097_152));
+    }
+
+    #[test]
+    fn parse_statm_resident_bytes_reads_resident_pages() {
+        let contents = "100 3 0 0 0 0 0\n";
+
+        assert_eq!(
+            parse_statm_resident_bytes(contents),
+            Some(3 * LINUX_PAGE_SIZE_BYTES)
+        );
     }
 }

@@ -7,8 +7,9 @@ use crate::process::{
 use crate::process_aggregation::{aggregate_energy_records, percentage_of_system};
 use crate::utils::errors::MonitoringError;
 use crate::utils::psutils::{ProcessRoot, walk_child_pids};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -17,7 +18,7 @@ use tokio::task::JoinHandle;
 // ─── MetricsSnapshot data structures ────────────────────────────────────────
 
 /// Energy breakdown by device type (CPU, DRAM, GPU).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceEnergy {
     pub cpu_joules: f64,
     pub dram_joules: f64,
@@ -41,7 +42,7 @@ impl DeviceEnergy {
 }
 
 /// Per-process energy and power snapshot nested under a workload group.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ProcessEnergySnapshot {
     pub pid: u32,
     pub name: String,
@@ -50,7 +51,7 @@ pub struct ProcessEnergySnapshot {
 }
 
 /// Per-workload (root process) energy and power snapshot.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WorkloadSnapshot {
     pub root_pid: u32,
     pub group_id: String,
@@ -64,7 +65,7 @@ pub struct WorkloadSnapshot {
 }
 
 /// Full metrics snapshot shared via MonitorHandle.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct MetricsSnapshot {
     pub timestamp: i64,
     pub gpu_available: bool,
@@ -72,6 +73,15 @@ pub struct MetricsSnapshot {
     pub workloads: Vec<WorkloadSnapshot>,
     pub unattributed: DeviceEnergy,
     pub tracked_pids: Vec<u32>,
+    pub diagnostics: MonitorDiagnostics,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MonitorDiagnostics {
+    pub collection_ticks: u64,
+    pub process_scans: u64,
+    pub process_groups: usize,
+    pub tracked_pids: usize,
 }
 
 // ─── Snapshot helpers ───────────────────────────────────────────────────────
@@ -421,6 +431,8 @@ pub struct Monitor {
     last_pid_to_group: Arc<RwLock<HashMap<u32, String>>>,
     /// First tick timestamp for average-power calculations.
     start_timestamp: Arc<RwLock<i64>>,
+    /// Number of process discovery scans completed in monitor-all mode.
+    process_scan_count: Arc<AtomicU64>,
     /// Internal task handles
     tick_handle: Option<JoinHandle<()>>,
     scan_handle: Option<JoinHandle<()>>,
@@ -467,6 +479,7 @@ impl Monitor {
             known_groups: Arc::new(RwLock::new(HashMap::new())),
             last_pid_to_group: Arc::new(RwLock::new(HashMap::new())),
             start_timestamp: Arc::new(RwLock::new(0)),
+            process_scan_count: Arc::new(AtomicU64::new(0)),
             tick_handle: None,
             scan_handle: None,
             snapshot: Arc::new(RwLock::new(MetricsSnapshot {
@@ -490,6 +503,7 @@ impl Monitor {
         *self.known_groups.write().unwrap() = HashMap::new();
         *self.last_pid_to_group.write().unwrap() = HashMap::new();
         *self.start_timestamp.write().unwrap() = 0;
+        self.process_scan_count.store(0, Ordering::SeqCst);
         *self.snapshot.write().unwrap() = MetricsSnapshot {
             gpu_available: self.gpu_group.is_some(),
             ..MetricsSnapshot::default()
@@ -508,6 +522,7 @@ impl Monitor {
 
         if self.root_pids.is_none() {
             *self.discovered_groups.write().unwrap() = initial_groups.clone();
+            self.process_scan_count.store(1, Ordering::SeqCst);
         }
 
         {
@@ -713,13 +728,16 @@ impl Monitor {
         let known_groups = Arc::clone(&self.known_groups);
         let last_pid_to_group = Arc::clone(&self.last_pid_to_group);
         let start_timestamp = Arc::clone(&self.start_timestamp);
+        let process_scan_count = Arc::clone(&self.process_scan_count);
         let snapshot = Arc::clone(&self.snapshot);
         let is_running = Arc::clone(&self.is_running);
 
         self.tick_handle = Some(tokio::spawn(async move {
             let mut tick_state = TickState::default();
+            let mut collection_ticks = 0_u64;
 
             while is_running.load(Ordering::SeqCst) {
+                collection_ticks += 1;
                 let groups = if let Some(ref pids) = root_pids {
                     let cached_groups = {
                         let known = known_groups.read().unwrap();
@@ -820,6 +838,12 @@ impl Monitor {
                     snap.workloads = workloads;
                     snap.unattributed = cumulative_unattributed;
                     snap.tracked_pids = expanded_pids;
+                    snap.diagnostics = MonitorDiagnostics {
+                        collection_ticks,
+                        process_scans: process_scan_count.load(Ordering::SeqCst),
+                        process_groups: groups.len(),
+                        tracked_pids: snap.tracked_pids.len(),
+                    };
                 }
                 *last_pid_to_group.write().unwrap() = current_pid_to_group;
 
@@ -833,6 +857,7 @@ impl Monitor {
     fn spawn_scan_task(&mut self) {
         let interval = Duration::from_secs_f64(self.config.discovery.scan_interval_secs);
         let discovered_groups = Arc::clone(&self.discovered_groups);
+        let process_scan_count = Arc::clone(&self.process_scan_count);
         let is_running = Arc::clone(&self.is_running);
 
         self.scan_handle = Some(tokio::spawn(async move {
@@ -841,6 +866,7 @@ impl Monitor {
                     .await
                     .unwrap_or_default();
                 *discovered_groups.write().unwrap() = groups;
+                process_scan_count.fetch_add(1, Ordering::SeqCst);
                 tokio::time::sleep(interval).await;
             }
         }));
@@ -1150,6 +1176,10 @@ mod tests {
         assert!(snap.workloads.is_empty());
         assert_eq!(snap.unattributed.total(), 0.0);
         assert!(snap.tracked_pids.is_empty());
+        assert_eq!(snap.diagnostics.collection_ticks, 0);
+        assert_eq!(snap.diagnostics.process_scans, 0);
+        assert_eq!(snap.diagnostics.process_groups, 0);
+        assert_eq!(snap.diagnostics.tracked_pids, 0);
     }
 
     #[test]
@@ -1233,6 +1263,12 @@ mod tests {
         let snapshot = handle.snapshot();
         // Should have discovered some PIDs via scan
         assert!(!snapshot.tracked_pids.is_empty());
+        assert!(snapshot.diagnostics.collection_ticks > 0);
+        assert!(snapshot.diagnostics.process_scans > 0);
+        assert_eq!(
+            snapshot.diagnostics.tracked_pids,
+            snapshot.tracked_pids.len()
+        );
 
         monitor.shutdown().await.unwrap();
     }

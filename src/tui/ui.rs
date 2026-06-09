@@ -492,6 +492,7 @@ mod tests {
                 gpu_joules: 0.0,
             },
             tracked_pids: vec![123, 124],
+            ..MetricsSnapshot::default()
         };
         let power_history = PowerHistorySnapshot {
             cpu: vec![5.0],
@@ -549,6 +550,7 @@ mod tests {
                 gpu_joules: 30.0,
             },
             tracked_pids: Vec::new(),
+            ..MetricsSnapshot::default()
         };
         let power_history = PowerHistorySnapshot {
             cpu: vec![5.0],
@@ -616,6 +618,7 @@ mod tests {
             }],
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
         };
         let power_history = PowerHistorySnapshot::default();
         let expanded = HashSet::from(["pid:123".to_string()]);
@@ -681,6 +684,7 @@ mod tests {
             }],
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
         };
 
         let rows = workload_table_rows(&snapshot, 0, &HashSet::new(), &HashMap::new());
@@ -743,6 +747,7 @@ mod tests {
             ],
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![100],
+            ..MetricsSnapshot::default()
         };
         let expanded = HashSet::from(["pid:200".to_string()]);
 
@@ -791,6 +796,7 @@ mod tests {
             }],
             unattributed: DeviceEnergy::default(),
             tracked_pids: vec![1, 2, 3],
+            ..MetricsSnapshot::default()
         };
         let expanded = HashSet::from(["pid:1".to_string()]);
         let child_scroll_offsets = HashMap::from([("pid:1".to_string(), 1)]);
