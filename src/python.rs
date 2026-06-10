@@ -350,6 +350,16 @@ impl PyRustMonitor {
     }
 
     #[getter]
+    fn gpu_available(&self, py: Python<'_>) -> PyResult<bool> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || Ok(handle.snapshot().gpu_available))
+    }
+
+    #[getter]
     fn is_running(&self) -> bool {
         self.running
     }

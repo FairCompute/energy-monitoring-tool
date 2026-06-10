@@ -70,6 +70,11 @@ def rust_module():
             "emt._rust imported but does not expose RustMonitor; rebuild the PyO3 "
             "extension from current sources."
         )
+    if not hasattr(module.RustMonitor, "gpu_available"):
+        pytest.fail(
+            "emt._rust.RustMonitor does not expose gpu_available; rebuild the PyO3 "
+            "extension from current sources."
+        )
     return module
 
 
@@ -124,7 +129,10 @@ def test_energy_monitor_reports_energy_from_real_rust_backend(
         f"with readable RAPL counters: {[entry.name for entry in readable_rapl_entries]}"
     )
     assert consumed_energy
-    assert {"cpu", "dram", "gpu"}.issubset(consumed_energy)
+    assert "RAPLSoC" in consumed_energy
+    assert "cpu" not in consumed_energy
+    assert "dram" not in consumed_energy
+    assert "gpu" not in consumed_energy
     assert sum(consumed_energy.values()) == pytest.approx(
         total_energy, rel=1e-6, abs=1e-9
     )

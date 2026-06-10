@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import os
 import sys
 import types
 from collections import defaultdict
@@ -293,6 +294,7 @@ def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
             self.shutdown_called = False
             self.total_consumed_energy = 12.5
             self.consumed_energy = {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+            self.gpu_available = False
             instances.append(self)
 
         def commence(self):
@@ -326,10 +328,95 @@ def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
     mock_get_available_pgs.assert_not_called()
     mock_thread.assert_not_called()
     assert monitor.total_consumed_energy == pytest.approx(12.5)
-    assert monitor.consumed_energy == {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+    assert monitor.consumed_energy == {"RAPLSoC": 12.5}
 
     monitor.__exit__()
     assert instances[0].shutdown_called is True
+
+
+def test_rust_backend_defaults_to_current_pid_for_python_api(monkeypatch):
+    instances = []
+
+    class FakeRustMonitor:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.total_consumed_energy = 0.0
+            self.consumed_energy = {"cpu": 0.0, "dram": 0.0, "gpu": 0.0}
+            self.gpu_available = False
+            instances.append(self)
+
+        def commence(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    install_fake_rust_module(monkeypatch, FakeRustMonitor)
+    monitor = EnergyMonitor(name="DefaultPidContext", startup_delay_s=0.0)
+
+    with (
+        patch("emt.energy_monitor.get_available_pgs"),
+        patch("threading.Thread"),
+    ):
+        monitor.__enter__()
+
+    assert instances[0].kwargs == {
+        "name": "DefaultPidContext",
+        "pid": os.getpid(),
+    }
+
+
+def test_rust_backend_consumed_energy_preserves_python_power_group_names(monkeypatch):
+    class FakeRustMonitor:
+        def __init__(self, **_):
+            self.total_consumed_energy = 15.0
+            self.consumed_energy = {"cpu": 10.0, "dram": 2.0, "gpu": 3.0}
+            self.gpu_available = True
+
+        def commence(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    install_fake_rust_module(monkeypatch, FakeRustMonitor)
+    monitor = EnergyMonitor(startup_delay_s=0.0)
+
+    with (
+        patch("emt.energy_monitor.get_available_pgs"),
+        patch("threading.Thread"),
+    ):
+        monitor.__enter__()
+
+    assert monitor.consumed_energy == {"RAPLSoC": 12.0, "NvidiaGPU": 3.0}
+    assert sum(monitor.consumed_energy.values()) == pytest.approx(
+        monitor.total_consumed_energy
+    )
+
+
+def test_rust_backend_preserves_available_gpu_key_when_energy_is_zero(monkeypatch):
+    class FakeRustMonitor:
+        def __init__(self, **_):
+            self.total_consumed_energy = 12.0
+            self.consumed_energy = {"cpu": 10.0, "dram": 2.0, "gpu": 0.0}
+            self.gpu_available = True
+
+        def commence(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    install_fake_rust_module(monkeypatch, FakeRustMonitor)
+    monitor = EnergyMonitor(startup_delay_s=0.0)
+
+    with (
+        patch("emt.energy_monitor.get_available_pgs"),
+        patch("threading.Thread"),
+    ):
+        monitor.__enter__()
+
+    assert monitor.consumed_energy == {"RAPLSoC": 12.0, "NvidiaGPU": 0.0}
 
 
 def test_import_error_falls_back_to_python_backend(monkeypatch):

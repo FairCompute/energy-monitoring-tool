@@ -1,6 +1,7 @@
 import time
 import asyncio
 import logging
+import os
 import threading
 from threading import RLock
 from typing import Collection, Mapping, Optional
@@ -208,9 +209,10 @@ class EnergyMonitor:
         try:
             from emt._rust import RustMonitor
 
-            kwargs = {"name": self.context_name}
-            if self._pid is not None:
-                kwargs["pid"] = self._pid
+            kwargs = {
+                "name": self.context_name,
+                "pid": self._pid if self._pid is not None else os.getpid(),
+            }
             if self._rate is not None:
                 kwargs["rate"] = self._rate
             backend = RustMonitor(**kwargs)
@@ -273,7 +275,7 @@ class EnergyMonitor:
                 f"{self._rust_backend.total_consumed_energy:.2f} Joules"
             )
             logger.info(
-                f"{self.context_name}: Device energy: {self._rust_backend.consumed_energy}"
+                f"{self.context_name}: Power group energy consumptions: {self.consumed_energy}"
             )
             return
 
@@ -302,12 +304,25 @@ class EnergyMonitor:
 
     @property
     def consumed_energy(self) -> Mapping[str, float]:
-        """Per-device energy breakdown."""
+        """Per-power-group energy breakdown."""
         if hasattr(self, "_rust_backend") and self._rust_backend is not None:
-            return self._rust_backend.consumed_energy
+            return self._rust_consumed_energy_by_power_group()
         if hasattr(self, "energy_meter"):
             return self.energy_meter.consumed_energy
         return {}
+
+    def _rust_consumed_energy_by_power_group(self) -> Mapping[str, float]:
+        device_energy = dict(self._rust_backend.consumed_energy)
+        consumed_energy = {
+            "RAPLSoC": device_energy.get("cpu", 0.0) + device_energy.get("dram", 0.0)
+        }
+        gpu_energy = device_energy.get("gpu", 0.0)
+        gpu_available = bool(
+            getattr(self._rust_backend, "gpu_available", gpu_energy > 0.0)
+        )
+        if gpu_available or gpu_energy > 0.0:
+            consumed_energy["NvidiaGPU"] = gpu_energy
+        return consumed_energy
 
     @property
     def trace_recorders(self):
