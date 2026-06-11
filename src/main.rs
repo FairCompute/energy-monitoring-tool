@@ -1,7 +1,9 @@
 use clap::{Parser, ValueEnum};
 use emt::config::{EmtConfig, MeasurementUnitsConfig};
 use emt::metrics_sink::{MetricsSink, PrometheusSink, SharedPrometheusSink, prometheus_router};
-use emt::monitor::{DeviceEnergy, MetricsSnapshot, Monitor, MonitorHandle};
+use emt::monitor::{
+    DeviceEnergy, DeviceSources, MetricsSnapshot, Monitor, MonitorDiagnostics, MonitorHandle,
+};
 use emt::tui::{self, App};
 use serde::Serialize;
 use std::fs::File;
@@ -102,7 +104,9 @@ fn batch_duration_seconds(args: &Args) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emt::monitor::WorkloadSnapshot;
+    use emt::monitor::{
+        DeviceEnergy, DeviceSource, DeviceSources, ProcessEnergySnapshot, WorkloadSnapshot,
+    };
 
     #[test]
     fn cli_output_uses_configured_units_and_unit_neutral_fields() {
@@ -126,6 +130,11 @@ mod tests {
         let snapshot = MetricsSnapshot {
             timestamp: 0,
             gpu_available: false,
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: DeviceSource::Measured,
+                gpu: DeviceSource::Unavailable,
+            },
             system_total: DeviceEnergy {
                 cpu_joules: 2_700.0,
                 dram_joules: 900.0,
@@ -158,7 +167,7 @@ mod tests {
         assert!((output.total_energy - 0.001).abs() < 1e-9);
         assert!((output.power - 360_000.0).abs() < 1e-9);
         assert!((output.devices.cpu - 0.00075).abs() < 1e-9);
-        assert!((output.devices.dram - 0.00025).abs() < 1e-9);
+        assert!((output.devices.dram.unwrap() - 0.00025).abs() < 1e-9);
         assert_eq!(output.workloads[0].root_pid, 123);
         assert_eq!(output.workloads[0].group_id, "pid:123");
         assert_eq!(output.workloads[0].name, "work");
@@ -166,6 +175,124 @@ mod tests {
         assert!((output.workloads[0].energy - 0.001).abs() < 1e-9);
         assert!((output.workloads[0].power - 360_000.0).abs() < 1e-9);
         assert!((output.workloads[0].percentage_of_system - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cli_output_omits_dram_device_when_dram_is_included_in_package() {
+        let args = Args {
+            pid: Some(123),
+            duration: Some(10),
+            rate: None,
+            scan_interval: None,
+            snapshot_out: None,
+            tui: false,
+            headless: false,
+            export: None,
+            port: DEFAULT_PROMETHEUS_PORT,
+            bind: "0.0.0.0".parse().unwrap(),
+            json_out: Some("results.json".to_string()),
+        };
+        let snapshot = MetricsSnapshot {
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: DeviceSource::IncludedInPackage,
+                gpu: DeviceSource::Unavailable,
+            },
+            system_total: DeviceEnergy {
+                cpu_joules: 42.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            ..MetricsSnapshot::default()
+        };
+
+        let output = build_cli_output(&args, 10.0, &snapshot, &MeasurementUnitsConfig::default());
+        let json = serde_json::to_string(&output).unwrap();
+
+        assert!(output.devices.dram.is_none());
+        assert!(json.contains("\"cpu\""));
+        assert!(!json.contains("\"dram\""));
+    }
+
+    #[test]
+    fn snapshot_output_omits_dram_joules_when_dram_is_not_measured() {
+        let snapshot = MetricsSnapshot {
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: DeviceSource::IncludedInPackage,
+                gpu: DeviceSource::Unavailable,
+            },
+            system_total: DeviceEnergy {
+                cpu_joules: 42.0,
+                dram_joules: 99.0,
+                gpu_joules: 0.0,
+            },
+            workloads: vec![WorkloadSnapshot {
+                root_pid: 123,
+                group_id: "pid:123".to_string(),
+                name: "work".to_string(),
+                user: "user".to_string(),
+                processes: vec![ProcessEnergySnapshot {
+                    pid: 123,
+                    name: "work".to_string(),
+                    energy: DeviceEnergy {
+                        cpu_joules: 4.0,
+                        dram_joules: 9.0,
+                        gpu_joules: 0.0,
+                    },
+                    power_watts: 2.0,
+                }],
+                is_live: true,
+                energy: DeviceEnergy {
+                    cpu_joules: 4.0,
+                    dram_joules: 9.0,
+                    gpu_joules: 0.0,
+                },
+                power_watts: 2.0,
+                percentage_of_system: 10.0,
+            }],
+            unattributed: DeviceEnergy {
+                cpu_joules: 38.0,
+                dram_joules: 90.0,
+                gpu_joules: 0.0,
+            },
+            tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
+        };
+
+        let value = serde_json::to_value(build_snapshot_output(&snapshot)).unwrap();
+
+        assert_eq!(value["sources"]["dram"], "included_in_package");
+        assert!(value["system_total"].get("dram_joules").is_none());
+        assert!(value["unattributed"].get("dram_joules").is_none());
+        assert!(value["workloads"][0]["energy"].get("dram_joules").is_none());
+        assert!(
+            value["workloads"][0]["processes"][0]["energy"]
+                .get("dram_joules")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn snapshot_output_keeps_dram_joules_when_dram_is_measured() {
+        let snapshot = MetricsSnapshot {
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: DeviceSource::Measured,
+                gpu: DeviceSource::Unavailable,
+            },
+            system_total: DeviceEnergy {
+                cpu_joules: 42.0,
+                dram_joules: 9.0,
+                gpu_joules: 0.0,
+            },
+            ..MetricsSnapshot::default()
+        };
+
+        let value = serde_json::to_value(build_snapshot_output(&snapshot)).unwrap();
+
+        assert_eq!(value["sources"]["dram"], "measured");
+        assert_eq!(value["system_total"]["dram_joules"], 9.0);
     }
 
     #[test]
@@ -325,7 +452,8 @@ struct CliOutput {
 #[derive(Serialize)]
 struct DeviceBreakdown {
     cpu: f64,
-    dram: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dram: Option<f64>,
     gpu: f64,
 }
 
@@ -340,13 +468,106 @@ struct WorkloadOutput {
     percentage_of_system: f64,
 }
 
+#[derive(Serialize)]
+struct SnapshotOutput<'a> {
+    timestamp: i64,
+    gpu_available: bool,
+    sources: &'a DeviceSources,
+    system_total: SnapshotDeviceEnergy,
+    workloads: Vec<SnapshotWorkloadOutput<'a>>,
+    unattributed: SnapshotDeviceEnergy,
+    tracked_pids: &'a [u32],
+    diagnostics: &'a MonitorDiagnostics,
+}
+
+#[derive(Serialize)]
+struct SnapshotDeviceEnergy {
+    cpu_joules: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dram_joules: Option<f64>,
+    gpu_joules: f64,
+}
+
+#[derive(Serialize)]
+struct SnapshotWorkloadOutput<'a> {
+    root_pid: u32,
+    group_id: &'a str,
+    name: &'a str,
+    user: &'a str,
+    processes: Vec<SnapshotProcessOutput<'a>>,
+    is_live: bool,
+    energy: SnapshotDeviceEnergy,
+    power_watts: f64,
+    percentage_of_system: f64,
+}
+
+#[derive(Serialize)]
+struct SnapshotProcessOutput<'a> {
+    pid: u32,
+    name: &'a str,
+    energy: SnapshotDeviceEnergy,
+    power_watts: f64,
+}
+
 impl DeviceBreakdown {
-    fn from_energy(de: &DeviceEnergy, units: &MeasurementUnitsConfig) -> Self {
+    fn from_snapshot(snapshot: &MetricsSnapshot, units: &MeasurementUnitsConfig) -> Self {
         Self {
-            cpu: units.convert_energy_from_joules(de.cpu_joules),
-            dram: units.convert_energy_from_joules(de.dram_joules),
-            gpu: units.convert_energy_from_joules(de.gpu_joules),
+            cpu: units.convert_energy_from_joules(snapshot.system_total.cpu_joules),
+            dram: snapshot
+                .sources
+                .reports_dram_energy()
+                .then(|| units.convert_energy_from_joules(snapshot.system_total.dram_joules)),
+            gpu: units.convert_energy_from_joules(snapshot.system_total.gpu_joules),
         }
+    }
+}
+
+impl SnapshotDeviceEnergy {
+    fn from_energy(energy: &DeviceEnergy, sources: &DeviceSources) -> Self {
+        Self {
+            cpu_joules: energy.cpu_joules,
+            dram_joules: sources.reports_dram_energy().then_some(energy.dram_joules),
+            gpu_joules: energy.gpu_joules,
+        }
+    }
+}
+
+fn build_snapshot_output(snapshot: &MetricsSnapshot) -> SnapshotOutput<'_> {
+    let sources = &snapshot.sources;
+    let workloads = snapshot
+        .workloads
+        .iter()
+        .map(|workload| SnapshotWorkloadOutput {
+            root_pid: workload.root_pid,
+            group_id: workload.group_id.as_str(),
+            name: workload.name.as_str(),
+            user: workload.user.as_str(),
+            processes: workload
+                .processes
+                .iter()
+                .map(|process| SnapshotProcessOutput {
+                    pid: process.pid,
+                    name: process.name.as_str(),
+                    energy: SnapshotDeviceEnergy::from_energy(&process.energy, sources),
+                    power_watts: process.power_watts,
+                })
+                .collect(),
+            is_live: workload.is_live,
+            energy: SnapshotDeviceEnergy::from_energy(&workload.energy, sources),
+            power_watts: workload.power_watts,
+            percentage_of_system: workload.percentage_of_system,
+        })
+        .collect();
+
+    SnapshotOutput {
+        timestamp: snapshot.timestamp,
+        gpu_available: snapshot.gpu_available,
+        sources,
+        system_total: SnapshotDeviceEnergy::from_energy(&snapshot.system_total, sources),
+        workloads,
+        unattributed: SnapshotDeviceEnergy::from_energy(&snapshot.unattributed, sources),
+        tracked_pids: &snapshot.tracked_pids,
+        diagnostics: &snapshot.diagnostics,
     }
 }
 
@@ -388,7 +609,7 @@ fn build_cli_output(
         energy_unit: units.energy.clone(),
         power: units.convert_power_from_watts(power_watts),
         power_unit: units.power.clone(),
-        devices: DeviceBreakdown::from_energy(&snapshot.system_total, units),
+        devices: DeviceBreakdown::from_snapshot(snapshot, units),
         workloads,
     }
 }
@@ -695,14 +916,15 @@ fn write_snapshot_if_requested(path: Option<&str>, snapshot: &MetricsSnapshot) {
 
     let result: Result<(), Box<dyn std::error::Error>> = (|| {
         let mut file = File::create(path)?;
-        serde_json::to_writer_pretty(&mut file, snapshot)?;
+        let output = build_snapshot_output(snapshot);
+        serde_json::to_writer_pretty(&mut file, &output)?;
         file.write_all(b"\n")?;
         Ok(())
     })();
 
     match result {
-        Ok(()) => eprintln!("Raw snapshot written to: {path}"),
-        Err(e) => eprintln!("Warning: failed to write raw snapshot to {path}: {e}"),
+        Ok(()) => eprintln!("Snapshot written to: {path}"),
+        Err(e) => eprintln!("Warning: failed to write snapshot to {path}: {e}"),
     }
 }
 

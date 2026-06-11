@@ -118,13 +118,19 @@ def test_energy_monitor_reports_energy_from_real_rust_backend(
 
     total_energy = monitor.total_consumed_energy
     consumed_energy = monitor.consumed_energy
+    device_sources = monitor.device_sources
 
     assert total_energy > 0.0, (
         "Rust-backed EnergyMonitor reported no energy for a CPU-bound workload "
         f"with readable RAPL counters: {[entry.name for entry in readable_rapl_entries]}"
     )
     assert consumed_energy
-    assert {"cpu", "dram", "gpu"}.issubset(consumed_energy)
+    assert {"cpu", "gpu"}.issubset(consumed_energy)
+    assert {"cpu", "dram", "gpu"}.issubset(device_sources)
+    if device_sources["dram"] == "measured":
+        assert "dram" in consumed_energy
+    else:
+        assert "dram" not in consumed_energy
     assert sum(consumed_energy.values()) == pytest.approx(
         total_energy, rel=1e-6, abs=1e-9
     )
