@@ -505,8 +505,9 @@ impl Monitor {
     /// to discover all root processes on the system.
     pub fn new(config: EmtConfig, root_pids: Option<Vec<u32>>) -> Self {
         let rate = config.collection.rate_hz;
-        // Batch size = rate (flush once per second for responsive snapshots)
-        let batch_size = Some(rate.ceil() as usize);
+        // Live monitors publish every collection tick. Batching remains available
+        // at the lower EnergyGroup layer for explicit callers.
+        let batch_size = Some(1);
         let rapl = Rapl::default();
         let mut sources = rapl.device_sources();
         let mut rapl_group = EnergyGroup::new(rapl, rate, batch_size);
@@ -1266,6 +1267,19 @@ mod tests {
     }
 
     #[test]
+    fn monitor_live_collectors_flush_every_collection_tick() {
+        let mut config = EmtConfig::default();
+        config.collection.rate_hz = 4.0;
+        let monitor = Monitor::new(config, Some(vec![std::process::id()]));
+
+        assert_eq!(monitor.rapl_group.try_lock().unwrap().batch_size(), 1);
+
+        if let Some(gpu_group) = &monitor.gpu_group {
+            assert_eq!(gpu_group.try_lock().unwrap().batch_size(), 1);
+        }
+    }
+
+    #[test]
     fn metrics_snapshot_serializes_device_sources() {
         let snapshot = MetricsSnapshot {
             sources: DeviceSources {
@@ -1309,8 +1323,7 @@ mod tests {
         let mut monitor = Monitor::new(config, Some(vec![std::process::id()]));
 
         let handle = monitor.commence().await.unwrap();
-        // Wait long enough for at least one batch to flush (batch_size = rate = 10,
-        // so 1 second of collection plus margin for scheduling).
+        // Wait long enough for at least one collection tick plus scheduling margin.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // On a RAPL-capable host with readable counters, should have some energy.
