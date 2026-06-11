@@ -45,7 +45,7 @@ fn render_snapshot(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(8),
+            Constraint::Length(7),
             Constraint::Min(3),
             Constraint::Length(1),
         ])
@@ -133,7 +133,6 @@ fn render_header(
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -141,8 +140,8 @@ fn render_header(
     if power_history.has_samples() {
         render_power_history(
             frame,
+            header_chunks[1],
             header_chunks[2],
-            header_chunks[3],
             power_history,
             snapshot.sources.dram,
             snapshot.gpu_available,
@@ -257,7 +256,6 @@ fn render_dram_power_history(
                 label_area,
                 disabled_dram_power_label(label_area.width, "in CPU"),
             );
-            render_disabled_sparkline(frame, sparkline_area);
         }
         DeviceSource::Unavailable => {
             render_disabled_power_label(
@@ -265,7 +263,6 @@ fn render_dram_power_history(
                 label_area,
                 disabled_dram_power_label(label_area.width, "unavailable"),
             );
-            render_disabled_sparkline(frame, sparkline_area);
         }
     }
 }
@@ -328,15 +325,6 @@ fn render_component_sparkline(frame: &mut Frame, area: Rect, samples: &[f64], co
         .max(max)
         .style(Style::default().fg(color));
     frame.render_widget(sparkline, area);
-}
-
-fn render_disabled_sparkline(frame: &mut Frame, area: Rect) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-
-    let chart = Paragraph::new("-".repeat(usize::from(area.width))).style(disabled_style());
-    frame.render_widget(chart, area);
 }
 
 fn sparkline_data(samples: &[f64]) -> Vec<u64> {
