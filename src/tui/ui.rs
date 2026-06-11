@@ -160,10 +160,10 @@ fn append_dram_header(device_line: &mut Vec<Span>, source: DeviceSource, dram_jo
             ]);
         }
         DeviceSource::IncludedInPackage | DeviceSource::MeasuredPackage => {
-            device_line.extend(disabled_dram_spans("-- (included in CPU)"));
+            device_line.extend(disabled_dram_spans("[included in CPU]"));
         }
         DeviceSource::Unavailable => {
-            device_line.extend(disabled_dram_spans("-- (unavailable)"));
+            device_line.extend(disabled_dram_spans("[unavailable]"));
         }
     }
 }
@@ -251,18 +251,10 @@ fn render_dram_power_history(
             render_component_sparkline(frame, sparkline_area, &power_history.dram, Color::Magenta);
         }
         DeviceSource::IncludedInPackage | DeviceSource::MeasuredPackage => {
-            render_disabled_power_label(
-                frame,
-                label_area,
-                disabled_dram_power_label(label_area.width, "in CPU"),
-            );
+            render_disabled_power_label(frame, label_area, "DRAM: --");
         }
         DeviceSource::Unavailable => {
-            render_disabled_power_label(
-                frame,
-                label_area,
-                disabled_dram_power_label(label_area.width, "unavailable"),
-            );
+            render_disabled_power_label(frame, label_area, "DRAM: --");
         }
     }
 }
@@ -298,19 +290,9 @@ fn render_power_label(
     frame.render_widget(label, area);
 }
 
-fn render_disabled_power_label(frame: &mut Frame, area: Rect, text: String) {
+fn render_disabled_power_label(frame: &mut Frame, area: Rect, text: &'static str) {
     let label = Paragraph::new(Line::from(Span::styled(text, disabled_style())));
     frame.render_widget(label, area);
-}
-
-fn disabled_dram_power_label(width: u16, detail: &str) -> String {
-    let width = usize::from(width);
-    let label = format!("DRAM: -- ({detail})");
-    if label.len() <= width {
-        return label;
-    }
-
-    "DRAM: --".to_string()
 }
 
 fn render_component_sparkline(frame: &mut Frame, area: Rect, samples: &[f64], color: Color) {
@@ -669,8 +651,8 @@ mod tests {
             .unwrap();
 
         let screen = terminal.backend().to_string();
-        assert!(screen.contains("DRAM: -- (included in CPU)"));
-        assert!(screen.contains("DRAM: -- (in CPU)"));
+        assert!(screen.contains("DRAM: [included in CPU]"));
+        assert!(screen.contains("DRAM: --"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
         assert!(!screen.contains("DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM unavailable"));
@@ -720,7 +702,8 @@ mod tests {
             .unwrap();
 
         let screen = terminal.backend().to_string();
-        assert!(screen.contains("DRAM: -- (unavailable)"));
+        assert!(screen.contains("DRAM: [unavailable]"));
+        assert!(screen.contains("DRAM: --"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
         assert!(!screen.contains("DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM included in package energy"));
