@@ -1,4 +1,4 @@
-use crate::monitor::{DeviceEnergy, MetricsSnapshot, WorkloadSnapshot};
+use crate::monitor::{DeviceEnergy, DeviceSources, MetricsSnapshot, WorkloadSnapshot};
 use axum::Router;
 use axum::extract::State;
 use axum::http::{StatusCode, header};
@@ -187,7 +187,13 @@ impl<T> LockUnpoisoned<T> for Mutex<T> {
 }
 
 fn energy_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
-    let mut samples = device_samples("system", None, None, &snapshot.system_total);
+    let mut samples = device_samples(
+        "system",
+        None,
+        None,
+        &snapshot.system_total,
+        &snapshot.sources,
+    );
 
     for workload in &snapshot.workloads {
         let key = workload_key(workload);
@@ -196,6 +202,7 @@ fn energy_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
             Some(key.as_str()),
             workload_name(workload),
             &workload.energy,
+            &snapshot.sources,
         ));
     }
 
@@ -216,7 +223,14 @@ fn power_samples(
     }
 
     let system_power = snapshot.system_total.saturating_sub(&previous.system_total);
-    let mut samples = device_power_samples("system", None, None, &system_power, elapsed_seconds);
+    let mut samples = device_power_samples(
+        "system",
+        None,
+        None,
+        &system_power,
+        elapsed_seconds,
+        &snapshot.sources,
+    );
 
     for workload in &snapshot.workloads {
         let key = workload_key(workload);
@@ -232,6 +246,7 @@ fn power_samples(
             workload_name(workload),
             &power,
             elapsed_seconds,
+            &snapshot.sources,
         ));
     }
 
@@ -240,7 +255,7 @@ fn power_samples(
 
 fn zero_power_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
     let zero = DeviceEnergy::default();
-    let mut samples = device_power_samples("system", None, None, &zero, 1.0);
+    let mut samples = device_power_samples("system", None, None, &zero, 1.0, &snapshot.sources);
 
     for workload in &snapshot.workloads {
         let key = workload_key(workload);
@@ -250,6 +265,7 @@ fn zero_power_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
             workload_name(workload),
             &zero,
             1.0,
+            &snapshot.sources,
         ));
     }
 
@@ -262,6 +278,7 @@ fn device_power_samples(
     workload_name: Option<&str>,
     energy_delta: &DeviceEnergy,
     elapsed_seconds: f64,
+    sources: &DeviceSources,
 ) -> Vec<MetricSample> {
     device_samples(
         scope,
@@ -272,6 +289,7 @@ fn device_power_samples(
             dram_joules: energy_delta.dram_joules / elapsed_seconds,
             gpu_joules: energy_delta.gpu_joules / elapsed_seconds,
         },
+        sources,
     )
 }
 
@@ -280,18 +298,32 @@ fn device_samples(
     workload_id: Option<&str>,
     workload_name: Option<&str>,
     energy: &DeviceEnergy,
+    sources: &DeviceSources,
 ) -> Vec<MetricSample> {
-    vec![
-        metric_sample(scope, workload_id, workload_name, "cpu", energy.cpu_joules),
-        metric_sample(
+    let mut samples = vec![metric_sample(
+        scope,
+        workload_id,
+        workload_name,
+        "cpu",
+        energy.cpu_joules,
+    )];
+    if sources.reports_dram_energy() {
+        samples.push(metric_sample(
             scope,
             workload_id,
             workload_name,
             "dram",
             energy.dram_joules,
-        ),
-        metric_sample(scope, workload_id, workload_name, "gpu", energy.gpu_joules),
-    ]
+        ));
+    }
+    samples.push(metric_sample(
+        scope,
+        workload_id,
+        workload_name,
+        "gpu",
+        energy.gpu_joules,
+    ));
+    samples
 }
 
 fn metric_sample(
@@ -387,6 +419,7 @@ fn label_pairs(labels: &[(&'static str, String)]) -> Vec<LabelPair> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monitor::DeviceSource;
     use axum::body::{Body, to_bytes};
     use axum::http::Request;
     use tower::ServiceExt;
@@ -479,6 +512,22 @@ mod tests {
             ),
             "{exposition}"
         );
+    }
+
+    #[test]
+    fn prometheus_sink_omits_dram_samples_when_dram_is_not_separately_measured() {
+        let mut sink = PrometheusSink::new().unwrap();
+        let mut snapshot = multi_workload_snapshot(
+            1_000,
+            vec![workload("group-a", "render", energy(5.0, 0.0, 0.0))],
+        );
+        snapshot.sources.dram = DeviceSource::IncludedInPackage;
+
+        sink.update(&snapshot);
+
+        let exposition = sink.encode_text().unwrap();
+        assert!(!exposition.contains("device=\"dram\""), "{exposition}");
+        assert!(exposition.contains("device=\"cpu\""), "{exposition}");
     }
 
     #[test]
@@ -617,6 +666,19 @@ mod tests {
         MetricsSnapshot {
             timestamp,
             gpu_available: system_total.gpu_joules > 0.0,
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: if system_total.dram_joules > 0.0 {
+                    DeviceSource::Measured
+                } else {
+                    DeviceSource::IncludedInPackage
+                },
+                gpu: if system_total.gpu_joules > 0.0 {
+                    DeviceSource::Measured
+                } else {
+                    DeviceSource::Unavailable
+                },
+            },
             system_total,
             workloads,
             unattributed: DeviceEnergy::default(),

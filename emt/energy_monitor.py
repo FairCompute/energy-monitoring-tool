@@ -310,6 +310,13 @@ class EnergyMonitor:
         return {}
 
     @property
+    def device_sources(self) -> Mapping[str, str]:
+        """Per-device energy source/provenance metadata when available."""
+        if hasattr(self, "_rust_backend") and self._rust_backend is not None:
+            return self._rust_backend.device_sources
+        return {}
+
+    @property
     def trace_recorders(self):
         """Expose trace recorders for backwards compatibility."""
         if hasattr(self, "energy_meter") and self.energy_meter is not None:

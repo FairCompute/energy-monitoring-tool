@@ -1,4 +1,5 @@
 use crate::energy_group::{EnergyCollector, EnergyRecord};
+use crate::monitor::{DeviceSource, DeviceSources};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
@@ -160,8 +161,8 @@ impl ProcessCpuTracker {
 pub struct Rapl {
     /// Per-socket readers organized by socket ID
     socket_readers: Vec<SocketReaders>,
-    /// System-level DRAM energy reader (off-package)
-    dram_reader: Option<DeltaReader>,
+    /// DRAM energy readers discovered from RAPL subdomains
+    dram_readers: Vec<DeltaReader>,
     /// System-level PSYS energy reader (platform/system-wide power)
     psys_reader: Option<DeltaReader>,
     /// Tracked process PIDs for per-process energy attribution
@@ -237,7 +238,7 @@ impl SystemCpuTracker {
 impl Rapl {
     pub fn new(rapl_path: Option<String>) -> Self {
         let rapl_dir = rapl_path.unwrap_or_else(|| "/sys/class/powercap".to_string());
-        let (socket_readers, dram_reader, psys_reader) = Self::scan_powercap_entries(&rapl_dir);
+        let (socket_readers, dram_readers, psys_reader) = Self::scan_powercap_entries(&rapl_dir);
 
         // Initialize CPU trackers with a warmup call
         let mut system_cpu_tracker = SystemCpuTracker::default();
@@ -245,7 +246,7 @@ impl Rapl {
 
         Self {
             socket_readers,
-            dram_reader,
+            dram_readers,
             psys_reader,
             tracked_pids: Arc::new(Mutex::new(Vec::new())),
             cpu_count: logical_cpu_count(),
@@ -255,18 +256,41 @@ impl Rapl {
         }
     }
 
-    /// Discovers all RAPL sockets and their energy components in a single pass
-    /// Returns socket readers and system-level DRAM/PSYS readers
+    pub fn device_sources(&self) -> DeviceSources {
+        let has_package_reader = self
+            .socket_readers
+            .iter()
+            .any(|socket| socket.package_reader.is_some());
+
+        DeviceSources {
+            cpu: if has_package_reader {
+                DeviceSource::MeasuredPackage
+            } else {
+                DeviceSource::Unavailable
+            },
+            dram: if !self.dram_readers.is_empty() {
+                DeviceSource::Measured
+            } else if has_package_reader {
+                DeviceSource::IncludedInPackage
+            } else {
+                DeviceSource::Unavailable
+            },
+            gpu: DeviceSource::Unavailable,
+        }
+    }
+
+    /// Discovers all RAPL sockets and their energy components in a single pass.
+    /// Returns socket readers, all separate DRAM readers, and an optional PSYS reader.
     fn scan_powercap_entries(
         rapl_dir: &str,
-    ) -> (Vec<SocketReaders>, Option<DeltaReader>, Option<DeltaReader>) {
+    ) -> (Vec<SocketReaders>, Vec<DeltaReader>, Option<DeltaReader>) {
         let mut socket_map: BTreeMap<u32, SocketReaders> = BTreeMap::new();
-        let mut dram_reader: Option<DeltaReader> = None;
+        let mut dram_readers: Vec<DeltaReader> = Vec::new();
         let mut psys_reader: Option<DeltaReader> = None;
 
         let Ok(entries) = fs::read_dir(rapl_dir) else {
             warn!("Failed to read RAPL directory: {}", rapl_dir);
-            return (Vec::new(), None, None);
+            return (Vec::new(), Vec::new(), None);
         };
 
         for entry in entries.flatten() {
@@ -282,7 +306,7 @@ impl Rapl {
 
             // Handle PSYS (system-wide power) separately
             if name.contains("psys") {
-                if fs::metadata(path.join("energy_uj")).is_ok() {
+                if energy_counter_is_readable(&path.join("energy_uj")) {
                     psys_reader = Some(DeltaReader::new(path.clone()));
                 }
                 continue;
@@ -294,8 +318,8 @@ impl Rapl {
                 // Socket-level entry: rapl:N (package energy at root level)
                 1 => {
                     if let Some(socket_id) = Self::parse_socket_id(name) {
-                        // Check if this socket has energy_uj (package energy)
-                        if fs::metadata(path.join("energy_uj")).is_ok() {
+                        // Check if this socket has readable energy_uj (package energy)
+                        if energy_counter_is_readable(&path.join("energy_uj")) {
                             let package_reader = DeltaReader::new(path.clone());
 
                             // Insert or update socket with package reader
@@ -316,6 +340,15 @@ impl Rapl {
                 // Component-level entry: rapl:N:M (core, uncore, etc.)
                 2 => {
                     if let Some(reader) = Self::parse_component(&path, name) {
+                        let Some(component_name) = Self::component_name(&path) else {
+                            continue;
+                        };
+
+                        if Self::is_dram_component(&component_name) {
+                            dram_readers.push(reader);
+                            continue;
+                        }
+
                         if let Some(socket_id) = Self::parse_socket_id(name) {
                             // Ensure socket exists before assigning component
                             // Use or_insert_with to avoid overwriting existing entry
@@ -329,11 +362,15 @@ impl Rapl {
                                 });
                             // Now get mutable reference and assign
                             if let Some(socket) = socket_map.get_mut(&socket_id) {
-                                Self::assign_socket_component(socket, reader, &path);
+                                Self::assign_socket_component(socket, reader, &component_name);
                             }
                         } else {
                             // System-level component (e.g., DRAM without socket association)
-                            Self::assign_system_component(&mut dram_reader, reader, &path);
+                            Self::assign_system_component(
+                                &mut dram_readers,
+                                reader,
+                                &component_name,
+                            );
                         }
                     }
                 }
@@ -341,7 +378,11 @@ impl Rapl {
             }
         }
 
-        (socket_map.into_values().collect(), dram_reader, psys_reader)
+        (
+            socket_map.into_values().collect(),
+            dram_readers,
+            psys_reader,
+        )
     }
 
     /// Extracts socket ID from RAPL socket entry name (e.g., "intel-rapl:0" -> 0)
@@ -351,31 +392,39 @@ impl Rapl {
 
     /// Parses a component entry and returns a delta reader if valid
     fn parse_component(path: &Path, _name: &str) -> Option<DeltaReader> {
-        // Verify energy_uj file exists
-        if fs::metadata(path.join("energy_uj")).is_err() {
+        // Verify energy_uj is readable, not just present.
+        if !energy_counter_is_readable(&path.join("energy_uj")) {
             return None;
         }
 
         Some(DeltaReader::new(path.to_path_buf()))
     }
 
-    /// Assigns a component reader to the appropriate socket field based on component name
-    fn assign_socket_component(socket: &mut SocketReaders, reader: DeltaReader, path: &Path) {
-        let Ok(component_name) = fs::read_to_string(path.join("name")) else {
-            warn!("Failed to read component name from: {:?}", path);
-            return;
-        };
+    fn component_name(path: &Path) -> Option<String> {
+        fs::read_to_string(path.join("name"))
+            .ok()
+            .map(|name| name.trim().to_lowercase())
+    }
 
-        let comp_name = component_name.trim().to_lowercase();
+    fn is_dram_component(component_name: &str) -> bool {
+        matches!(component_name, "dram" | "ram")
+    }
+
+    /// Assigns a component reader to the appropriate socket field based on component name
+    fn assign_socket_component(
+        socket: &mut SocketReaders,
+        reader: DeltaReader,
+        component_name: &str,
+    ) {
         log::debug!(
             "Assigning component '{}' to socket {}",
-            comp_name,
+            component_name,
             socket.socket_id
         );
 
         // Match RAPL domain names for socket sub-components (core, uncore)
         // Note: package energy is at the socket root level, not here
-        match comp_name.as_str() {
+        match component_name {
             "core" | "cores" => {
                 socket.core_reader = Some(reader);
                 log::debug!("Assigned core reader to socket {}", socket.socket_id);
@@ -386,29 +435,29 @@ impl Rapl {
             }
             _ => {
                 // Log unrecognized component for debugging
-                log::debug!("Unrecognized socket-level RAPL component: {}", comp_name);
+                log::debug!(
+                    "Unrecognized socket-level RAPL component: {}",
+                    component_name
+                );
             }
         }
     }
 
     /// Assigns a component reader to the system-level DRAM field based on component name
     fn assign_system_component(
-        dram_reader: &mut Option<DeltaReader>,
+        dram_readers: &mut Vec<DeltaReader>,
         reader: DeltaReader,
-        path: &Path,
+        component_name: &str,
     ) {
-        let Ok(component_name) = fs::read_to_string(path.join("name")) else {
-            return;
-        };
-
-        let comp_name = component_name.trim().to_lowercase();
-
         // Match RAPL domain names for system-level components
-        match comp_name.as_str() {
-            "dram" | "ram" => *dram_reader = Some(reader),
+        match component_name {
+            "dram" | "ram" => dram_readers.push(reader),
             _ => {
                 // Log unrecognized component for debugging
-                log::debug!("Unrecognized system-level RAPL component: {}", comp_name);
+                log::debug!(
+                    "Unrecognized system-level RAPL component: {}",
+                    component_name
+                );
             }
         }
     }
@@ -730,19 +779,21 @@ impl EnergyCollector for Rapl {
         // Collect system-level energy readings (DRAM and PSYS)
         log::debug!(
             "System: dram={}, psys={}",
-            self.dram_reader.is_some(),
+            !self.dram_readers.is_empty(),
             self.psys_reader.is_some()
         );
 
-        // Read DRAM energy (system-level, off-package)
-        let dram_energy = if let Some(reader) = &self.dram_reader {
-            reader.read_delta().unwrap_or_else(|e| {
-                warn!("Failed to read DRAM energy: {}", e);
-                0.0
+        // Read separately measured DRAM energy from every discovered DRAM domain.
+        let dram_energy = self
+            .dram_readers
+            .iter()
+            .map(|reader| {
+                reader.read_delta().unwrap_or_else(|e| {
+                    warn!("Failed to read DRAM energy: {}", e);
+                    0.0
+                })
             })
-        } else {
-            0.0
-        };
+            .sum::<f64>();
 
         // Read PSYS energy (platform/system-wide)
         let psys_energy = if let Some(reader) = &self.psys_reader {
@@ -765,7 +816,7 @@ impl EnergyCollector for Rapl {
                 .unwrap_or(0.0);
 
             // DRAM energy attributed by memory usage
-            if self.dram_reader.is_some() {
+            if !self.dram_readers.is_empty() {
                 let dram_attribution = dram_energy * normalized_mem;
                 attributed_dram_energy += dram_attribution;
                 records.push(EnergyRecord {
@@ -789,7 +840,7 @@ impl EnergyCollector for Rapl {
             }
         }
 
-        if self.dram_reader.is_some() {
+        if !self.dram_readers.is_empty() {
             let unattributed_dram_energy = (dram_energy - attributed_dram_energy).max(0.0);
             if unattributed_dram_energy > 0.0 {
                 records.push(EnergyRecord {
@@ -880,6 +931,13 @@ mod tests {
         fs::write(zone_dir.join("energy_uj"), "0").unwrap();
     }
 
+    fn write_unreadable_zone(root: &Path, entry_name: &str, zone_name: &str) {
+        let zone_dir = root.join(entry_name);
+        fs::create_dir_all(&zone_dir).unwrap();
+        fs::write(zone_dir.join("name"), zone_name).unwrap();
+        fs::create_dir(zone_dir.join("energy_uj")).unwrap();
+    }
+
     #[test]
     fn availability_requires_readable_energy_counter() {
         let rapl_dir = TempTestDir::new("availability");
@@ -938,10 +996,10 @@ mod tests {
         write_zone(&rapl_dir.path, "intel-rapl:1", "package-1");
         write_zone(&rapl_dir.path, "intel-rapl:1:0", "core");
 
-        let (socket_readers, dram_reader, psys_reader) =
+        let (socket_readers, dram_readers, psys_reader) =
             Rapl::scan_powercap_entries(rapl_dir.path.to_str().unwrap());
 
-        assert!(dram_reader.is_none());
+        assert!(dram_readers.is_empty());
         assert!(psys_reader.is_none());
         assert_eq!(socket_readers.len(), 2);
 
@@ -960,6 +1018,65 @@ mod tests {
         assert!(socket1.package_reader.is_some());
         assert!(socket1.core_reader.is_some());
         assert!(socket1.uncore_reader.is_none());
+    }
+
+    #[test]
+    fn scan_powercap_entries_detects_socket_dram_subdomains() {
+        let rapl_dir = TempTestDir::new("socket-dram");
+
+        write_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+        write_zone(&rapl_dir.path, "intel-rapl:0:0", "dram");
+        write_zone(&rapl_dir.path, "intel-rapl:1", "package-1");
+        write_zone(&rapl_dir.path, "intel-rapl:1:0", "ram");
+
+        let (socket_readers, dram_readers, psys_reader) =
+            Rapl::scan_powercap_entries(rapl_dir.path.to_str().unwrap());
+
+        assert_eq!(socket_readers.len(), 2);
+        assert_eq!(dram_readers.len(), 2);
+        assert!(psys_reader.is_none());
+    }
+
+    #[test]
+    fn scan_powercap_entries_ignores_unreadable_energy_counters() {
+        let rapl_dir = TempTestDir::new("unreadable-counters");
+
+        write_unreadable_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+        write_unreadable_zone(&rapl_dir.path, "intel-rapl:0:0", "dram");
+
+        let (socket_readers, dram_readers, psys_reader) =
+            Rapl::scan_powercap_entries(rapl_dir.path.to_str().unwrap());
+
+        assert!(socket_readers.is_empty());
+        assert!(dram_readers.is_empty());
+        assert!(psys_reader.is_none());
+    }
+
+    #[test]
+    fn device_sources_report_included_dram_when_only_package_is_measured() {
+        let rapl_dir = TempTestDir::new("sources-package-only");
+        write_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+
+        let rapl = Rapl::new(Some(rapl_dir.path.to_string_lossy().to_string()));
+        let sources = rapl.device_sources();
+
+        assert_eq!(sources.cpu, DeviceSource::MeasuredPackage);
+        assert_eq!(sources.dram, DeviceSource::IncludedInPackage);
+        assert_eq!(sources.gpu, DeviceSource::Unavailable);
+    }
+
+    #[test]
+    fn device_sources_report_measured_dram_when_dram_domain_exists() {
+        let rapl_dir = TempTestDir::new("sources-dram");
+        write_zone(&rapl_dir.path, "intel-rapl:0", "package-0");
+        write_zone(&rapl_dir.path, "intel-rapl:0:0", "dram");
+
+        let rapl = Rapl::new(Some(rapl_dir.path.to_string_lossy().to_string()));
+        let sources = rapl.device_sources();
+
+        assert_eq!(sources.cpu, DeviceSource::MeasuredPackage);
+        assert_eq!(sources.dram, DeviceSource::Measured);
+        assert_eq!(sources.gpu, DeviceSource::Unavailable);
     }
 
     #[test]

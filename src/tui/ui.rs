@@ -1,4 +1,4 @@
-use crate::monitor::MetricsSnapshot;
+use crate::monitor::{DeviceSource, MetricsSnapshot};
 use crate::tui::App;
 use crate::tui::app::{PowerHistorySnapshot, SortMode};
 use ratatui::Frame;
@@ -91,10 +91,32 @@ fn render_header(
     let mut device_line = vec![
         Span::styled("    CPU: ", Style::default().fg(Color::Yellow)),
         Span::raw(format!("{:.4} J", snapshot.system_total.cpu_joules)),
-        Span::raw("    "),
-        Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
-        Span::raw(format!("{:.4} J", snapshot.system_total.dram_joules)),
     ];
+    match snapshot.sources.dram {
+        DeviceSource::Measured => {
+            device_line.extend([
+                Span::raw("    "),
+                Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{:.4} J", snapshot.system_total.dram_joules)),
+            ]);
+        }
+        DeviceSource::IncludedInPackage => {
+            device_line.extend([
+                Span::raw("    "),
+                Span::styled(
+                    "DRAM included in package energy",
+                    Style::default().fg(Color::Magenta),
+                ),
+            ]);
+        }
+        DeviceSource::Unavailable => {
+            device_line.extend([
+                Span::raw("    "),
+                Span::styled("DRAM unavailable", Style::default().fg(Color::DarkGray)),
+            ]);
+        }
+        DeviceSource::MeasuredPackage => {}
+    }
     if snapshot.gpu_available {
         device_line.extend([
             Span::raw("    "),
@@ -141,6 +163,7 @@ fn render_header(
             header_chunks[1],
             header_chunks[2],
             power_history,
+            snapshot.sources.reports_dram_energy(),
             snapshot.gpu_available,
         );
     }
@@ -151,61 +174,73 @@ fn render_power_history(
     label_area: Rect,
     sparkline_area: Rect,
     power_history: &PowerHistorySnapshot,
+    dram_measured: bool,
     gpu_available: bool,
 ) {
-    let label_chunks = split_power_columns(label_area, gpu_available);
-    let sparkline_chunks = split_power_columns(sparkline_area, gpu_available);
+    let label_chunks = split_power_columns(label_area, dram_measured, gpu_available);
+    let sparkline_chunks = split_power_columns(sparkline_area, dram_measured, gpu_available);
 
+    let mut column = 0;
     render_power_label(
         frame,
-        label_chunks[0],
+        label_chunks[column],
         "CPU",
         power_history.latest_cpu(),
         Color::Yellow,
     );
-    render_power_label(
-        frame,
-        label_chunks[1],
-        "DRAM",
-        power_history.latest_dram(),
-        Color::Magenta,
-    );
-
     render_component_sparkline(
         frame,
-        sparkline_chunks[0],
+        sparkline_chunks[column],
         &power_history.cpu,
         Color::Yellow,
     );
-    render_component_sparkline(
-        frame,
-        sparkline_chunks[1],
-        &power_history.dram,
-        Color::Magenta,
-    );
+    column += 1;
+
+    if dram_measured {
+        render_power_label(
+            frame,
+            label_chunks[column],
+            "DRAM",
+            power_history.latest_dram(),
+            Color::Magenta,
+        );
+        render_component_sparkline(
+            frame,
+            sparkline_chunks[column],
+            &power_history.dram,
+            Color::Magenta,
+        );
+        column += 1;
+    }
 
     if gpu_available {
         render_power_label(
             frame,
-            label_chunks[2],
+            label_chunks[column],
             "GPU",
             power_history.latest_gpu(),
             Color::Green,
         );
-        render_component_sparkline(frame, sparkline_chunks[2], &power_history.gpu, Color::Green);
+        render_component_sparkline(
+            frame,
+            sparkline_chunks[column],
+            &power_history.gpu,
+            Color::Green,
+        );
     }
 }
 
-fn split_power_columns(area: Rect, gpu_available: bool) -> std::rc::Rc<[Rect]> {
-    let constraints = if gpu_available {
-        vec![
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-            Constraint::Percentage(33),
-        ]
-    } else {
-        vec![Constraint::Percentage(50), Constraint::Percentage(50)]
-    };
+fn split_power_columns(
+    area: Rect,
+    dram_measured: bool,
+    gpu_available: bool,
+) -> std::rc::Rc<[Rect]> {
+    let column_count = 1 + usize::from(dram_measured) + usize::from(gpu_available);
+    let percentage = 100 / column_count as u16;
+    let mut constraints = vec![Constraint::Percentage(percentage); column_count];
+    if let Some(last) = constraints.last_mut() {
+        *last = Constraint::Percentage(100 - percentage * (column_count as u16 - 1));
+    }
 
     Layout::default()
         .direction(Direction::Horizontal)
@@ -444,9 +479,13 @@ fn table_body_capacity(area: Rect) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::monitor::{DeviceEnergy, WorkloadSnapshot};
+    use crate::monitor::{DeviceEnergy, DeviceSource, DeviceSources, WorkloadSnapshot};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+
+    fn sources(cpu: DeviceSource, dram: DeviceSource, gpu: DeviceSource) -> DeviceSources {
+        DeviceSources { cpu, dram, gpu }
+    }
 
     #[test]
     fn sparkline_data_uses_milliwatts_to_keep_sub_watt_values_visible() {
@@ -466,6 +505,11 @@ mod tests {
         let snapshot = MetricsSnapshot {
             timestamp: 1_000,
             gpu_available: false,
+            sources: sources(
+                DeviceSource::MeasuredPackage,
+                DeviceSource::Measured,
+                DeviceSource::Unavailable,
+            ),
             system_total: DeviceEnergy {
                 cpu_joules: 180.0,
                 dram_joules: 60.0,
@@ -531,6 +575,106 @@ mod tests {
         assert!(screen.contains("Tracked PIDs: 2"));
         assert!(screen.contains("sort energy"));
         assert!(screen.contains("reset"));
+    }
+
+    #[test]
+    fn render_snapshot_notes_dram_included_in_package_without_dram_metric() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            sources: sources(
+                DeviceSource::MeasuredPackage,
+                DeviceSource::IncludedInPackage,
+                DeviceSource::Unavailable,
+            ),
+            system_total: DeviceEnergy {
+                cpu_joules: 180.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
+        };
+        let power_history = PowerHistorySnapshot {
+            cpu: vec![5.0],
+            dram: vec![1.5],
+            gpu: vec![],
+        };
+        let expanded = HashSet::new();
+        let child_scroll_offsets = HashMap::new();
+        let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_snapshot(
+                    frame,
+                    &snapshot,
+                    60.0,
+                    60.0,
+                    &power_history,
+                    SortMode::Energy,
+                    0,
+                    &expanded,
+                    &child_scroll_offsets,
+                )
+            })
+            .unwrap();
+
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("DRAM included in package energy"));
+        assert!(!screen.contains("DRAM: 0.0000 J"));
+        assert!(!screen.contains("Interval DRAM"));
+        assert!(!screen.contains("DRAM unavailable"));
+    }
+
+    #[test]
+    fn render_snapshot_marks_unavailable_dram_without_dram_metric() {
+        let snapshot = MetricsSnapshot {
+            timestamp: 1_000,
+            gpu_available: false,
+            sources: sources(
+                DeviceSource::MeasuredPackage,
+                DeviceSource::Unavailable,
+                DeviceSource::Unavailable,
+            ),
+            system_total: DeviceEnergy {
+                cpu_joules: 180.0,
+                dram_joules: 0.0,
+                gpu_joules: 0.0,
+            },
+            tracked_pids: vec![123],
+            ..MetricsSnapshot::default()
+        };
+        let power_history = PowerHistorySnapshot {
+            cpu: vec![5.0],
+            dram: vec![1.5],
+            gpu: vec![],
+        };
+        let expanded = HashSet::new();
+        let child_scroll_offsets = HashMap::new();
+        let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_snapshot(
+                    frame,
+                    &snapshot,
+                    60.0,
+                    60.0,
+                    &power_history,
+                    SortMode::Energy,
+                    0,
+                    &expanded,
+                    &child_scroll_offsets,
+                )
+            })
+            .unwrap();
+
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("DRAM unavailable"));
+        assert!(!screen.contains("DRAM: 0.0000 J"));
+        assert!(!screen.contains("Interval DRAM"));
+        assert!(!screen.contains("DRAM included in package energy"));
     }
 
     #[test]

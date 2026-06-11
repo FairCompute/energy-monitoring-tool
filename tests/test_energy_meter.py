@@ -293,6 +293,11 @@ def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
             self.shutdown_called = False
             self.total_consumed_energy = 12.5
             self.consumed_energy = {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+            self.device_sources = {
+                "cpu": "measured_package",
+                "dram": "measured",
+                "gpu": "unavailable",
+            }
             instances.append(self)
 
         def commence(self):
@@ -327,6 +332,11 @@ def test_enter_method_uses_rust_backend_without_python_thread(monkeypatch):
     mock_thread.assert_not_called()
     assert monitor.total_consumed_energy == pytest.approx(12.5)
     assert monitor.consumed_energy == {"cpu": 10.0, "dram": 2.5, "gpu": 0.0}
+    assert monitor.device_sources == {
+        "cpu": "measured_package",
+        "dram": "measured",
+        "gpu": "unavailable",
+    }
 
     monitor.__exit__()
     assert instances[0].shutdown_called is True

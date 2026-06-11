@@ -343,9 +343,28 @@ impl PyRustMonitor {
             let snapshot = handle.snapshot();
             let mut result = HashMap::new();
             result.insert("cpu".to_string(), snapshot.system_total.cpu_joules);
-            result.insert("dram".to_string(), snapshot.system_total.dram_joules);
+            if snapshot.sources.reports_dram_energy() {
+                result.insert("dram".to_string(), snapshot.system_total.dram_joules);
+            }
             result.insert("gpu".to_string(), snapshot.system_total.gpu_joules);
             Ok(result)
+        })
+    }
+
+    #[getter]
+    fn device_sources(&self, py: Python<'_>) -> PyResult<HashMap<String, String>> {
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Monitor not commenced"))?
+            .clone();
+        py.detach(move || {
+            let sources = handle.snapshot().sources;
+            Ok(HashMap::from([
+                ("cpu".to_string(), sources.cpu.as_str().to_string()),
+                ("dram".to_string(), sources.dram.as_str().to_string()),
+                ("gpu".to_string(), sources.gpu.as_str().to_string()),
+            ]))
         })
     }
 

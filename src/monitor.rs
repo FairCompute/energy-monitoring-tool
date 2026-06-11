@@ -17,6 +17,61 @@ use tokio::task::JoinHandle;
 
 // ─── MetricsSnapshot data structures ────────────────────────────────────────
 
+/// Energy source/provenance for a device in public outputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceSource {
+    /// Energy is measured by a dedicated device/domain counter.
+    Measured,
+    /// CPU/package energy is measured from package-level RAPL.
+    MeasuredPackage,
+    /// The device has no separate counter but is included in package energy.
+    IncludedInPackage,
+    /// No usable measurement source is available.
+    Unavailable,
+}
+
+impl Default for DeviceSource {
+    fn default() -> Self {
+        Self::Unavailable
+    }
+}
+
+impl DeviceSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Measured => "measured",
+            Self::MeasuredPackage => "measured_package",
+            Self::IncludedInPackage => "included_in_package",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Device source/provenance metadata attached to monitor snapshots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeviceSources {
+    pub cpu: DeviceSource,
+    pub dram: DeviceSource,
+    pub gpu: DeviceSource,
+}
+
+impl Default for DeviceSources {
+    fn default() -> Self {
+        Self {
+            cpu: DeviceSource::Unavailable,
+            dram: DeviceSource::Unavailable,
+            gpu: DeviceSource::Unavailable,
+        }
+    }
+}
+
+impl DeviceSources {
+    pub fn reports_dram_energy(&self) -> bool {
+        self.dram == DeviceSource::Measured
+    }
+}
+
 /// Energy breakdown by device type (CPU, DRAM, GPU).
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceEnergy {
@@ -69,6 +124,7 @@ pub struct WorkloadSnapshot {
 pub struct MetricsSnapshot {
     pub timestamp: i64,
     pub gpu_available: bool,
+    pub sources: DeviceSources,
     pub system_total: DeviceEnergy,
     pub workloads: Vec<WorkloadSnapshot>,
     pub unattributed: DeviceEnergy,
@@ -433,6 +489,8 @@ pub struct Monitor {
     start_timestamp: Arc<RwLock<i64>>,
     /// Number of process discovery scans completed in monitor-all mode.
     process_scan_count: Arc<AtomicU64>,
+    /// Device source/provenance metadata for public outputs.
+    sources: DeviceSources,
     /// Internal task handles
     tick_handle: Option<JoinHandle<()>>,
     scan_handle: Option<JoinHandle<()>>,
@@ -449,7 +507,9 @@ impl Monitor {
         let rate = config.collection.rate_hz;
         // Batch size = rate (flush once per second for responsive snapshots)
         let batch_size = Some(rate.ceil() as usize);
-        let mut rapl_group = EnergyGroup::new(Rapl::default(), rate, batch_size);
+        let rapl = Rapl::default();
+        let mut sources = rapl.device_sources();
+        let mut rapl_group = EnergyGroup::new(rapl, rate, batch_size);
         rapl_group.set_trace_retention(config.collection.trace_retention_secs as i64);
         rapl_group.set_recorder_flush_interval(Duration::from_secs_f64(
             config.collection.trace_flush_interval_secs,
@@ -469,6 +529,11 @@ impl Monitor {
             };
 
         let gpu_available = gpu_group.is_some();
+        sources.gpu = if gpu_available {
+            DeviceSource::Measured
+        } else {
+            DeviceSource::Unavailable
+        };
 
         Self {
             config,
@@ -480,10 +545,12 @@ impl Monitor {
             last_pid_to_group: Arc::new(RwLock::new(HashMap::new())),
             start_timestamp: Arc::new(RwLock::new(0)),
             process_scan_count: Arc::new(AtomicU64::new(0)),
+            sources: sources.clone(),
             tick_handle: None,
             scan_handle: None,
             snapshot: Arc::new(RwLock::new(MetricsSnapshot {
                 gpu_available,
+                sources,
                 ..MetricsSnapshot::default()
             })),
             is_running: Arc::new(AtomicBool::new(false)),
@@ -506,6 +573,7 @@ impl Monitor {
         self.process_scan_count.store(0, Ordering::SeqCst);
         *self.snapshot.write().unwrap() = MetricsSnapshot {
             gpu_available: self.gpu_group.is_some(),
+            sources: self.sources.clone(),
             ..MetricsSnapshot::default()
         };
 
@@ -713,6 +781,7 @@ impl Monitor {
 
         snap.timestamp = current_timestamp;
         snap.gpu_available = self.gpu_group.is_some();
+        snap.sources = self.sources.clone();
         snap.workloads = workloads;
         snap.system_total = system_total;
     }
@@ -729,6 +798,7 @@ impl Monitor {
         let last_pid_to_group = Arc::clone(&self.last_pid_to_group);
         let start_timestamp = Arc::clone(&self.start_timestamp);
         let process_scan_count = Arc::clone(&self.process_scan_count);
+        let sources = self.sources.clone();
         let snapshot = Arc::clone(&self.snapshot);
         let is_running = Arc::clone(&self.is_running);
 
@@ -834,6 +904,7 @@ impl Monitor {
                     let mut snap = snapshot.write().unwrap();
                     snap.timestamp = current_timestamp;
                     snap.gpu_available = gpu_available;
+                    snap.sources = sources.clone();
                     snap.system_total = cumulative_system_total;
                     snap.workloads = workloads;
                     snap.unattributed = cumulative_unattributed;
@@ -1172,6 +1243,7 @@ mod tests {
         let snap = MetricsSnapshot::default();
         assert_eq!(snap.timestamp, 0);
         assert!(!snap.gpu_available);
+        assert_eq!(snap.sources, DeviceSources::default());
         assert_eq!(snap.system_total.total(), 0.0);
         assert!(snap.workloads.is_empty());
         assert_eq!(snap.unattributed.total(), 0.0);
@@ -1191,6 +1263,24 @@ mod tests {
         let snapshot = monitor.snapshot.read().unwrap();
 
         assert_eq!(snapshot.gpu_available, expected_gpu_available);
+    }
+
+    #[test]
+    fn metrics_snapshot_serializes_device_sources() {
+        let snapshot = MetricsSnapshot {
+            sources: DeviceSources {
+                cpu: DeviceSource::MeasuredPackage,
+                dram: DeviceSource::IncludedInPackage,
+                gpu: DeviceSource::Unavailable,
+            },
+            ..MetricsSnapshot::default()
+        };
+
+        let value = serde_json::to_value(&snapshot).unwrap();
+
+        assert_eq!(value["sources"]["cpu"], "measured_package");
+        assert_eq!(value["sources"]["dram"], "included_in_package");
+        assert_eq!(value["sources"]["gpu"], "unavailable");
     }
 
     #[tokio::test]
