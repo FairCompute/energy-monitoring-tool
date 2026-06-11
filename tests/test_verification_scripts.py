@@ -2,9 +2,11 @@ import builtins
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from scripts import probe_prometheus_power_cadence as cadence_probe
 from scripts import verification_workload
 from scripts import verify
 
@@ -363,3 +365,117 @@ def test_measure_method_catches_subprocess_errors(monkeypatch, capsys):
 
     assert results == []
     assert "subprocess failed" in capsys.readouterr().out
+
+
+def test_prometheus_probe_parses_system_and_workload_cpu_metrics(monkeypatch):
+    metrics_text = """
+# HELP emt_energy_joules_total Energy
+emt_energy_joules_total{device="cpu",scope="system",socket="0"} 12.5
+emt_power_watts{device="cpu",scope="system",socket="0"} 4.25
+emt_energy_joules_total{device="cpu",scope="workload",socket="0",workload="pid:123",workload_name="python"} 7.0
+emt_power_watts{device="cpu",scope="workload",socket="0",workload="pid:123",workload_name="python"} 3.5
+emt_energy_joules_total{device="gpu",scope="system",socket="0"} 99
+"""
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return metrics_text.encode("utf-8")
+
+    monkeypatch.setattr(
+        cadence_probe.urllib.request,
+        "urlopen",
+        lambda _url, timeout: FakeResponse(),
+    )
+
+    system_cpu, workloads = cadence_probe.read_metrics("http://example.test/metrics")
+
+    assert system_cpu.energy_joules == pytest.approx(12.5)
+    assert system_cpu.power_watts == pytest.approx(4.25)
+    assert workloads["pid:123"] == cadence_probe.PowerReading(7.0, 3.5, "python")
+
+
+def test_prometheus_probe_prefers_expected_workload_pid_over_busy_host_workload():
+    samples = [
+        cadence_probe.MetricsSample(
+            0,
+            cadence_probe.PowerReading(10.0, 0.0),
+            {
+                "pid:123": cadence_probe.PowerReading(1.0, 0.0),
+                "pgrp:busy": cadence_probe.PowerReading(10.0, 0.0),
+            },
+        ),
+        cadence_probe.MetricsSample(
+            1,
+            cadence_probe.PowerReading(12.0, 2.0),
+            {
+                "pid:123": cadence_probe.PowerReading(2.0, 1.0),
+                "pgrp:busy": cadence_probe.PowerReading(50.0, 40.0),
+            },
+        ),
+    ]
+
+    assert cadence_probe.select_workload(samples, "pid:123") == "pid:123"
+    assert cadence_probe.select_workload(samples, None) == "pgrp:busy"
+
+
+def test_prometheus_probe_starts_exporter_for_workload_pid(monkeypatch):
+    calls = []
+    args = SimpleNamespace(
+        emt_bin=Path("/tmp/emt"),
+        host="127.0.0.1",
+        port=19104,
+        rate=4.0,
+        scan_interval=1.0,
+    )
+
+    class FakeProcess:
+        pass
+
+    def fake_popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(cadence_probe.subprocess, "Popen", fake_popen)
+
+    cadence_probe.start_exporter(args, workload_pid=123)
+
+    command, kwargs = calls[0]
+    assert command[command.index("--pid") + 1] == "123"
+    assert kwargs["cwd"] == cadence_probe.PROJECT_ROOT
+    assert kwargs["start_new_session"] is True
+
+
+def test_prometheus_probe_evaluate_fails_on_power_reset_after_nonzero():
+    samples = [
+        cadence_probe.MetricsSample(
+            0,
+            cadence_probe.PowerReading(10.0, 0.0),
+            {"pid:123": cadence_probe.PowerReading(4.0, 0.0)},
+        ),
+        cadence_probe.MetricsSample(
+            1,
+            cadence_probe.PowerReading(12.0, 2.0),
+            {"pid:123": cadence_probe.PowerReading(5.0, 1.0)},
+        ),
+        cadence_probe.MetricsSample(
+            2,
+            cadence_probe.PowerReading(12.0, 0.0),
+            {"pid:123": cadence_probe.PowerReading(5.0, 0.0)},
+        ),
+    ]
+
+    ok, summaries = cadence_probe.evaluate(
+        samples,
+        "pid:123",
+        min_energy_changes=1,
+        min_post_power_samples=1,
+    )
+
+    assert ok is False
+    assert "power reset to zero" in summaries[0]
