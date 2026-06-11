@@ -7,7 +7,7 @@ use axum::routing::get;
 use prometheus::core::{Collector, Desc};
 use prometheus::proto::{Counter, Gauge, LabelPair, Metric, MetricFamily, MetricType};
 use prometheus::{Encoder, Registry, TextEncoder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 const SOCKET_LABEL: &str = "0";
@@ -109,11 +109,23 @@ struct PrometheusState {
 
 impl PrometheusState {
     fn update(&mut self, snapshot: &MetricsSnapshot) {
-        let previous = self.previous.as_ref();
-
         self.energy_samples = energy_samples(snapshot);
-        self.power_samples = power_samples(snapshot, previous);
-        self.previous = Some(PreviousSnapshot::from(snapshot));
+
+        let Some(previous) = self.previous.as_ref() else {
+            self.power_samples = zero_power_samples(snapshot);
+            self.previous = Some(PreviousSnapshot::from(snapshot));
+            return;
+        };
+
+        if snapshot_has_energy_change(snapshot, previous) && snapshot.timestamp > previous.timestamp
+        {
+            let mut power_samples = power_samples(snapshot, Some(previous));
+            zero_non_live_workload_power_samples(snapshot, &mut power_samples);
+            self.power_samples = power_samples;
+            self.previous = Some(PreviousSnapshot::from(snapshot));
+        } else {
+            self.power_samples = preserve_power_samples(snapshot, &self.power_samples);
+        }
     }
 
     fn collect(&self) -> Vec<MetricFamily> {
@@ -270,6 +282,104 @@ fn zero_power_samples(snapshot: &MetricsSnapshot) -> Vec<MetricSample> {
     }
 
     samples
+}
+
+fn preserve_power_samples(
+    snapshot: &MetricsSnapshot,
+    previous_samples: &[MetricSample],
+) -> Vec<MetricSample> {
+    let previous_values = previous_samples
+        .iter()
+        .map(|sample| (power_sample_key(sample), sample.value))
+        .collect::<HashMap<_, _>>();
+    let non_live_workloads = snapshot
+        .workloads
+        .iter()
+        .filter(|workload| !workload.is_live)
+        .map(workload_key)
+        .collect::<HashSet<_>>();
+
+    let mut samples = zero_power_samples(snapshot);
+    for sample in &mut samples {
+        if sample_is_non_live_workload(sample, &non_live_workloads) {
+            continue;
+        }
+
+        if let Some(value) = previous_values.get(&power_sample_key(sample)) {
+            sample.value = *value;
+        }
+    }
+    samples
+}
+
+fn zero_non_live_workload_power_samples(snapshot: &MetricsSnapshot, samples: &mut [MetricSample]) {
+    let non_live_workloads = snapshot
+        .workloads
+        .iter()
+        .filter(|workload| !workload.is_live)
+        .map(workload_key)
+        .collect::<HashSet<_>>();
+
+    for sample in samples {
+        if sample_is_non_live_workload(sample, &non_live_workloads) {
+            sample.value = 0.0;
+        }
+    }
+}
+
+fn sample_is_non_live_workload(
+    sample: &MetricSample,
+    non_live_workloads: &HashSet<String>,
+) -> bool {
+    sample_label(sample, "scope") == Some("workload")
+        && sample_label(sample, "workload")
+            .is_some_and(|workload| non_live_workloads.contains(workload))
+}
+
+fn snapshot_has_energy_change(snapshot: &MetricsSnapshot, previous: &PreviousSnapshot) -> bool {
+    if device_energy_changed(&snapshot.system_total, &previous.system_total) {
+        return true;
+    }
+
+    for workload in &snapshot.workloads {
+        let key = workload_key(workload);
+        let Some(previous_energy) = previous.workloads.get(&key) else {
+            return workload.energy.total() > f64::EPSILON;
+        };
+        if device_energy_changed(&workload.energy, previous_energy) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn device_energy_changed(left: &DeviceEnergy, right: &DeviceEnergy) -> bool {
+    (left.cpu_joules - right.cpu_joules).abs() > f64::EPSILON
+        || (left.dram_joules - right.dram_joules).abs() > f64::EPSILON
+        || (left.gpu_joules - right.gpu_joules).abs() > f64::EPSILON
+}
+
+fn power_sample_key(sample: &MetricSample) -> (String, String, String, Option<String>) {
+    (
+        sample_label(sample, "scope")
+            .unwrap_or_default()
+            .to_string(),
+        sample_label(sample, "device")
+            .unwrap_or_default()
+            .to_string(),
+        sample_label(sample, "socket")
+            .unwrap_or_default()
+            .to_string(),
+        sample_label(sample, "workload").map(ToString::to_string),
+    )
+}
+
+fn sample_label<'a>(sample: &'a MetricSample, name: &str) -> Option<&'a str> {
+    sample
+        .labels
+        .iter()
+        .find_map(|(label_name, value)| (*label_name == name).then_some(value.as_str()))
 }
 
 fn device_power_samples(
@@ -575,6 +685,114 @@ mod tests {
             "{exposition}"
         );
         assert!(!exposition.contains("workload=\"python\""));
+    }
+
+    #[test]
+    fn prometheus_sink_preserves_power_for_unchanged_energy_snapshots() {
+        let mut sink = PrometheusSink::new().unwrap();
+        sink.update(&snapshot(
+            1_000,
+            energy(10.0, 0.0, 0.0),
+            energy(4.0, 0.0, 0.0),
+        ));
+        sink.update(&snapshot(
+            2_000,
+            energy(18.0, 0.0, 0.0),
+            energy(9.0, 0.0, 0.0),
+        ));
+
+        let exposition = sink.encode_text().unwrap();
+        assert!(
+            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 5"
+            ),
+            "{exposition}"
+        );
+
+        sink.update(&snapshot(
+            2_250,
+            energy(18.0, 0.0, 0.0),
+            energy(9.0, 0.0, 0.0),
+        ));
+
+        let exposition = sink.encode_text().unwrap();
+        assert!(
+            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 5"
+            ),
+            "{exposition}"
+        );
+    }
+
+    #[test]
+    fn prometheus_sink_zeros_power_for_non_live_workloads_without_new_energy() {
+        let mut sink = PrometheusSink::new().unwrap();
+        sink.update(&snapshot(
+            1_000,
+            energy(10.0, 0.0, 0.0),
+            energy(4.0, 0.0, 0.0),
+        ));
+        sink.update(&snapshot(
+            2_000,
+            energy(18.0, 0.0, 0.0),
+            energy(9.0, 0.0, 0.0),
+        ));
+
+        let mut dead_workload = workload("group-a", "render", energy(9.0, 0.0, 0.0));
+        dead_workload.is_live = false;
+        sink.update(
+            &multi_workload_snapshot(2_250, vec![dead_workload])
+                .with_system_total(energy(18.0, 0.0, 0.0)),
+        );
+
+        let exposition = sink.encode_text().unwrap();
+        assert!(
+            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
+            ),
+            "{exposition}"
+        );
+    }
+
+    #[test]
+    fn prometheus_sink_zeros_power_for_non_live_workloads_with_new_energy() {
+        let mut sink = PrometheusSink::new().unwrap();
+        sink.update(&snapshot(
+            1_000,
+            energy(10.0, 0.0, 0.0),
+            energy(4.0, 0.0, 0.0),
+        ));
+
+        let mut dead_workload = workload("group-a", "render", energy(9.0, 0.0, 0.0));
+        dead_workload.is_live = false;
+        sink.update(
+            &multi_workload_snapshot(2_000, vec![dead_workload])
+                .with_system_total(energy(18.0, 0.0, 0.0)),
+        );
+
+        let exposition = sink.encode_text().unwrap();
+        assert!(
+            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(
+                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
+            ),
+            "{exposition}"
+        );
     }
 
     #[tokio::test]

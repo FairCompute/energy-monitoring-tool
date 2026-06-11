@@ -200,6 +200,11 @@ impl<T: EnergyCollector> EnergyGroup<T> {
         self.is_running.load(Ordering::SeqCst)
     }
 
+    #[cfg(test)]
+    pub(crate) fn batch_size(&self) -> usize {
+        self.batch_size
+    }
+
     /// Background monitoring task that collects data at a specified rate and sends batches
     async fn run_monitoring_loop<C: EnergyCollector>(
         collector: Arc<C>,
