@@ -45,7 +45,7 @@ fn render_snapshot(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(7),
+            Constraint::Length(8),
             Constraint::Min(3),
             Constraint::Length(1),
         ])
@@ -133,6 +133,7 @@ fn render_header(
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -140,8 +141,8 @@ fn render_header(
     if power_history.has_samples() {
         render_power_history(
             frame,
-            header_chunks[1],
             header_chunks[2],
+            header_chunks[3],
             power_history,
             snapshot.sources.dram,
             snapshot.gpu_available,
@@ -254,7 +255,7 @@ fn render_dram_power_history(
             render_disabled_power_label(
                 frame,
                 label_area,
-                disabled_dram_power_label(label_area.width, "included in CPU", "in CPU"),
+                disabled_dram_power_label(label_area.width, "in CPU"),
             );
             render_disabled_sparkline(frame, sparkline_area);
         }
@@ -262,7 +263,7 @@ fn render_dram_power_history(
             render_disabled_power_label(
                 frame,
                 label_area,
-                disabled_dram_power_label(label_area.width, "unavailable", "unavailable"),
+                disabled_dram_power_label(label_area.width, "unavailable"),
             );
             render_disabled_sparkline(frame, sparkline_area);
         }
@@ -294,7 +295,7 @@ fn render_power_label(
         .map(|watts| format!("{watts:.2} W"))
         .unwrap_or_else(|| "--".to_string());
     let label = Paragraph::new(Line::from(vec![Span::styled(
-        format!("Interval {label}: {value}"),
+        format!("{label}: {value}"),
         Style::default().fg(color),
     )]));
     frame.render_widget(label, area);
@@ -305,21 +306,11 @@ fn render_disabled_power_label(frame: &mut Frame, area: Rect, text: String) {
     frame.render_widget(label, area);
 }
 
-fn disabled_dram_power_label(width: u16, detail: &str, compact_detail: &str) -> String {
+fn disabled_dram_power_label(width: u16, detail: &str) -> String {
     let width = usize::from(width);
-    let full = format!("Interval DRAM: -- ({detail})");
-    if full.len() <= width {
-        return full;
-    }
-
-    let without_interval = format!("DRAM: -- ({detail})");
-    if without_interval.len() <= width {
-        return without_interval;
-    }
-
-    let compact = format!("DRAM: -- ({compact_detail})");
-    if compact.len() <= width {
-        return compact;
+    let label = format!("DRAM: -- ({detail})");
+    if label.len() <= width {
+        return label;
     }
 
     "DRAM: --".to_string()
@@ -634,10 +625,10 @@ mod tests {
 
         let screen = terminal.backend().to_string();
         assert!(screen.contains("Avg Power: 4.00 W"));
-        assert!(screen.contains("Interval CPU: 5.00 W"));
-        assert!(screen.contains("Interval DRAM: 1.50 W"));
+        assert!(screen.contains("CPU: 5.00 W"));
+        assert!(screen.contains("DRAM: 1.50 W"));
         assert!(!screen.contains("GPU:"));
-        assert!(!screen.contains("Interval GPU"));
+        assert!(!screen.contains("GPU: 3.00 W"));
         assert!(screen.contains("Avg Power (W)"));
         assert!(screen.contains("2.50"));
         assert!(screen.contains("python workload.py"));
@@ -691,9 +682,9 @@ mod tests {
 
         let screen = terminal.backend().to_string();
         assert!(screen.contains("DRAM: -- (included in CPU)"));
-        assert!(screen.contains("Interval DRAM: -- (included in CPU)"));
+        assert!(screen.contains("DRAM: -- (in CPU)"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
-        assert!(!screen.contains("Interval DRAM: 1.50 W"));
+        assert!(!screen.contains("DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM unavailable"));
     }
 
@@ -742,9 +733,8 @@ mod tests {
 
         let screen = terminal.backend().to_string();
         assert!(screen.contains("DRAM: -- (unavailable)"));
-        assert!(screen.contains("Interval DRAM: -- (unavailable)"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
-        assert!(!screen.contains("Interval DRAM: 1.50 W"));
+        assert!(!screen.contains("DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM included in package energy"));
     }
 
@@ -794,7 +784,7 @@ mod tests {
 
         let screen = terminal.backend().to_string();
         assert!(screen.contains("GPU: 30.0000 J"));
-        assert!(screen.contains("Interval GPU: 3.00 W"));
+        assert!(screen.contains("GPU: 3.00 W"));
     }
 
     #[test]
