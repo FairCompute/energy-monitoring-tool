@@ -8,6 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tokio::task;
 
+const UNATTRIBUTED_PID: u32 = 0;
+
 /// NVIDIA GPU energy collector using direct NVML library bindings.
 ///
 /// Replaces the previous `nvidia-smi` CLI-based approach with the `nvml-wrapper`
@@ -70,26 +72,64 @@ impl NvidiaGpu {
     fn attribute_energy_for_processes(
         gpu_index: u32,
         delta_joules: f64,
-        total_used_memory_bytes: u64,
+        total_used_memory_bytes: Option<u64>,
         tracked_pid_set: &HashSet<u32>,
         process_memories: &[(u32, u64)],
         timestamp: i64,
     ) -> Vec<EnergyRecord> {
-        if delta_joules <= 0.0 || total_used_memory_bytes == 0 {
+        if delta_joules <= 0.0 {
             return Vec::new();
         }
 
-        process_memories
-            .iter()
-            .filter(|(pid, mem)| tracked_pid_set.contains(pid) && *mem > 0)
-            .map(|(pid, process_memory_bytes)| EnergyRecord {
+        let Some(total_used_memory_bytes) = total_used_memory_bytes.filter(|bytes| *bytes > 0)
+        else {
+            return vec![Self::unattributed_record(
+                gpu_index,
+                delta_joules,
+                timestamp,
+            )];
+        };
+
+        let reported_process_memory_bytes: u64 = process_memories.iter().map(|(_, mem)| *mem).sum();
+        let attribution_denominator =
+            total_used_memory_bytes.max(reported_process_memory_bytes) as f64;
+
+        let mut attributed_energy = 0.0;
+        let mut records = Vec::new();
+        for (pid, process_memory_bytes) in process_memories {
+            if !tracked_pid_set.contains(pid) || *process_memory_bytes == 0 {
+                continue;
+            }
+
+            let energy = delta_joules * (*process_memory_bytes as f64 / attribution_denominator);
+            attributed_energy += energy;
+            records.push(EnergyRecord {
                 pid: *pid,
                 timestamp,
                 device: format!("nvidia:gpu:{}", gpu_index),
-                energy: delta_joules
-                    * (*process_memory_bytes as f64 / total_used_memory_bytes as f64),
-            })
-            .collect()
+                energy,
+            });
+        }
+
+        let unattributed_energy = (delta_joules - attributed_energy).max(0.0);
+        if unattributed_energy > 0.0 {
+            records.push(Self::unattributed_record(
+                gpu_index,
+                unattributed_energy,
+                timestamp,
+            ));
+        }
+
+        records
+    }
+
+    fn unattributed_record(gpu_index: u32, energy: f64, timestamp: i64) -> EnergyRecord {
+        EnergyRecord {
+            pid: UNATTRIBUTED_PID,
+            timestamp,
+            device: format!("nvidia:gpu:{}", gpu_index),
+            energy,
+        }
     }
 
     /// Determine which device indices to iterate based on the optional filter.
@@ -137,9 +177,6 @@ impl EnergyCollector for NvidiaGpu {
         };
 
         let tracked_pids = self.tracked_pids.lock().unwrap().clone();
-        if tracked_pids.is_empty() {
-            return Ok(Vec::new());
-        }
 
         let tracked_pid_set: HashSet<u32> = tracked_pids.into_iter().collect();
         let device_indices = self.device_indices();
@@ -177,10 +214,10 @@ impl EnergyCollector for NvidiaGpu {
 
                 // Get memory info for the total used memory on the device.
                 let total_used_memory = match device.memory_info() {
-                    Ok(info) => info.used,
+                    Ok(info) => Some(info.used),
                     Err(e) => {
                         warn!("Failed to read memory info for GPU {}: {}", idx, e);
-                        continue;
+                        None
                     }
                 };
 
@@ -197,16 +234,12 @@ impl EnergyCollector for NvidiaGpu {
                         // No compute processes is a normal state; only warn
                         // on unexpected errors.
                         debug!(
-                            "No compute processes on GPU {} ({}), skipping attribution",
+                            "No compute processes on GPU {} ({}), recording GPU energy as unattributed",
                             idx, e
                         );
-                        continue;
+                        Vec::new()
                     }
                 };
-
-                if process_memories.is_empty() {
-                    continue;
-                }
 
                 records.extend(Self::attribute_energy_for_processes(
                     idx,
@@ -267,21 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn attributes_energy_by_process_memory_share() {
+    fn attributes_fully_tracked_energy_by_process_memory_share() {
         let tracked: HashSet<u32> = HashSet::from([1001, 1002]);
-        // Total used memory on GPU: 100 MB (in bytes)
         let total_used = 100 * 1024 * 1024;
-        // Process memories in bytes
-        let process_memories = vec![
-            (1001, 40 * 1024 * 1024_u64),
-            (1002, 60 * 1024 * 1024_u64),
-            (9999, 30 * 1024 * 1024_u64),
-        ];
+        let process_memories = vec![(1001, 40 * 1024 * 1024_u64), (1002, 60 * 1024 * 1024_u64)];
 
         let records = NvidiaGpu::attribute_energy_for_processes(
             0,
             10.0,
-            total_used,
+            Some(total_used),
             &tracked,
             &process_memories,
             42,
@@ -290,9 +317,48 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].pid, 1001);
         assert_eq!(records[1].pid, 1002);
-        // 10.0 * (40/100) = 4.0
         assert!((records[0].energy - 4.0).abs() < f64::EPSILON);
-        // 10.0 * (60/100) = 6.0
+        assert!((records[1].energy - 6.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn attributes_full_delta_to_unattributed_when_no_processes() {
+        let tracked: HashSet<u32> = HashSet::from([1001]);
+        let process_memories = Vec::new();
+
+        let records = NvidiaGpu::attribute_energy_for_processes(
+            0,
+            10.0,
+            Some(100 * 1024 * 1024),
+            &tracked,
+            &process_memories,
+            42,
+        );
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].pid, UNATTRIBUTED_PID);
+        assert!((records[0].energy - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn attributes_partial_tracked_share_and_unattributed_remainder() {
+        let tracked: HashSet<u32> = HashSet::from([1001]);
+        let total_used = 100 * 1024 * 1024;
+        let process_memories = vec![(1001, 40 * 1024 * 1024_u64), (9999, 60 * 1024 * 1024_u64)];
+
+        let records = NvidiaGpu::attribute_energy_for_processes(
+            0,
+            10.0,
+            Some(total_used),
+            &tracked,
+            &process_memories,
+            42,
+        );
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].pid, 1001);
+        assert_eq!(records[1].pid, UNATTRIBUTED_PID);
+        assert!((records[0].energy - 4.0).abs() < f64::EPSILON);
         assert!((records[1].energy - 6.0).abs() < f64::EPSILON);
     }
 
@@ -303,8 +369,8 @@ mod tests {
 
         let records = NvidiaGpu::attribute_energy_for_processes(
             0,
-            0.0, // zero delta
-            4096,
+            0.0,
+            Some(4096),
             &tracked,
             &process_memories,
             42,
@@ -314,44 +380,22 @@ mod tests {
     }
 
     #[test]
-    fn attribution_returns_empty_on_zero_memory() {
+    fn attributes_full_delta_to_unattributed_without_memory_basis() {
         let tracked: HashSet<u32> = HashSet::from([1001]);
         let process_memories = vec![(1001, 1024_u64)];
 
         let records = NvidiaGpu::attribute_energy_for_processes(
             0,
             10.0,
-            0, // zero total used memory
-            &tracked,
-            &process_memories,
-            42,
-        );
-
-        assert!(records.is_empty());
-    }
-
-    #[test]
-    fn attribution_excludes_untracked_pids() {
-        let tracked: HashSet<u32> = HashSet::from([1001]);
-        let process_memories = vec![
-            (1001, 50 * 1024 * 1024_u64),
-            (9999, 50 * 1024 * 1024_u64), // not tracked
-        ];
-        let total_used = 100 * 1024 * 1024;
-
-        let records = NvidiaGpu::attribute_energy_for_processes(
-            0,
-            10.0,
-            total_used,
+            None,
             &tracked,
             &process_memories,
             42,
         );
 
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].pid, 1001);
-        // 10.0 * (50/100) = 5.0
-        assert!((records[0].energy - 5.0).abs() < f64::EPSILON);
+        assert_eq!(records[0].pid, UNATTRIBUTED_PID);
+        assert!((records[0].energy - 10.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -422,11 +466,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_energy_trace_returns_empty_when_no_tracked_pids() {
+    async fn get_energy_trace_allows_empty_tracked_pids() {
         let collector = NvidiaGpu::default();
-        // No tracked PIDs set
         let result = collector.get_energy_trace().await;
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
     }
 }
