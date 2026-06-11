@@ -92,31 +92,11 @@ fn render_header(
         Span::styled("    CPU: ", Style::default().fg(Color::Yellow)),
         Span::raw(format!("{:.4} J", snapshot.system_total.cpu_joules)),
     ];
-    match snapshot.sources.dram {
-        DeviceSource::Measured => {
-            device_line.extend([
-                Span::raw("    "),
-                Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
-                Span::raw(format!("{:.4} J", snapshot.system_total.dram_joules)),
-            ]);
-        }
-        DeviceSource::IncludedInPackage => {
-            device_line.extend([
-                Span::raw("    "),
-                Span::styled(
-                    "DRAM included in package energy",
-                    Style::default().fg(Color::Magenta),
-                ),
-            ]);
-        }
-        DeviceSource::Unavailable => {
-            device_line.extend([
-                Span::raw("    "),
-                Span::styled("DRAM unavailable", Style::default().fg(Color::DarkGray)),
-            ]);
-        }
-        DeviceSource::MeasuredPackage => {}
-    }
+    append_dram_header(
+        &mut device_line,
+        snapshot.sources.dram,
+        snapshot.system_total.dram_joules,
+    );
     if snapshot.gpu_available {
         device_line.extend([
             Span::raw("    "),
@@ -163,10 +143,40 @@ fn render_header(
             header_chunks[1],
             header_chunks[2],
             power_history,
-            snapshot.sources.reports_dram_energy(),
+            snapshot.sources.dram,
             snapshot.gpu_available,
         );
     }
+}
+
+fn append_dram_header(device_line: &mut Vec<Span>, source: DeviceSource, dram_joules: f64) {
+    device_line.push(Span::raw("    "));
+
+    match source {
+        DeviceSource::Measured => {
+            device_line.extend([
+                Span::styled("DRAM: ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{dram_joules:.4} J")),
+            ]);
+        }
+        DeviceSource::IncludedInPackage | DeviceSource::MeasuredPackage => {
+            device_line.extend(disabled_dram_spans("-- (included in CPU)"));
+        }
+        DeviceSource::Unavailable => {
+            device_line.extend(disabled_dram_spans("-- (unavailable)"));
+        }
+    }
+}
+
+fn disabled_dram_spans(value: &'static str) -> [Span<'static>; 2] {
+    [
+        Span::styled("DRAM: ", disabled_style()),
+        Span::styled(value, disabled_style()),
+    ]
+}
+
+fn disabled_style() -> Style {
+    Style::default().fg(Color::DarkGray)
 }
 
 fn render_power_history(
@@ -174,11 +184,11 @@ fn render_power_history(
     label_area: Rect,
     sparkline_area: Rect,
     power_history: &PowerHistorySnapshot,
-    dram_measured: bool,
+    dram_source: DeviceSource,
     gpu_available: bool,
 ) {
-    let label_chunks = split_power_columns(label_area, dram_measured, gpu_available);
-    let sparkline_chunks = split_power_columns(sparkline_area, dram_measured, gpu_available);
+    let label_chunks = split_power_columns(label_area, gpu_available);
+    let sparkline_chunks = split_power_columns(sparkline_area, gpu_available);
 
     let mut column = 0;
     render_power_label(
@@ -196,22 +206,14 @@ fn render_power_history(
     );
     column += 1;
 
-    if dram_measured {
-        render_power_label(
-            frame,
-            label_chunks[column],
-            "DRAM",
-            power_history.latest_dram(),
-            Color::Magenta,
-        );
-        render_component_sparkline(
-            frame,
-            sparkline_chunks[column],
-            &power_history.dram,
-            Color::Magenta,
-        );
-        column += 1;
-    }
+    render_dram_power_history(
+        frame,
+        label_chunks[column],
+        sparkline_chunks[column],
+        power_history,
+        dram_source,
+    );
+    column += 1;
 
     if gpu_available {
         render_power_label(
@@ -230,12 +232,45 @@ fn render_power_history(
     }
 }
 
-fn split_power_columns(
-    area: Rect,
-    dram_measured: bool,
-    gpu_available: bool,
-) -> std::rc::Rc<[Rect]> {
-    let column_count = 1 + usize::from(dram_measured) + usize::from(gpu_available);
+fn render_dram_power_history(
+    frame: &mut Frame,
+    label_area: Rect,
+    sparkline_area: Rect,
+    power_history: &PowerHistorySnapshot,
+    source: DeviceSource,
+) {
+    match source {
+        DeviceSource::Measured => {
+            render_power_label(
+                frame,
+                label_area,
+                "DRAM",
+                power_history.latest_dram(),
+                Color::Magenta,
+            );
+            render_component_sparkline(frame, sparkline_area, &power_history.dram, Color::Magenta);
+        }
+        DeviceSource::IncludedInPackage | DeviceSource::MeasuredPackage => {
+            render_disabled_power_label(
+                frame,
+                label_area,
+                disabled_dram_power_label(label_area.width, "included in CPU", "in CPU"),
+            );
+            render_disabled_sparkline(frame, sparkline_area);
+        }
+        DeviceSource::Unavailable => {
+            render_disabled_power_label(
+                frame,
+                label_area,
+                disabled_dram_power_label(label_area.width, "unavailable", "unavailable"),
+            );
+            render_disabled_sparkline(frame, sparkline_area);
+        }
+    }
+}
+
+fn split_power_columns(area: Rect, gpu_available: bool) -> std::rc::Rc<[Rect]> {
+    let column_count = 2 + usize::from(gpu_available);
     let percentage = 100 / column_count as u16;
     let mut constraints = vec![Constraint::Percentage(percentage); column_count];
     if let Some(last) = constraints.last_mut() {
@@ -265,6 +300,31 @@ fn render_power_label(
     frame.render_widget(label, area);
 }
 
+fn render_disabled_power_label(frame: &mut Frame, area: Rect, text: String) {
+    let label = Paragraph::new(Line::from(Span::styled(text, disabled_style())));
+    frame.render_widget(label, area);
+}
+
+fn disabled_dram_power_label(width: u16, detail: &str, compact_detail: &str) -> String {
+    let width = usize::from(width);
+    let full = format!("Interval DRAM: -- ({detail})");
+    if full.len() <= width {
+        return full;
+    }
+
+    let without_interval = format!("DRAM: -- ({detail})");
+    if without_interval.len() <= width {
+        return without_interval;
+    }
+
+    let compact = format!("DRAM: -- ({compact_detail})");
+    if compact.len() <= width {
+        return compact;
+    }
+
+    "DRAM: --".to_string()
+}
+
 fn render_component_sparkline(frame: &mut Frame, area: Rect, samples: &[f64], color: Color) {
     if samples.is_empty() {
         return;
@@ -277,6 +337,15 @@ fn render_component_sparkline(frame: &mut Frame, area: Rect, samples: &[f64], co
         .max(max)
         .style(Style::default().fg(color));
     frame.render_widget(sparkline, area);
+}
+
+fn render_disabled_sparkline(frame: &mut Frame, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let chart = Paragraph::new("-".repeat(usize::from(area.width))).style(disabled_style());
+    frame.render_widget(chart, area);
 }
 
 fn sparkline_data(samples: &[f64]) -> Vec<u64> {
@@ -578,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn render_snapshot_notes_dram_included_in_package_without_dram_metric() {
+    fn render_snapshot_grays_dram_included_in_package_without_dram_metric() {
         let snapshot = MetricsSnapshot {
             timestamp: 1_000,
             gpu_available: false,
@@ -621,9 +690,10 @@ mod tests {
             .unwrap();
 
         let screen = terminal.backend().to_string();
-        assert!(screen.contains("DRAM included in package energy"));
+        assert!(screen.contains("DRAM: -- (included in CPU)"));
+        assert!(screen.contains("Interval DRAM: -- (included in CPU)"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
-        assert!(!screen.contains("Interval DRAM"));
+        assert!(!screen.contains("Interval DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM unavailable"));
     }
 
@@ -671,9 +741,10 @@ mod tests {
             .unwrap();
 
         let screen = terminal.backend().to_string();
-        assert!(screen.contains("DRAM unavailable"));
+        assert!(screen.contains("DRAM: -- (unavailable)"));
+        assert!(screen.contains("Interval DRAM: -- (unavailable)"));
         assert!(!screen.contains("DRAM: 0.0000 J"));
-        assert!(!screen.contains("Interval DRAM"));
+        assert!(!screen.contains("Interval DRAM: 1.50 W"));
         assert!(!screen.contains("DRAM included in package energy"));
     }
 
