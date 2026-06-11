@@ -115,7 +115,7 @@ fn render_header(
         ]),
         Line::from(device_line),
         Line::from(vec![
-            Span::styled("Uptime: ", Style::default().fg(Color::Green)),
+            Span::styled("  Uptime: ", Style::default().fg(Color::Green)),
             Span::raw(format!("{mins:02}:{secs:02}")),
             Span::raw(format!("    Tracked PIDs: {}", snapshot.tracked_pids.len())),
         ]),
