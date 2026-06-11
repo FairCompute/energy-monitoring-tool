@@ -142,7 +142,14 @@ def wait_for_metrics(
     raise RuntimeError(f"metrics endpoint did not become ready: {last_error}")
 
 
-def start_exporter(args: argparse.Namespace) -> subprocess.Popen[str]:
+def workload_id_for_process(process: subprocess.Popen[str]) -> str:
+    return f"pid:{process.pid}"
+
+
+def start_exporter(
+    args: argparse.Namespace,
+    workload_pid: int | None,
+) -> subprocess.Popen[str]:
     command = [
         str(args.emt_bin),
         "--headless",
@@ -157,6 +164,8 @@ def start_exporter(args: argparse.Namespace) -> subprocess.Popen[str]:
         "--scan-interval",
         str(args.scan_interval),
     ]
+    if workload_pid is not None:
+        command.extend(["--pid", str(workload_pid)])
     print("$ " + " ".join(command))
     return subprocess.Popen(
         command,
@@ -218,7 +227,13 @@ def collect_samples(
     return samples
 
 
-def select_workload(samples: list[MetricsSample]) -> str | None:
+def select_workload(
+    samples: list[MetricsSample],
+    expected_workload_id: str | None,
+) -> str | None:
+    if expected_workload_id is not None:
+        return expected_workload_id
+
     workload_ids = {
         workload_id for sample in samples for workload_id in sample.workload_cpu
     }
@@ -386,16 +401,18 @@ def main() -> int:
             args.startup_timeout + args.warmup + args.samples * args.interval + 2.0
         )
         workload = start_workload(workload_duration)
+        expected_workload_id: str | None = None
         if args.url is None:
             if not args.emt_bin.exists():
                 raise SystemExit(f"EMT binary not found: {args.emt_bin}")
             assert_endpoint_unused(url)
-            process = start_exporter(args)
+            expected_workload_id = workload_id_for_process(workload)
+            process = start_exporter(args, workload.pid)
         wait_for_metrics(url, args.startup_timeout, process)
         if args.warmup:
             time.sleep(args.warmup)
         samples = collect_samples(url, args.samples, args.interval, process)
-        workload_id = select_workload(samples)
+        workload_id = select_workload(samples, expected_workload_id)
         print_samples(samples, workload_id)
         ok, summaries = evaluate(
             samples,

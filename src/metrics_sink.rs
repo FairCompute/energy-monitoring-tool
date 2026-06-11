@@ -534,6 +534,22 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
+    fn assert_metric_value(exposition: &str, prefix: &str, expected: f64) {
+        let line = exposition
+            .lines()
+            .find(|line| line.starts_with(prefix))
+            .unwrap_or_else(|| panic!("missing metric line starting with {prefix}: {exposition}"));
+        let value = line
+            .rsplit_once(' ')
+            .and_then(|(_, value)| value.parse::<f64>().ok())
+            .unwrap_or_else(|| panic!("missing numeric metric value in {line}: {exposition}"));
+
+        assert!(
+            (value - expected).abs() <= f64::EPSILON,
+            "expected {prefix} to be {expected}, got {value}: {exposition}"
+        );
+    }
+
     #[test]
     fn prometheus_sink_exports_energy_and_power_for_system_and_workloads() {
         let mut sink = PrometheusSink::new().unwrap();
@@ -612,15 +628,15 @@ mod tests {
 
         let exposition = sink.encode_text().unwrap();
 
-        assert!(
-            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 0"),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"}",
+            0.0,
         );
-        assert!(
-            exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
-            ),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"}",
+            0.0,
         );
     }
 
@@ -702,15 +718,15 @@ mod tests {
         ));
 
         let exposition = sink.encode_text().unwrap();
-        assert!(
-            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"}",
+            8.0,
         );
-        assert!(
-            exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 5"
-            ),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"}",
+            5.0,
         );
 
         sink.update(&snapshot(
@@ -720,15 +736,15 @@ mod tests {
         ));
 
         let exposition = sink.encode_text().unwrap();
-        assert!(
-            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"}",
+            8.0,
         );
-        assert!(
-            exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 5"
-            ),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"}",
+            5.0,
         );
     }
 
@@ -754,15 +770,15 @@ mod tests {
         );
 
         let exposition = sink.encode_text().unwrap();
-        assert!(
-            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"}",
+            8.0,
         );
-        assert!(
-            exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
-            ),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"}",
+            0.0,
         );
     }
 
@@ -783,15 +799,15 @@ mod tests {
         );
 
         let exposition = sink.encode_text().unwrap();
-        assert!(
-            exposition.contains("emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"} 8"),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"system\",socket=\"0\"}",
+            8.0,
         );
-        assert!(
-            exposition.contains(
-                "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"} 0"
-            ),
-            "{exposition}"
+        assert_metric_value(
+            &exposition,
+            "emt_power_watts{device=\"cpu\",scope=\"workload\",socket=\"0\",workload=\"group-a\",workload_name=\"render\"}",
+            0.0,
         );
     }
 
