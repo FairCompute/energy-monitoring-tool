@@ -393,7 +393,7 @@ emt_energy_joules_total{device="gpu",scope="system",socket="0"} 99
         lambda _url, timeout: FakeResponse(),
     )
 
-    system_cpu, workloads = cadence_probe.read_metrics("http://example.test/metrics")
+    system_cpu, workloads = cadence_probe.read_metrics("https://example.test/metrics")
 
     assert system_cpu.energy_joules == pytest.approx(12.5)
     assert system_cpu.power_watts == pytest.approx(4.25)
@@ -424,10 +424,10 @@ def test_prometheus_probe_prefers_expected_workload_pid_over_busy_host_workload(
     assert cadence_probe.select_workload(samples, None) == "pgrp:busy"
 
 
-def test_prometheus_probe_starts_exporter_for_workload_pid(monkeypatch):
+def test_prometheus_probe_starts_exporter_for_workload_pid(monkeypatch, tmp_path):
     calls = []
     args = SimpleNamespace(
-        emt_bin=Path("/tmp/emt"),
+        emt_bin=tmp_path / "emt",
         host="127.0.0.1",
         port=19104,
         rate=4.0,

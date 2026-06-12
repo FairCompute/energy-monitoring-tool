@@ -1,3 +1,5 @@
+import pytest
+
 from scripts import benchmark_burst_attribution as burst
 
 
@@ -209,9 +211,11 @@ def test_lifetime_sweep_summary_requires_all_repetitions_reliable():
 
     summary = burst.summarize([result])
 
-    assert summary["minimum_reliable_lifetime_seconds"] == 52.0
-    assert summary["lifetime_sweep"][0]["runtime_seconds"] == 20.0
-    assert summary["lifetime_sweep"][0]["start_offsets_seconds"] == [10.0]
+    assert summary["minimum_reliable_lifetime_seconds"] == pytest.approx(52.0)
+    assert summary["lifetime_sweep"][0]["runtime_seconds"] == pytest.approx(20.0)
+    assert summary["lifetime_sweep"][0]["start_offsets_seconds"] == [
+        pytest.approx(10.0)
+    ]
     assert summary["lifetime_sweep"][0]["reliable"] is False
     assert summary["patterns"]["lifetime_sweep"]["non_root_expected"] == 2
     assert summary["patterns"]["lifetime_sweep"]["non_root_attributed"] == 1

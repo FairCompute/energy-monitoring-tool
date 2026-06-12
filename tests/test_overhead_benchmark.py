@@ -1,3 +1,5 @@
+import pytest
+
 from scripts import benchmark_emt_overhead as overhead
 
 
@@ -19,8 +21,10 @@ def test_rapl_delta_handles_counter_wrap():
 
     total, zones = overhead.rapl_delta_joules(before, after)
 
-    assert total == 0.0002
-    assert zones == [{"path": "zone", "name": "package-0", "delta_joules": 0.0002}]
+    assert total == pytest.approx(0.0002)
+    assert zones == [
+        {"path": "zone", "name": "package-0", "delta_joules": pytest.approx(0.0002)}
+    ]
 
 
 def test_snapshot_diagnostics_finds_emt_group_and_workload_groups():
@@ -57,8 +61,8 @@ def test_snapshot_diagnostics_finds_emt_group_and_workload_groups():
 
     assert diagnostics["emt_group_found"] is True
     assert diagnostics["emt_group_ids"] == ["lineage:10"]
-    assert diagnostics["emt_percentage"] == 0.4
-    assert diagnostics["emt_energy_joules"] == 1.5
+    assert diagnostics["emt_percentage"] == pytest.approx(0.4)
+    assert diagnostics["emt_energy_joules"] == pytest.approx(1.5)
     assert diagnostics["workload_groups_found"] == 1
     assert diagnostics["workload_group_ids"] == ["lineage:20"]
     assert diagnostics["groups_distinct"] is True
@@ -155,11 +159,10 @@ def test_overhead_summary_enforces_tui_non_idle_thresholds():
 
     assert summary["acceptance"]["tui_non_idle_overhead_passed"] is True
     assert summary["tui"]["single_cpu"]["grouping_distinct"] is True
-    assert summary["tui"]["single_cpu"]["max_visible_emt_percent"] == 0.3
-    assert (
-        summary["tui"]["single_cpu"]["median_displayed_vs_external_delta_percent"]
-        == 0.0
-    )
+    assert summary["tui"]["single_cpu"]["max_visible_emt_percent"] == pytest.approx(0.3)
+    assert summary["tui"]["single_cpu"][
+        "median_displayed_vs_external_delta_percent"
+    ] == pytest.approx(0.0)
 
 
 def test_overhead_summary_rejects_visible_tui_percentage_over_one_percent():
@@ -176,4 +179,6 @@ def test_overhead_summary_rejects_visible_tui_percentage_over_one_percent():
     summary = overhead.summarize(results)
 
     assert summary["acceptance"]["tui_non_idle_overhead_passed"] is False
-    assert summary["tui"]["single_cpu"]["max_visible_emt_percent"] == 1.01
+    assert summary["tui"]["single_cpu"]["max_visible_emt_percent"] == pytest.approx(
+        1.01
+    )
