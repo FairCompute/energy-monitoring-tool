@@ -64,13 +64,10 @@ emt_cfgup
 
 ### *Usage*
 
-> The tool supports two usage modes:
+> EMT has two primary interfaces:
 >
-> - **Python Context Manager**  
->   Fully implemented and ideal for instrumenting Python code directly. This mode allows developers to wrap specific code blocks to measure energy consumption with precision.
-> - **Command-Line Interface (CLI)**  
->   Designed to tag and monitor running application without modifying the code.  
->   *This mode is currently under active development and will be available soon.*
+> - **Python Context Manager**: wrap Python code directly to measure a specific block.
+> - **Native CLI**: monitor an existing process, the whole system, or a headless Prometheus endpoint without changing workload code.
 
 #### Using Python Context Managers
 
@@ -96,6 +93,28 @@ print(f"energy consumption: {monitor.consumed_energy}")
 
 Refer to the following folder for example codes:
 📁 examples/
+
+#### Using the Native CLI
+
+The Rust CLI binary is named `emt`. Build it from source with `cargo build --release`; examples below use `target/release/emt`.
+
+```bash
+target/release/emt
+target/release/emt --pid <PID>
+target/release/emt --pid <PID> --duration 30 --json-out results.json
+```
+
+By default, the CLI opens the interactive TUI and monitors system process groups. Add `--pid <PID>` to focus on one workload. Use `--json-out` with `--duration` for a finite report, and tune collection with `--rate <HZ>`, `--scan-interval <SECONDS>`, or `--snapshot-out <PATH>`.
+
+#### Headless Prometheus Mode
+
+Run EMT as a Prometheus exporter when you want metrics scraping instead of a TUI:
+
+```bash
+target/release/emt --headless --export prometheus --bind 127.0.0.1 --port 9101
+```
+
+Prometheus metrics are served at `http://127.0.0.1:9101/metrics`. Add `--pid <PID>` to export one workload; otherwise EMT exports system process groups. The endpoint includes `emt_energy_joules_total` counters and `emt_power_watts` gauges.
 
 #### Dynamic Child Processes
 
